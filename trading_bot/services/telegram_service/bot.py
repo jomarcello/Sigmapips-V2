@@ -2162,66 +2162,72 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             try:
                 # Try to update with animated GIF first (best visual experience)
-            message_id = query.message.message_id
-            
-            # Get random gif for analysis menu
-            gif_url = random.choice(gif_utils.ANALYSIS_GIFS)
-            
-            try:
-                # Try to delete the current message
-                await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                # Send a new message with the analysis menu
-                await context.bot.send_animation(
-                    chat_id=chat_id,
-                    animation=gif_url,
-                    caption="Select your analysis type:",
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                    parse_mode=ParseMode.HTML
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif_url,
+                        caption=loading_text
+                    )
                 )
-                logger.info("Successfully deleted message and sent new analysis menu")
-                return CHOOSE_ANALYSIS
-            except Exception as delete_error:
-                logger.warning(f"Could not delete message: {str(delete_error)}")
+                logger.info(f"Successfully showed loading GIF for {instrument} sentiment")
                 
-                # Fallback if we cannot delete the message
+                # Store reference to loading message
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['loading_message'] = {
+                        'chat_id': chat_id,
+                        'message_id': message_id
+                    }
+            except Exception as e:
+                logger.warning(f"Could not update message with GIF animation: {str(e)}")
+                
                 try:
+                    # Try to just update text as fallback
                     await query.edit_message_text(
-                        text="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                        text=loading_text,
+                        reply_markup=None
                     )
-                except Exception:
+                except Exception as text_e:
+                    logger.warning(f"Could not update message text: {str(text_e)}")
+                    # Last resort: send new message
                     try:
-                        # If we can't edit text, try caption
-                        await query.edit_message_caption(
-                            caption="Select your analysis type:",
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to update message: {str(e)}")
-                        # As a last resort, send a new message
                         await context.bot.send_message(
-                            chat_id=chat_id,
-                            text="Select your analysis type:",
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                            chat_id=update.effective_chat.id,
+                            text=loading_text
                         )
-                
-                return CHOOSE_ANALYSIS
+                    except Exception as send_e:
+                        logger.error(f"Failed to send loading message: {str(send_e)}")
+            
+            # Go directly to sentiment analysis for this instrument
+            logger.info(f"Going directly to sentiment analysis for {instrument}")
+            return await self.show_sentiment_analysis(update, context, instrument=instrument)
         
+        # If we don't have instrument or not from signal, show the market selection
+        # Show loading indicator while preparing keyboard
+        try:
+            await query.edit_message_text(
+                text="Loading markets...",
+                reply_markup=None
+            )
         except Exception as e:
-            logger.error(f"Error in analysis_callback: {str(e)}")
-            
-            # Try to recover
-            if update and update.effective_chat:
-                try:
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text="Something went wrong. Please try again.",
-                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                    )
-                except Exception:
-                    pass
-            
-            return MENU
+            logger.warning(f"Could not update message text: {str(e)}")
+        
+        # Create keyboard for market selection for sentiment analysis
+        markets = [
+            [InlineKeyboardButton("💱 Forex", callback_data="market_forex_sentiment")],
+            [InlineKeyboardButton("🪙 Crypto", callback_data="market_crypto_sentiment")],
+            [InlineKeyboardButton("💹 Indices", callback_data="market_indices_sentiment")],
+            [InlineKeyboardButton("🛢️ Commodities", callback_data="market_commodities_sentiment")],
+            [InlineKeyboardButton("⬅️ Back", callback_data="back_signals" if context and hasattr(context, 'user_data') and context.user_data.get('is_signals_context', False) else "back_menu")]
+        ]
+        
+        # Update the message with market selection
+        await self.update_message(
+            query=query,
+            text="<b>Select a market for sentiment analysis:</b>",
+            keyboard=InlineKeyboardMarkup(markets),
+            parse_mode=ParseMode.HTML
+        )
+        
+        return CHOOSE_MARKET
 
     async def back_menu_callback(self, update: Update, context=None) -> int:
         """Handle back_menu button press to return to main menu.
