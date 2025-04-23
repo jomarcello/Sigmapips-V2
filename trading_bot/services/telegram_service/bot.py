@@ -1238,6 +1238,13 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"))
             application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_to_analysis$"))
             application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
+            application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
+            
+            # Signal specific handlers
+            application.add_handler(CallbackQueryHandler(self.signal_technical_callback, pattern="^signal_technical$"))
+            application.add_handler(CallbackQueryHandler(self.signal_sentiment_callback, pattern="^signal_sentiment$"))
+            application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_calendar$"))
             
             # Catch-all handler voor overige callback queries
             application.add_handler(CallbackQueryHandler(self.button_callback))
@@ -2016,23 +2023,37 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Save analysis type in context
+        # Controleer en behoud signal flow context
+        is_from_signal = False
         if context and hasattr(context, 'user_data'):
+            is_from_signal = context.user_data.get('from_signal', False)
+            # Zorg dat we in de signal flow blijven
+            context.user_data['is_signals_context'] = True
+            context.user_data['from_signal'] = True
             context.user_data['analysis_type'] = 'technical'
+        
+        # Check of we in de juiste flow zijn
+        if not is_from_signal:
+            logger.warning("signal_technical_callback aangeroepen buiten signal flow context")
+            # We willen hier strikt op zijn - als het niet vanuit signaal komt, stuur terug naar menu
+            # Dit zou niet moeten gebeuren maar is een extra beveiliging
+            try:
+                await query.edit_message_text(
+                    text="Please start from a trading signal to use this feature.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception as e:
+                logger.error(f"Error in signal_technical_callback redirect: {str(e)}")
+            return MENU
         
         # Get the instrument from context
         instrument = None
         if context and hasattr(context, 'user_data'):
             instrument = context.user_data.get('instrument')
-            is_from_signal = context.user_data.get('from_signal', False)
             logger.info(f"Signal technical callback - instrument: {instrument}, from signal: {is_from_signal}")
         
         # If we have an instrument and are in the signal flow, go directly to analysis
-        if instrument and is_from_signal:
-            # Set flag to indicate we're in signal flow
-            if context and hasattr(context, 'user_data'):
-                context.user_data['from_signal'] = True
-            
+        if instrument:
             # Try to show loading animation first
             loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
             loading_text = f"Loading {instrument} chart..."
@@ -2100,58 +2121,56 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             logger.info(f"Going directly to technical analysis for {instrument} with timeframe {timeframe}")
             return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
-            
-        # If we don't have instrument or not from signal, show the market selection first
         
-        # Show loading indicator while preparing keyboard
+        # Als we hier komen, hebben we geen instrument gevonden in de context. 
+        # Dit zou niet moeten gebeuren in de signal flow maar we vangen het op
+        logger.error("No instrument found in signal_technical_callback context")
+        
+        # Informeer de gebruiker en stuur terug naar het hoofdmenu
         try:
             await query.edit_message_text(
-                text="Loading markets...",
-                reply_markup=None
+                text="Error: Could not find instrument information. Please try again from the main menu.",
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                parse_mode=ParseMode.HTML
             )
         except Exception as e:
-            logger.warning(f"Could not update message text: {str(e)}")
+            logger.error(f"Failed to send error message: {str(e)}")
         
-        # Create keyboard for market selection
-        markets = [
-            [InlineKeyboardButton("💱 Forex", callback_data="market_forex_chart")],
-            [InlineKeyboardButton("🪙 Crypto", callback_data="market_crypto_chart")],
-            [InlineKeyboardButton("💹 Indices", callback_data="market_indices_chart")],
-            [InlineKeyboardButton("🛢️ Commodities", callback_data="market_commodities_chart")],
-            [InlineKeyboardButton("⬅️ Back", callback_data="back_signals" if context and hasattr(context, 'user_data') and context.user_data.get('is_signals_context', False) else "back_menu")]
-        ]
-        
-        # Try to edit the message text with the markets keyboard
-        await self.update_message(
-            query=query, 
-            text="<b>Select a market for technical analysis:</b>",
-            keyboard=InlineKeyboardMarkup(markets),
-            parse_mode=ParseMode.HTML
-        )
-        
-        return CHOOSE_MARKET
+        return MENU
 
     async def signal_sentiment_callback(self, update: Update, context=None) -> int:
         """Handle signal_sentiment button press"""
         query = update.callback_query
         await query.answer()
         
-        # Save analysis type in context
+        # Controleer en behoud signal flow context
+        is_from_signal = False
         if context and hasattr(context, 'user_data'):
+            is_from_signal = context.user_data.get('from_signal', False)
+            # Zorg dat we in de signal flow blijven
+            context.user_data['is_signals_context'] = True
+            context.user_data['from_signal'] = True
             context.user_data['analysis_type'] = 'sentiment'
+        
+        # Check of we in de juiste flow zijn
+        if not is_from_signal:
+            logger.warning("signal_sentiment_callback aangeroepen buiten signal flow context")
+            try:
+                await query.edit_message_text(
+                    text="Please start from a trading signal to use this feature.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception as e:
+                logger.error(f"Error in signal_sentiment_callback redirect: {str(e)}")
+            return MENU
         
         # Get the instrument from context
         instrument = None
         if context and hasattr(context, 'user_data'):
             instrument = context.user_data.get('instrument')
-            is_from_signal = context.user_data.get('from_signal', False)
             logger.info(f"Signal sentiment callback - instrument: {instrument}, from signal: {is_from_signal}")
         
-        if instrument and is_from_signal:
-            # Set flag to indicate we're in signal flow
-            if context and hasattr(context, 'user_data'):
-                context.user_data['from_signal'] = True
-            
+        if instrument:
             # Try to show loading animation first
             loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
             loading_text = f"Loading sentiment analysis for {instrument}..."
@@ -2200,47 +2219,36 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.info(f"Going directly to sentiment analysis for {instrument}")
             return await self.show_sentiment_analysis(update, context, instrument=instrument)
         
-        # If we don't have instrument or not from signal, show the market selection
-        # Show loading indicator while preparing keyboard
+        # Als we hier komen, hebben we geen instrument gevonden in de context
+        logger.error("No instrument found in signal_sentiment_callback context")
+        
+        # Informeer de gebruiker en stuur terug naar het hoofdmenu
         try:
             await query.edit_message_text(
-                text="Loading markets...",
-                reply_markup=None
+                text="Error: Could not find instrument information. Please try again from the main menu.",
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
+                parse_mode=ParseMode.HTML
             )
         except Exception as e:
-            logger.warning(f"Could not update message text: {str(e)}")
+            logger.error(f"Failed to send error message: {str(e)}")
         
-        # Create keyboard for market selection for sentiment analysis
-        markets = [
-            [InlineKeyboardButton("💱 Forex", callback_data="market_forex_sentiment")],
-            [InlineKeyboardButton("🪙 Crypto", callback_data="market_crypto_sentiment")],
-            [InlineKeyboardButton("💹 Indices", callback_data="market_indices_sentiment")],
-            [InlineKeyboardButton("🛢️ Commodities", callback_data="market_commodities_sentiment")],
-            [InlineKeyboardButton("⬅️ Back", callback_data="back_signals" if context and hasattr(context, 'user_data') and context.user_data.get('is_signals_context', False) else "back_menu")]
-        ]
-        
-        # Update the message with market selection
-        await self.update_message(
-            query=query,
-            text="<b>Select a market for sentiment analysis:</b>",
-            keyboard=InlineKeyboardMarkup(markets),
-            parse_mode=ParseMode.HTML
-        )
-        
-        return CHOOSE_MARKET
+        return MENU
 
     async def signal_calendar_callback(self, update: Update, context=None) -> int:
         """Handle signal_calendar button press"""
         query = update.callback_query
         await query.answer()
         
-        # Add detailed debug logging
-        logger.info(f"signal_calendar_callback called with data: {query.data}")
-        
-        # Save analysis type in context
+        # Controleer en behoud signal flow context
+        is_from_signal = False
         if context and hasattr(context, 'user_data'):
+            is_from_signal = context.user_data.get('from_signal', False)
+            # Zorg dat we in de signal flow blijven
+            context.user_data['is_signals_context'] = True
+            context.user_data['from_signal'] = True
             context.user_data['analysis_type'] = 'calendar'
-            # Make sure we save the original signal data to return to later
+            
+            # Backup signaalgegevens om terugkeren mogelijk te maken
             signal_instrument = context.user_data.get('instrument')
             signal_direction = context.user_data.get('signal_direction')
             signal_timeframe = context.user_data.get('signal_timeframe') 
@@ -2249,16 +2257,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             context.user_data['signal_instrument_backup'] = signal_instrument
             context.user_data['signal_direction_backup'] = signal_direction
             context.user_data['signal_timeframe_backup'] = signal_timeframe
-            
-            # Check if we're in signal flow
-            is_from_signal = context.user_data.get('from_signal', False)
-            logger.info(f"Signal calendar callback - instrument: {signal_instrument}, from signal: {is_from_signal}")
+        
+        # Check of we in de juiste flow zijn
+        if not is_from_signal:
+            logger.warning("signal_calendar_callback aangeroepen buiten signal flow context")
+            try:
+                await query.edit_message_text(
+                    text="Please start from a trading signal to use this feature.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception as e:
+                logger.error(f"Error in signal_calendar_callback redirect: {str(e)}")
+            return MENU
+        
+        # Add detailed debug logging
+        logger.info(f"signal_calendar_callback called with data: {query.data}")
         
         # Get the instrument from context
         instrument = None
         if context and hasattr(context, 'user_data'):
             instrument = context.user_data.get('instrument')
-            is_from_signal = context.user_data.get('from_signal', False)
+            logger.info(f"Signal calendar callback - instrument: {instrument}, from signal: {is_from_signal}")
         
         # Check if the callback data contains an instrument
         if query.data.startswith("signal_flow_calendar_"):
@@ -2270,16 +2289,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 if context and hasattr(context, 'user_data'):
                     context.user_data['instrument'] = instrument
         
-        # If we have an instrument and are in the signal flow, go directly to calendar analysis
-        if is_from_signal:
-            # Set flag to indicate we're in signal flow
-            if context and hasattr(context, 'user_data'):
-                context.user_data['from_signal'] = True
-                logger.info(f"Set from_signal flag to True for calendar analysis")
-            
+        # If we have an instrument in the signal flow, go directly to calendar analysis
+        if instrument:
             # Try to show loading animation first
             loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-            loading_text = f"Loading economic calendar..."
+            loading_text = f"Loading economic calendar for {instrument}..."
             
             try:
                 # Try to update with animated GIF first (best visual experience)
@@ -2318,25 +2332,26 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         )
                     except Exception as send_e:
                         logger.error(f"Failed to send loading message: {str(send_e)}")
-            
+        
             # Show calendar analysis for ALL major currencies
             return await self.show_calendar_analysis(update, context, instrument=instrument)
-            
-        else:
-            # Just show the economic calendar directly without market selection
-            # Since calendar shows data for all currencies anyway
-            loading_text = "Loading economic calendar..."
-            
-            try:
-                await query.edit_message_text(
-                    text=loading_text,
-                    reply_markup=None
-                )
-            except Exception as e:
-                logger.warning(f"Could not update message text: {str(e)}")
-            
-            # Show calendar analysis for ALL major currencies
-            return await self.show_calendar_analysis(update, context, instrument=None)
+        
+        # Als we hier komen, hebben we geen instrument gevonden in de context
+        logger.error("No instrument found in signal_calendar_callback context")
+        
+        # Show the economic calendar anyway (seems like it will work with no instrument)
+        loading_text = "Loading economic calendar..."
+        
+        try:
+            await query.edit_message_text(
+                text=loading_text,
+                reply_markup=None
+            )
+        except Exception as e:
+            logger.warning(f"Could not update message text: {str(e)}")
+        
+        # Show calendar analysis for ALL major currencies
+        return await self.show_calendar_analysis(update, context, instrument=None)
 
     async def back_menu_callback(self, update: Update, context=None) -> int:
         """Handle back_menu button press to return to main menu.
@@ -2948,6 +2963,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
+        logger.info("back_to_signal_callback werd aangeroepen - terugkeren naar oorspronkelijk signaal")
+        
         try:
             # Get the current signal being viewed
             user_id = update.effective_user.id
@@ -2956,33 +2973,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             signal_instrument = None
             signal_direction = None
             signal_timeframe = None
+            signal_id = None
             
             if context and hasattr(context, 'user_data'):
+                # Log de huidige context voor debugging
+                logger.info(f"Context bij teruggaan naar signaal: {context.user_data}")
+                
                 # Try to get from backup fields first (these are more reliable after navigation)
                 signal_instrument = context.user_data.get('signal_instrument_backup') or context.user_data.get('signal_instrument')
                 signal_direction = context.user_data.get('signal_direction_backup') or context.user_data.get('signal_direction')
                 signal_timeframe = context.user_data.get('signal_timeframe_backup') or context.user_data.get('signal_timeframe')
+                signal_id = context.user_data.get('signal_id_backup') or context.user_data.get('signal_id')
                 
-                # Reset signal flow flags but keep the signal info
+                # BELANGRIJK: Reset signal flow flags maar behoud de signal info
+                # Zet expliciete vlaggen die aangeven dat we in de signaal flow zijn
                 context.user_data['from_signal'] = True
+                context.user_data['is_signals_context'] = True
                 
                 # Log retrieved values for debugging
-                logger.info(f"Retrieved signal data from context: instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
+                logger.info(f"Opgehaalde signaalgegevens uit context: instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}, signal_id={signal_id}")
             
             # Find the most recent signal for this user based on context data
             signal_data = None
-            signal_id = None
             
-            # Get signal ID from context if available
-            if context and hasattr(context, 'user_data'):
-                signal_id = context.user_data.get('signal_id_backup') or context.user_data.get('signal_id')
-            
-            # If we have signal ID, directly get the signal data
+            # Als we een signal_id hebben, probeer het signaal direct op te halen
             if signal_id and str(user_id) in self.user_signals and signal_id in self.user_signals[str(user_id)]:
                 signal_data = self.user_signals[str(user_id)][signal_id]
-                logger.info(f"Found signal data using signal_id: {signal_id}")
+                logger.info(f"Signaalgegevens gevonden met signal_id: {signal_id}")
             else:
-                # Find matching signal based on instrument, direction and timeframe
+                # Zoek matching signaal op basis van instrument, direction en timeframe
                 if str(user_id) in self.user_signals:
                     user_signal_dict = self.user_signals[str(user_id)]
                     # Find signals matching instrument, direction and timeframe
@@ -2996,7 +3015,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         if signal_direction:
                             direction_match = sig.get('direction') == signal_direction
                         if signal_timeframe:
-                            timeframe_match = sig.get('interval') == signal_timeframe
+                            # Check beide formaten (interval en timeframe)
+                            timeframe_match = sig.get('interval') == signal_timeframe or sig.get('timeframe') == signal_timeframe
                         
                         if instrument_match and direction_match and timeframe_match:
                             matching_signals.append((sig_id, sig))
@@ -3005,19 +3025,49 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     if matching_signals:
                         matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
                         signal_id, signal_data = matching_signals[0]
-                        logger.info(f"Found matching signal with ID: {signal_id}")
+                        logger.info(f"Matching signaal gevonden met ID: {signal_id}")
                     else:
-                        logger.warning(f"No matching signals found for instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
+                        logger.warning(f"Geen exact matching signaal gevonden voor instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
                         # If no exact match, try with just the instrument
                         matching_signals = []
                         for sig_id, sig in user_signal_dict.items():
                             if sig.get('instrument') == signal_instrument:
                                 matching_signals.append((sig_id, sig))
-                        
+                            
                         if matching_signals:
                             matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
                             signal_id, signal_data = matching_signals[0]
-                            logger.info(f"Found signal with just instrument match, ID: {signal_id}")
+                            logger.info(f"Signaal gevonden op basis van alleen instrument, ID: {signal_id}")
+            
+            # Als nog steeds geen signaal gevonden, maar we hebben wel instrument info
+            if not signal_data and signal_instrument:
+                # Maak een minimaal signaal met de gegevens die we hebben
+                logger.info(f"Maak minimaal signaal bericht met beschikbare gegevens")
+                
+                # Fallback: maak een basisbericht met de beschikbare informatie
+                direction = signal_direction or "unknown"
+                direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴" if direction.upper() == "SELL" else "⚪"
+                
+                signal_message = f"<b>🎯 Trading Signal</b>\n\n"
+                signal_message += f"<b>Instrument:</b> {signal_instrument}\n"
+                if signal_direction:
+                    signal_message += f"<b>Direction:</b> {signal_direction} {direction_emoji}\n"
+                if signal_timeframe:
+                    signal_message += f"<b>Timeframe:</b> {signal_timeframe}\n"
+                
+                # Toon het signaal met de analyze knop
+                keyboard = [
+                    [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}_{signal_id or 'unknown'}")]
+                ]
+                
+                # Bewerk het huidige bericht om het signaal te tonen
+                await query.edit_message_text(
+                    text=signal_message,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                
+                return SIGNAL_DETAILS
             
             if not signal_data:
                 # Fallback message if signal not found
@@ -3043,15 +3093,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 parse_mode=ParseMode.HTML
             )
             
+            logger.info("Succesvol teruggekeerd naar signaal details pagina")
             return SIGNAL_DETAILS
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_callback: {str(e)}")
+            logger.exception(e)
             
             # Error recovery
             try:
                 await query.edit_message_text(
-                    text="An error occurred. Please try again from the main menu.",
+                    text="An error occurred while returning to signal. Please try again from the main menu.",
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
             except Exception:
@@ -3798,6 +3850,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Store in context for other handlers
                 if context and hasattr(context, 'user_data'):
+                    # BELANGRIJK: Eerst alle menu-flow context flags resetten
+                    # om te zorgen dat we volledig in de signal flow zitten
+                    context.user_data['is_signals_context'] = True
+                    context.user_data['from_signal'] = True
+                    
+                    # Sla signaalgegevens op in context
                     context.user_data['instrument'] = instrument
                     if signal_id:
                         context.user_data['signal_id'] = signal_id
@@ -3806,9 +3864,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     context.user_data['signal_instrument_backup'] = instrument
                     if signal_id:
                         context.user_data['signal_id_backup'] = signal_id
-                    
-                    # Set the from_signal flag to ensure analyses go directly to results
-                    context.user_data['from_signal'] = True
                     
                     # Also store info from the actual signal if available
                     if str(update.effective_user.id) in self.user_signals and signal_id in self.user_signals[str(update.effective_user.id)]:
@@ -3820,24 +3875,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             context.user_data['signal_direction_backup'] = signal.get('direction')
                             context.user_data['signal_timeframe_backup'] = signal.get('timeframe', signal.get('interval'))
                             logger.info(f"Stored signal details: direction={signal.get('direction')}, timeframe={signal.get('timeframe', signal.get('interval'))}")
+                            
+                    # Log de context na het instellen van alle waardes
+                    logger.info(f"Signal flow context set: {context.user_data}")
             else:
                 # Legacy support - just extract the instrument
                 instrument = parts[3] if len(parts) >= 4 else None
                 
                 if instrument and context and hasattr(context, 'user_data'):
+                    # Zorg dat we in de signal flow context zitten
+                    context.user_data['is_signals_context'] = True
+                    context.user_data['from_signal'] = True
+                    
                     context.user_data['instrument'] = instrument
                     context.user_data['signal_instrument_backup'] = instrument
-                    context.user_data['from_signal'] = True
             
             # Show analysis options for this instrument
-            # Format message
-            # Use the SIGNAL_ANALYSIS_KEYBOARD for consistency
+            # Format message with more descriptive text
             keyboard = SIGNAL_ANALYSIS_KEYBOARD
             
             # Try to edit the message text
             try:
                 await query.edit_message_text(
-                    text=f"<b>Select analysis type for {instrument}:</b>",
+                    text=f"<b>Select analysis type for {instrument}:</b>\n\nChoose an analysis method to explore this trading signal.",
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
@@ -3845,7 +3905,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
                 # Fall back to sending a new message
                 await query.message.reply_text(
-                    text=f"<b>Select analysis type for {instrument}:</b>",
+                    text=f"<b>Select analysis type for {instrument}:</b>\n\nChoose an analysis method to explore this trading signal.",
                     reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
                 )
