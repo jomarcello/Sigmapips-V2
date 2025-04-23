@@ -3760,13 +3760,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Format the message text
             text = f"Select your analysis type:"
             
+            # Get random gif for analysis menu
+            gif_url = random.choice(gif_utils.ANALYSIS_GIFS)
+            
             if has_photo:
                 # Try to delete the message first (if possible)
                 try:
                     await query.message.delete()
-                    await context.bot.send_message(
+                    # Send a new message with analysis menu and proper GIF
+                    await context.bot.send_animation(
                         chat_id=update.effective_chat.id,
-                        text=text,
+                        animation=gif_url,
+                        caption=text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
@@ -3774,12 +3779,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 except Exception as delete_error:
                     logger.error(f"Could not delete message: {str(delete_error)}")
                     
-                    # Try to replace the photo with a transparent GIF
+                    # Try to replace the photo with an analysis GIF
                     try:
-                        transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png"
                         await query.message.edit_media(
                             media=InputMediaAnimation(
-                                media=transparent_gif_url,
+                                media=gif_url,
                                 caption=text
                             ),
                             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -3799,15 +3803,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             logger.error(f"Could not edit caption: {str(caption_error)}")
                             # Just log the error, will try to edit the message text next
             else:
-                # No photo, just edit the message text
+                # No photo, delete and send a new message with GIF
                 try:
-                    await query.edit_message_text(
-                        text=text,
+                    await query.message.delete()
+                    await context.bot.send_animation(
+                        chat_id=update.effective_chat.id,
+                        animation=gif_url,
+                        caption=text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
                 except Exception as e:
-                    logger.error(f"Error updating message: {str(e)}")
+                    logger.error(f"Error sending new message with GIF: {str(e)}")
+                    # Fallback to just updating the text
+                    try:
+                        await query.edit_message_text(
+                            text=text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as text_error:
+                        logger.error(f"Error updating message text: {str(text_error)}")
             
             return SIGNAL_DETAILS
             
