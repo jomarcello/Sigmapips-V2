@@ -6,6 +6,9 @@ import random
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 
+# Configure logging
+logger = logging.getLogger(__name__)
+
 # Create a fallback class for the EconomicCalendarService
 class EconomicCalendarService:
     """Fallback implementation of EconomicCalendarService"""
