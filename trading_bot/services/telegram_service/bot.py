@@ -4752,6 +4752,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Get random gif for analysis menu
             gif_url = random.choice(gif_utils.ANALYSIS_GIFS)
+            message_text = "Select your analysis type:"
             
             try:
                 # Try to delete the current message
@@ -4760,7 +4761,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 await context.bot.send_animation(
                     chat_id=chat_id,
                     animation=gif_url,
-                    caption="Select your analysis type:",
+                    caption=message_text,
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
                     parse_mode=ParseMode.HTML
                 )
@@ -4769,27 +4770,58 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception as delete_error:
                 logger.warning(f"Could not delete message: {str(delete_error)}")
                 
-                # Fallback if we cannot delete the message
+                # Try to update media with GIF
                 try:
-                    await query.edit_message_text(
-                        text="Select your analysis type:",
+                    await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media=gif_url,
+                            caption=message_text
+                        ),
                         reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                     )
-                except Exception:
+                    logger.info("Successfully updated media to GIF for analysis menu")
+                    return CHOOSE_ANALYSIS
+                except Exception as media_error:
+                    logger.warning(f"Could not update media: {str(media_error)}")
+                    
+                    # If media update fails, try to update text
                     try:
-                        # If we can't edit text, try caption
-                        await query.edit_message_caption(
-                            caption="Select your analysis type:",
+                        await query.edit_message_text(
+                            text=message_text,
                             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                         )
-                    except Exception as e:
-                        logger.error(f"Failed to update message: {str(e)}")
-                        # As a last resort, send a new message
-                        await context.bot.send_message(
-                            chat_id=chat_id,
-                            text="Select your analysis type:",
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                        )
+                        logger.info("Successfully edited message text for analysis menu")
+                    except Exception as text_error:
+                        # If text update fails due to caption, try editing caption
+                        if "There is no text in the message to edit" in str(text_error):
+                            try:
+                                await query.edit_message_caption(
+                                    caption=message_text,
+                                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                                )
+                                logger.info("Successfully edited caption for analysis menu")
+                            except Exception as caption_error:
+                                logger.warning(f"Failed to edit caption: {str(caption_error)}")
+                                # Last resort: send a new message with GIF
+                                await context.bot.send_animation(
+                                    chat_id=chat_id,
+                                    animation=gif_url,
+                                    caption=message_text,
+                                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                                    parse_mode=ParseMode.HTML
+                                )
+                                logger.info("Sent new message with GIF for analysis menu")
+                        else:
+                            # For other errors, send a new message with GIF
+                            logger.warning(f"Failed to update message: {str(text_error)}")
+                            await context.bot.send_animation(
+                                chat_id=chat_id,
+                                animation=gif_url,
+                                caption=message_text,
+                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                                parse_mode=ParseMode.HTML
+                            )
+                            logger.info("Sent new message with GIF for analysis menu")
                 
                 return CHOOSE_ANALYSIS
         
@@ -4916,95 +4948,90 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         logger.info("back_analysis_callback triggered - returning to analysis menu")
         
         query = update.callback_query
+        await query.answer()
         
         try:
             # Use the standard ANALYSIS_KEYBOARD instead of creating a custom one
             keyboard = ANALYSIS_KEYBOARD
             
-            # Check if the message has media content
-            has_media = False
-            if hasattr(query.message, 'photo') and query.message.photo:
-                has_media = True
-            elif hasattr(query.message, 'animation') and query.message.animation:
-                has_media = True
-                
-            # Use the same message text as in menu_analyse_callback
+            # Get a random analysis GIF like in menu_analyse_callback
+            gif_url = random.choice(gif_utils.ANALYSIS_GIFS)
+            
+            # Message text should match menu_analyse_callback
             message_text = "Select your analysis type:"
             
-            if has_media:
+            # Try to delete the current message and send a new one with GIF
+            try:
+                # Delete current message
+                await query.message.delete()
+                
+                # Send a new message with GIF animation
+                await context.bot.send_animation(
+                    chat_id=update.effective_chat.id,
+                    animation=gif_url,
+                    caption=message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info("Successfully sent new analysis menu with GIF")
+                return CHOOSE_ANALYSIS
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message: {str(delete_error)}")
+                
+                # If we can't delete, try to update media with GIF
                 try:
-                    # If the message has media, try to edit with a transparent image
-                    transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
-                    
                     await query.edit_message_media(
-                        media=InputMediaDocument(
-                            media=transparent_gif,
-                            caption=message_text,
-                            parse_mode=ParseMode.HTML
+                        media=InputMediaAnimation(
+                            media=gif_url,
+                            caption=message_text
                         ),
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
-                    logger.info("Successfully edited media message to show analysis menu")
+                    logger.info("Successfully updated media to GIF for analysis menu")
+                    return CHOOSE_ANALYSIS
                 except Exception as media_error:
-                    logger.warning(f"Failed to edit media message for back_analysis: {str(media_error)}")
-                    # Try editing caption as fallback
+                    logger.warning(f"Could not update media: {str(media_error)}")
+                    
+                    # If media update fails, try to update text
                     try:
-                        await query.edit_message_caption(
-                            caption=message_text,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                        logger.info("Successfully edited caption to show analysis menu")
-                    except Exception as caption_error:
-                        logger.warning(f"Failed to edit caption for back_analysis: {str(caption_error)}")
-                        # Send a new message as last resort
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
+                        await query.edit_message_text(
                             text=message_text,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
-                        logger.info("Sent new message with analysis menu")
-            else:
-                try:
-                    # Try to edit the message text
-                    await query.edit_message_text(
-                        text=message_text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    logger.info("Successfully edited message to show analysis menu")
-                except Exception as e:
-                    # Check if this is the specific error for no text message
-                    if "There is no text in the message to edit" in str(e):
-                        try:
-                            # Try to edit the caption instead
-                            await query.edit_message_caption(
+                        logger.info("Successfully edited message text for analysis menu")
+                    except Exception as text_error:
+                        # If text update fails due to caption, try editing caption
+                        if "There is no text in the message to edit" in str(text_error):
+                            try:
+                                await query.edit_message_caption(
+                                    caption=message_text,
+                                    reply_markup=InlineKeyboardMarkup(keyboard),
+                                    parse_mode=ParseMode.HTML
+                                )
+                                logger.info("Successfully edited caption for analysis menu")
+                            except Exception as caption_error:
+                                logger.warning(f"Failed to edit caption: {str(caption_error)}")
+                                # Last resort: send a new message with GIF
+                                await context.bot.send_animation(
+                                    chat_id=update.effective_chat.id,
+                                    animation=gif_url,
+                                    caption=message_text,
+                                    reply_markup=InlineKeyboardMarkup(keyboard),
+                                    parse_mode=ParseMode.HTML
+                                )
+                                logger.info("Sent new message with GIF for analysis menu")
+                        else:
+                            # For other errors, send a new message with GIF
+                            logger.warning(f"Failed to edit message for back_analysis: {str(text_error)}")
+                            await context.bot.send_animation(
+                                chat_id=update.effective_chat.id,
+                                animation=gif_url,
                                 caption=message_text,
                                 reply_markup=InlineKeyboardMarkup(keyboard),
                                 parse_mode=ParseMode.HTML
                             )
-                            logger.info("Successfully edited caption to show analysis menu")
-                        except Exception as caption_error:
-                            logger.warning(f"Failed to edit caption for back_analysis: {str(caption_error)}")
-                            # Send a new message as last resort
-                            await context.bot.send_message(
-                                chat_id=update.effective_chat.id,
-                                text=message_text,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
-                            logger.info("Sent new message with analysis menu")
-                    else:
-                        # If editing fails for other reasons, send a new message
-                        logger.warning(f"Failed to edit message for back_analysis: {str(e)}")
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=message_text,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                        logger.info("Sent new message with analysis menu")
+                            logger.info("Sent new message with GIF for analysis menu")
             
             # Return the CHOOSE_ANALYSIS state
             return CHOOSE_ANALYSIS
