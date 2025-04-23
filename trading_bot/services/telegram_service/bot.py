@@ -1672,7 +1672,7 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
             application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
             application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.back_analysis_callback, pattern="^back_analysis$"))
             application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_to_analysis$"))
             application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
             application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
@@ -4685,6 +4685,54 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         text="Sorry, an error occurred loading the economic calendar. Please try again.",
                         reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                     )
+            except Exception:
+                pass
+                
+            return MENU
+
+    async def back_analysis_callback(self, update: Update, context=None) -> int:
+        """Handle back_analysis button click to return to the analysis menu"""
+        logger.info("back_analysis_callback triggered - returning to analysis menu")
+        
+        query = update.callback_query
+        
+        try:
+            # Show analysis menu
+            keyboard = [
+                [InlineKeyboardButton("📈 Technical Analysis", callback_data=CALLBACK_ANALYSIS_TECHNICAL)],
+                [InlineKeyboardButton("🧠 Market Sentiment", callback_data=CALLBACK_ANALYSIS_SENTIMENT)],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data=CALLBACK_ANALYSIS_CALENDAR)],
+                [InlineKeyboardButton("⬅️ Back to Menu", callback_data=CALLBACK_BACK_MENU)]
+            ]
+            
+            try:
+                # Try to edit the message
+                await query.edit_message_text(
+                    text="<b>📊 Analysis Menu</b>\n\nChoose the type of analysis:",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info("Successfully edited message to show analysis menu")
+            except Exception as e:
+                # If editing fails, send a new message
+                logger.warning(f"Failed to edit message for back_analysis: {str(e)}")
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="<b>📊 Analysis Menu</b>\n\nChoose the type of analysis:",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info("Sent new message with analysis menu")
+            
+            # Return the CHOOSE_ANALYSIS state
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in back_analysis_callback: {str(e)}")
+            
+            # If there was an error, try to show the main menu
+            try:
+                await self.show_main_menu(update, context)
             except Exception:
                 pass
                 
