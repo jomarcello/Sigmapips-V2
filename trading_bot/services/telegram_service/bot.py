@@ -3377,6 +3377,183 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         return CHOOSE_INSTRUMENT
 
+    async def instrument_callback(self, update: Update, context=None) -> int:
+        """Handle instrument selection callbacks (EURUSD, BTCUSD, etc.)"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info(f"instrument_callback called with data: {query.data}")
+        
+        # Extract the instrument and flow context from the callback data
+        data = query.data  # e.g. "instrument_EURUSD_chart", "instrument_BTCUSD_signals"
+        parts = data.split("_")
+        
+        if len(parts) < 2:
+            logger.error(f"Invalid instrument callback data: {data}")
+            return MENU
+            
+        instrument = parts[1]  # EURUSD, BTCUSD, etc.
+        
+        # Determine the context based on callback data
+        is_signals_context = "signals" in parts or (context and context.user_data.get('is_signals_context', False))
+        is_chart_context = "chart" in parts
+        is_sentiment_context = "sentiment" in parts
+        is_calendar_context = "calendar" in parts
+        
+        # Set the instrument in user context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['instrument'] = instrument
+            
+            # Store flow-specific context flags
+            context.user_data['is_signals_context'] = is_signals_context
+            context.user_data['is_chart_context'] = is_chart_context
+            context.user_data['is_sentiment_context'] = is_sentiment_context
+            context.user_data['is_calendar_context'] = is_calendar_context
+            
+            logger.info(f"Set instrument context: {context.user_data}")
+        
+        # Handle different flows based on context
+        if is_signals_context:
+            # If in signals flow, show timeframe/style selection
+            message_text = f"Select trading style for {instrument}:"
+            keyboard = STYLE_KEYBOARD
+            
+            await self.update_message(
+                query=query,
+                text=message_text,
+                keyboard=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            return CHOOSE_STYLE
+            
+        elif is_sentiment_context:
+            # For sentiment analysis, proceed directly to showing sentiment
+            try:
+                # Show loading message
+                loading_text = f"Loading sentiment analysis for {instrument}..."
+                loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                
+                try:
+                    # Try to show animated loading GIF
+                    await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media=loading_gif,
+                            caption=loading_text
+                        )
+                    )
+                except Exception as gif_error:
+                    logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+                    # Fall back to text loading message
+                    try:
+                        await query.edit_message_text(text=loading_text)
+                    except Exception:
+                        pass
+                
+                # Initialize chart service if needed
+                if not hasattr(self, 'chart_service') or not self.chart_service:
+                    from trading_bot.services.chart_service.chart import ChartService
+                    self.chart_service = ChartService()
+                
+                # Get sentiment analysis
+                sentiment_data = await self.chart_service.get_sentiment_analysis(instrument)
+                
+                # Prepare back button based on context
+                back_button = "back_market"
+                if context and hasattr(context, 'user_data'):
+                    market = context.user_data.get('market', 'forex')
+                    back_button = f"back_market_{market}"
+                
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=back_button)]]
+                
+                if not sentiment_data:
+                    await query.edit_message_text(
+                        text=f"No sentiment data available for {instrument}.",
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    return CHOOSE_INSTRUMENT
+                
+                # Format sentiment data into text
+                sentiment_text = f"<b>Sentiment Analysis for {instrument}</b>\n\n"
+                sentiment_text += sentiment_data
+                
+                await query.edit_message_text(
+                    text=sentiment_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                return CHOOSE_INSTRUMENT
+                
+            except Exception as e:
+                logger.error(f"Error getting sentiment analysis: {str(e)}")
+                # Error message
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+                await query.edit_message_text(
+                    text=f"Error getting sentiment analysis for {instrument}. Please try again.",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                return CHOOSE_INSTRUMENT
+                
+        elif is_calendar_context:
+            # For calendar analysis, show economic calendar for the instrument
+            try:
+                # Extract currencies from the instrument
+                currencies = []
+                if instrument in INSTRUMENT_CURRENCY_MAP:
+                    currencies = INSTRUMENT_CURRENCY_MAP[instrument]
+                
+                # Show loading message
+                loading_text = f"Loading economic calendar for {instrument}..."
+                
+                # Show loading message - method handles proper error cases
+                if hasattr(self, 'show_economic_calendar'):
+                    return await self.show_economic_calendar(
+                        update, 
+                        context, 
+                        currency=currencies[0] if currencies else None,
+                        loading_message=loading_text
+                    )
+                else:
+                    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+                    await query.edit_message_text(
+                        text=f"Economic calendar for {instrument} is not available.",
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                    return CHOOSE_INSTRUMENT
+                    
+            except Exception as e:
+                logger.error(f"Error showing economic calendar: {str(e)}")
+                keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_market")]]
+                await query.edit_message_text(
+                    text=f"Error getting economic calendar for {instrument}. Please try again.",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                return CHOOSE_INSTRUMENT
+                
+        else:
+            # Default to technical analysis - show timeframe selection or proceed directly
+            message_text = f"Select timeframe for {instrument} technical analysis:"
+            
+            # If we're in a regular chart context, show timeframes
+            timeframe_keyboard = [
+                [InlineKeyboardButton("1m", callback_data=f"timeframe_{instrument}_1m")],
+                [InlineKeyboardButton("15m", callback_data=f"timeframe_{instrument}_15m")],
+                [InlineKeyboardButton("1h", callback_data=f"timeframe_{instrument}_1h")],
+                [InlineKeyboardButton("4h", callback_data=f"timeframe_{instrument}_4h")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+            ]
+            
+            await self.update_message(
+                query=query,
+                text=message_text,
+                keyboard=InlineKeyboardMarkup(timeframe_keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            return CHOOSE_TIMEFRAME
+
     async def initialize_services(self):
         """Initialize required services"""
         try:
