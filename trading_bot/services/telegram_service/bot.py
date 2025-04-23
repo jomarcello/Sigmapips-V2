@@ -4118,32 +4118,31 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return MENU
 
     async def _load_signals(self):
-        """Load and cache previously saved signals"""
+        """Load all active signals from the database"""
         try:
-            # Initialize user_signals dictionary if it doesn't exist
-            if not hasattr(self, 'user_signals'):
-                self.user_signals = {}
-                
-            # If we have a database connection, load signals from there
-            if self.db:
-                # Get all active signals from the database
-                signals = await self.db.get_active_signals()
-                
-                # Organize signals by user_id for quick access
-                for signal in signals:
-                    user_id = str(signal.get('user_id'))
-                    signal_id = signal.get('id')
+            if hasattr(self, 'db') and self.db is not None:
+                # Controleer of de method beschikbaar is
+                if hasattr(self.db, 'get_active_signals'):
+                    signals = await self.db.get_active_signals()
                     
-                    # Initialize user dictionary if needed
-                    if user_id not in self.user_signals:
-                        self.user_signals[user_id] = {}
+                    for signal in signals:
+                        user_id = str(signal.get('user_id'))
+                        signal_id = signal.get('id')
+                        
+                        # Initialize user dictionary if needed
+                        if user_id not in self.user_signals:
+                            self.user_signals[user_id] = {}
+                        
+                        # Store the signal
+                        self.user_signals[user_id][signal_id] = signal
                     
-                    # Store the signal
-                    self.user_signals[user_id][signal_id] = signal
-                
-                logger.info(f"Loaded {len(signals)} signals for {len(self.user_signals)} users")
+                    logger.info(f"Loaded {len(signals)} signals for {len(self.user_signals)} users")
+                else:
+                    logger.warning("Database object does not have get_active_signals method")
+                    self.user_signals = {}
             else:
                 logger.warning("No database connection available for loading signals")
+                self.user_signals = {}
                 
         except Exception as e:
             logger.error(f"Error loading signals: {str(e)}")
