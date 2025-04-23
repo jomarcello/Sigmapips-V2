@@ -40,7 +40,8 @@ from trading_bot.services.telegram_service.states import (
     CHOOSE_ANALYSIS, SIGNAL_DETAILS, SIGNAL_ANALYSIS,
     CALLBACK_MENU_ANALYSE, CALLBACK_MENU_SIGNALS, CALLBACK_ANALYSIS_TECHNICAL,
     CALLBACK_ANALYSIS_SENTIMENT, CALLBACK_ANALYSIS_CALENDAR, CALLBACK_SIGNALS_ADD,
-    CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU
+    CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU,
+    MARKET_FOREX, MARKET_CRYPTO, MARKET_COMMODITIES, MARKET_INDICES
 )
 import trading_bot.services.telegram_service.gif_utils as gif_utils
 
@@ -3184,7 +3185,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return CHOOSE_SIGNALS
         
     async def back_instrument_callback(self, update: Update, context=None) -> int:
-        """Handle back button from instrument selection to market selection"""
+        """Handle back_instrument button press"""
         try:
             query = update.callback_query
             if query:
@@ -3289,8 +3290,95 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     )
                 return ConversationHandler.END
 
+    async def market_callback(self, update: Update, context=None) -> int:
+        """Handle market selection callbacks (forex, crypto, etc.)"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info(f"market_callback called with data: {query.data}")
+        
+        # Extract the market and flow context from the callback data
+        data = query.data  # e.g. "market_forex", "market_crypto_signals", "market_forex_sentiment"
+        parts = data.split("_")
+        
+        if len(parts) < 2:
+            logger.error(f"Invalid market callback data: {data}")
+            return MENU
+            
+        market = parts[1]  # forex, crypto, commodities, indices
+        is_signals_context = "signals" in parts or (context and context.user_data.get('is_signals_context', False))
+        is_sentiment_context = "sentiment" in parts
+        is_calendar_context = "calendar" in parts
+        
+        # Set the market in user context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['market'] = market
+            context.user_data['is_signals_context'] = is_signals_context
+            
+            # Store flow-specific context flags
+            context.user_data['is_sentiment_context'] = is_sentiment_context
+            context.user_data['is_calendar_context'] = is_calendar_context
+            
+            logger.info(f"Set market context: {context.user_data}")
+        
+        # Determine which keyboard to use based on the context
+        keyboard = None
+        
+        if is_signals_context:
+            # Signals flow
+            if market == MARKET_FOREX:
+                keyboard = FOREX_KEYBOARD_SIGNALS
+            elif market == MARKET_CRYPTO:
+                keyboard = CRYPTO_KEYBOARD_SIGNALS
+            elif market == MARKET_COMMODITIES:
+                keyboard = COMMODITIES_KEYBOARD_SIGNALS
+            elif market == MARKET_INDICES:
+                keyboard = INDICES_KEYBOARD_SIGNALS
+        elif is_sentiment_context:
+            # Sentiment analysis flow
+            if market == MARKET_FOREX:
+                keyboard = FOREX_SENTIMENT_KEYBOARD
+            elif market == MARKET_CRYPTO:
+                keyboard = CRYPTO_SENTIMENT_KEYBOARD
+            elif market == MARKET_COMMODITIES:
+                keyboard = COMMODITIES_SENTIMENT_KEYBOARD
+            elif market == MARKET_INDICES:
+                keyboard = INDICES_SENTIMENT_KEYBOARD
+        elif is_calendar_context:
+            # Calendar analysis flow
+            if market == MARKET_FOREX:
+                keyboard = FOREX_CALENDAR_KEYBOARD
+            # For other markets, there might not be specific calendar keyboards
+            # so we'll fall back to the standard ones
+        else:
+            # Regular technical analysis flow
+            if market == MARKET_FOREX:
+                keyboard = FOREX_KEYBOARD
+            elif market == MARKET_CRYPTO:
+                keyboard = CRYPTO_KEYBOARD
+            elif market == MARKET_COMMODITIES:
+                keyboard = COMMODITIES_KEYBOARD
+            elif market == MARKET_INDICES:
+                keyboard = INDICES_KEYBOARD
+        
+        if not keyboard:
+            logger.error(f"No keyboard found for market: {market} in context: signals={is_signals_context}, sentiment={is_sentiment_context}")
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]]
+        
+        # Show instrument selection
+        message_text = f"Select an instrument from {market.capitalize()}:"
+        
+        await self.update_message(
+            query=query,
+            text=message_text,
+            keyboard=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML
+        )
+        
+        return CHOOSE_INSTRUMENT
+
     async def initialize_services(self):
-        """Initialize services that require an asyncio event loop"""
+        """Initialize required services"""
         try:
             # Initialize chart service
             await self.chart_service.initialize()
