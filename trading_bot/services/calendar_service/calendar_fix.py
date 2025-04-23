@@ -14,10 +14,10 @@ class EconomicCalendarService:
         self.logger.warning("Fallback EconomicCalendarService is being used!")
         print("⚠️ FALLBACK CALENDAR SERVICE IS ACTIVE - Using mock calendar data ⚠️")
         
-    async def get_calendar(self, days_ahead: int = 0, min_impact: str = "Low") -> List[Dict]:
+    async def get_calendar(self, days_ahead: int = 0, min_impact: str = "Low", currency: str = None) -> List[Dict]:
         """Return mock calendar data"""
-        self.logger.info(f"Fallback get_calendar called with days_ahead={days_ahead}, min_impact={min_impact}")
-        print(f"⚠️ FALLBACK: Generating calendar data (days_ahead={days_ahead}, min_impact={min_impact}) ⚠️")
+        self.logger.info(f"Fallback get_calendar called with days_ahead={days_ahead}, min_impact={min_impact}, currency={currency}")
+        print(f"⚠️ FALLBACK: Generating calendar data (days_ahead={days_ahead}, min_impact={min_impact}, currency={currency}) ⚠️")
         
         mock_data = self._generate_mock_calendar_data(["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"], 
                                                      datetime.now().strftime("%Y-%m-%d"))
@@ -31,6 +31,15 @@ class EconomicCalendarService:
             event for event in mock_data 
             if impact_levels.get(event.get("impact", "Low"), 1) >= min_level
         ]
+        
+        # Filter by currency if specified
+        if currency:
+            self.logger.info(f"Filtering mock data by currency: {currency}")
+            filtered_data = [
+                event for event in filtered_data
+                if event.get("country") == currency
+            ]
+            self.logger.info(f"After filtering by {currency}: {len(filtered_data)} events remaining")
         
         self.logger.info(f"Filtered to {len(filtered_data)} events based on minimum impact level: {min_impact}")
         return filtered_data
