@@ -3577,7 +3577,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.back_instrument_callback(update, context)
             elif callback_data == "back_to_signal_analysis":
                 return await self.back_to_signal_analysis_callback(update, context)
-                
+            elif callback_data == "back_to_signal":
+                return await self.back_to_signal_callback(update, context)
+            
             # Handle delete signal
             if callback_data.startswith("delete_signal_"):
                 # Extract signal ID from callback data
