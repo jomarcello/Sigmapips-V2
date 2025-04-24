@@ -2290,87 +2290,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception:
                 pass
         
-        # Create back button for this context
-        keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]]
-        
-        # Get sentiment analysis
-        try:
-            # Initialize chart service if needed
-            if not hasattr(self, 'chart_service') or not self.chart_service:
-                from trading_bot.services.chart_service.chart import ChartService
-                self.chart_service = ChartService()
-            
-            # Get sentiment analysis
-            sentiment_data = await self.chart_service.get_sentiment_analysis(instrument)
-            
-            if not sentiment_data:
-                # Instead of edit_message_text, send a new message and delete the old one
-                chat_id = update.effective_chat.id
-                message_id = update.effective_message.message_id
-                
-                # Send a new message with the error
-                await self.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"No sentiment data available for {instrument}.",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                # Delete the original message with the loading GIF
-                try:
-                    await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                except Exception as e:
-                    logger.warning(f"Could not delete original message: {str(e)}")
-                
-                return SIGNAL_ANALYSIS
-            
-            # Format sentiment data into text
-            sentiment_text = f"<b>Sentiment Analysis for {instrument}</b>\n\n"
-            sentiment_text += sentiment_data
-            
-            # Using the same approach - send a new message with the results
-            chat_id = update.effective_chat.id
-            message_id = update.effective_message.message_id
-            
-            # Send the sentiment analysis as a new message
-            await self.bot.send_message(
-                chat_id=chat_id,
-                text=sentiment_text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode=ParseMode.HTML
+        # Call the show_sentiment_analysis method
+        if hasattr(self, 'show_sentiment_analysis'):
+            # This will handle the sentiment analysis display
+            return await self.show_sentiment_analysis(update, context, instrument)
+        else:
+            # Fallback if method not available
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]]
+            await query.edit_message_text(
+                text=f"Sentiment analysis for {instrument} is being prepared...",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            
-            # Delete the original message with the loading GIF
-            try:
-                await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
-            except Exception as e:
-                logger.warning(f"Could not delete original message: {str(e)}")
-            
-            return SIGNAL_ANALYSIS
-            
-        except Exception as e:
-            logger.error(f"Error getting sentiment analysis: {str(e)}")
-            # Error message using same approach
-            try:
-                chat_id = update.effective_chat.id
-                message_id = update.effective_message.message_id
-                
-                # Send error message
-                await self.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"Error getting sentiment analysis for {instrument}. Please try again.",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                
-                # Delete the original message
-                try:
-                    await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                except Exception as del_e:
-                    logger.warning(f"Could not delete original message: {str(del_e)}")
-            except Exception as msg_e:
-                logger.error(f"Failed to send error message: {str(msg_e)}")
-            
             return SIGNAL_ANALYSIS
 
     async def signal_calendar_callback(self, update: Update, context=None) -> int:
