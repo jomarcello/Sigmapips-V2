@@ -108,7 +108,7 @@ CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
 CALLBACK_ANALYSIS_SENTIMENT = "analysis_sentiment"
 CALLBACK_ANALYSIS_CALENDAR = "analysis_calendar"
 CALLBACK_BACK_MENU = "back_menu"
-CALLBACK_BACK_ANALYSIS = "back_to_analysis"
+CALLBACK_BACK_ANALYSIS = "back_analysis"
 CALLBACK_BACK_MARKET = "back_market"
 CALLBACK_BACK_INSTRUMENT = "back_instrument"
 CALLBACK_BACK_SIGNALS = "back_signals"
@@ -1269,26 +1269,99 @@ class TelegramService:
         """Utility to update a message with error handling"""
         try:
             logger.info("Updating message")
-            # Try to edit message text first
-            await query.edit_message_text(
-                text=text,
-                reply_markup=keyboard,
-                parse_mode=parse_mode
-            )
-            return True
-        except Exception as e:
-            logger.warning(f"Could not update message text: {str(e)}")
             
-            # If text update fails, try to edit caption
+            # Check if the message contains media (photo or animation)
+            has_media = bool(query.message.photo) or query.message.animation is not None
+            
+            if has_media:
+                logger.info("Message contains media, using special handling")
+                # For media messages, we need to handle differently
+                try:
+                    # Try to edit the caption first (most media messages use caption)
+                    await query.edit_message_caption(
+                        caption=text,
+                        reply_markup=keyboard,
+                        parse_mode=parse_mode
+                    )
+                    logger.info("Successfully updated message caption")
+                    return True
+                except Exception as caption_error:
+                    logger.warning(f"Could not update caption: {str(caption_error)}")
+                    
+                    # If caption update fails and it's a specific error about empty caption
+                    if "Message caption is empty" in str(caption_error):
+                        try:
+                            # Try replacing media with a transparent placeholder
+                            transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                            
+                            # Use InputMediaDocument to replace the media
+                            await query.edit_message_media(
+                                media=InputMediaDocument(
+                                    media=transparent_gif,
+                                    caption=text,
+                                    parse_mode=parse_mode
+                                ),
+                                reply_markup=keyboard
+                            )
+                            logger.info("Successfully replaced media with placeholder and updated caption")
+                            return True
+                        except Exception as media_error:
+                            logger.warning(f"Could not replace media: {str(media_error)}")
+                    
+                    # As a last resort for media messages, delete and send new
+                    try:
+                        # Get chat ID for the new message
+                        chat_id = query.message.chat_id
+                        
+                        # Send new message
+                        await query.bot.send_message(
+                            chat_id=chat_id,
+                            text=text,
+                            reply_markup=keyboard,
+                            parse_mode=parse_mode
+                        )
+                        
+                        # Try to delete the old message
+                        try:
+                            await query.message.delete()
+                            logger.info("Successfully deleted old message after sending new one")
+                        except Exception as delete_error:
+                            logger.warning(f"Could not delete old message: {str(delete_error)}")
+                            
+                        logger.info("Successfully sent new message as replacement for media message")
+                        return True
+                    except Exception as new_msg_error:
+                        logger.error(f"Failed to send new message: {str(new_msg_error)}")
+                        return False
+            
+            # Standard approach for text messages
             try:
-                await query.edit_message_caption(
-                    caption=text,
+                # Try to edit message text
+                await query.edit_message_text(
+                    text=text,
                     reply_markup=keyboard,
                     parse_mode=parse_mode
                 )
+                logger.info("Successfully updated message text")
                 return True
-            except Exception as e2:
-                logger.error(f"Could not update caption either: {str(e2)}")
+            except Exception as text_error:
+                logger.warning(f"Could not update message text: {str(text_error)}")
+                
+                # If text update fails with a specific error
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        # Try to edit caption as fallback
+                        await query.edit_message_caption(
+                            caption=text,
+                            reply_markup=keyboard,
+                            parse_mode=parse_mode
+                        )
+                        logger.info("Successfully updated message caption as fallback")
+                        return True
+                    except Exception as caption_error:
+                        logger.error(f"Could not update caption either: {str(caption_error)}")
+                else:
+                    logger.error(f"Could not update message text: {str(text_error)}")
                 
                 # As a last resort, send a new message
                 try:
@@ -1299,10 +1372,15 @@ class TelegramService:
                         reply_markup=keyboard,
                         parse_mode=parse_mode
                     )
+                    logger.info("Successfully sent new message as fallback")
                     return True
-                except Exception as e3:
-                    logger.error(f"Failed to send new message: {str(e3)}")
+                except Exception as new_msg_error:
+                    logger.error(f"Failed to send new message: {str(new_msg_error)}")
                     return False
+                    
+        except Exception as e:
+            logger.error(f"Unexpected error in update_message: {str(e)}")
+            return False
     
     # Missing handler implementations
     async def back_signals_callback(self, update: Update, context=None) -> int:
@@ -1668,26 +1746,33 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_"))
             application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_"))
             
-            # Back button handlers
-            application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
-            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
+            # Handle back button navigation
             application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_to_analysis$"))
-            application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
-            application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
             application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
+            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
+            application.add_handler(CallbackQueryHandler(self.back_analysis_callback, pattern="^back_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
+            application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
+            application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
             
-            # Signal analysis handlers
+            # Signals management
+            application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"))
+            application.add_handler(CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"))
+            
+            # Signal from analysis
             application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_"))
             
-            # Catch-all handler voor overige callback queries
+            # Fallback to the generic button handler for any unmatched patterns
             application.add_handler(CallbackQueryHandler(self.button_callback))
             
+            # Load saved signals
+            asyncio.create_task(self._load_signals())
+            
             logger.info("All handlers registered successfully")
+            
         except Exception as e:
             logger.error(f"Error registering handlers: {str(e)}")
-            raise
+            logger.exception(e)
 
     @property
     def signals_enabled(self):
@@ -4518,6 +4603,82 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     pass
             
             return MENU
+    
+    async def back_analysis_callback(self, update: Update, context=None) -> int:
+        """Handle back_analysis button press to return to analysis menu"""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            logger.info("Back to analysis menu requested")
+            
+            # Check if message has media content
+            has_media = bool(query.message.photo) or query.message.animation is not None
+            
+            if has_media:
+                # If message has media, we need special handling
+                try:
+                    # Try to delete the message and send a new one
+                    chat_id = update.effective_chat.id
+                    message_id = query.message.message_id
+                    
+                    await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                    
+                    # Send the analysis menu with a GIF
+                    gif_url = random.choice(gif_utils.ANALYSIS_GIFS)
+                    await context.bot.send_animation(
+                        chat_id=chat_id,
+                        animation=gif_url,
+                        caption="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                    return CHOOSE_ANALYSIS
+                    
+                except Exception as delete_error:
+                    logger.warning(f"Could not delete media message: {str(delete_error)}")
+                    
+                    # Fallback to replacing media
+                    try:
+                        # Use a transparent GIF as fallback
+                        transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                        
+                        await query.edit_message_media(
+                            media=InputMediaDocument(
+                                media=transparent_gif,
+                                caption="Select your analysis type:"
+                            ),
+                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                        )
+                        return CHOOSE_ANALYSIS
+                    except Exception as e:
+                        logger.error(f"Failed to update media: {str(e)}")
+            
+            # Regular message handling (no media)
+            await self.update_message(
+                query=query,
+                text="Select your analysis type:",
+                keyboard=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+            )
+            
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in back_analysis_callback: {str(e)}")
+            logger.exception(e)
+            
+            # Send a new message as fallback
+            if update and update.effective_chat:
+                try:
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    )
+                except Exception:
+                    pass
+                    
+            return CHOOSE_ANALYSIS
 
     async def _load_signals(self):
         """Load and cache previously saved signals"""
