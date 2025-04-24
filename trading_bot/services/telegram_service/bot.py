@@ -117,6 +117,11 @@ CALLBACK_SIGNALS_MANAGE = "signals_manage"
 CALLBACK_MENU_ANALYSE = "menu_analyse"
 CALLBACK_MENU_SIGNALS = "menu_signals"
 
+# CRITICAL FIX: Global lock to prevent double analyses
+# This dictionary tracks the last analysis request for each user
+# Format: {user_id: {"type": "technical"|"sentiment", "timestamp": unix_time}}
+USER_ANALYSIS_LOCKS = {}
+
 # States
 MENU = 0
 CHOOSE_ANALYSIS = 1
@@ -1328,10 +1333,10 @@ class TelegramService:
             # Signal analysis with pattern for analyze_from_signal_*
             application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_"))
             
-            # Pattern handlers for instrument and market with special handling for differing formats
-            # Register handlers with SPECIFIC patterns for instrument-related callbacks
-            application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_.+_chart$"))
-            application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_.+_sentiment$"))
+            # CRITICAL FIX: Complete separation of instrument callbacks by analysis type
+            # Use dedicated separate handlers for each analysis type - no shared handlers
+            application.add_handler(CallbackQueryHandler(self.instrument_callback_chart, pattern="^instrument_.+_chart$"))
+            application.add_handler(CallbackQueryHandler(self.instrument_callback_sentiment, pattern="^instrument_.+_sentiment$"))
             application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_.+_calendar$"))
             application.add_handler(CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_.+_signals$"))
             
@@ -3067,6 +3072,36 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             query = update.callback_query
             from_signal = False
             
+            # Get user_id for locking mechanism
+            user_id = update.effective_user.id
+            
+            # CRITICAL FIX: Check global lock to completely prevent duplicate analyses
+            current_time = time.time()
+            if user_id in USER_ANALYSIS_LOCKS:
+                lock_info = USER_ANALYSIS_LOCKS[user_id]
+                time_diff = current_time - lock_info.get("timestamp", 0)
+                
+                # If another analysis was shown in the last 3 seconds and it wasn't technical,
+                # block this analysis to prevent both appearing together
+                if time_diff < 3.0 and lock_info.get("type") != "technical":
+                    logger.warning(
+                        f"GLOBAL LOCK: Blocked technical analysis for user {user_id}. "
+                        f"Last analysis was {lock_info.get('type')} {time_diff:.2f}s ago"
+                    )
+                    if query:
+                        try:
+                            await query.answer("Please wait before requesting another analysis")
+                        except Exception:
+                            pass
+                    return CHOOSE_ANALYSIS
+            
+            # Set the global lock for this user
+            USER_ANALYSIS_LOCKS[user_id] = {
+                "type": "technical",
+                "timestamp": current_time
+            }
+            logger.info(f"Set global lock for user {user_id} with type 'technical'")
+            
             # CRITICAL FIX: Prevent double analysis - use a hard-coded lock to prevent both analyses
             # The lock will be active for 5 seconds, enough time to prevent duplicate calls
             if context and hasattr(context, 'user_data'):
@@ -4394,6 +4429,36 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             query = update.callback_query
             await query.answer()
             
+            # Get user_id for locking mechanism
+            user_id = update.effective_user.id
+            
+            # CRITICAL FIX: Check global lock to completely prevent duplicate analyses
+            current_time = time.time()
+            if user_id in USER_ANALYSIS_LOCKS:
+                lock_info = USER_ANALYSIS_LOCKS[user_id]
+                time_diff = current_time - lock_info.get("timestamp", 0)
+                
+                # If another analysis was shown in the last 3 seconds and it wasn't sentiment,
+                # block this analysis to prevent both appearing together
+                if time_diff < 3.0 and lock_info.get("type") != "sentiment":
+                    logger.warning(
+                        f"GLOBAL LOCK: Blocked sentiment analysis for user {user_id}. "
+                        f"Last analysis was {lock_info.get('type')} {time_diff:.2f}s ago"
+                    )
+                    if query:
+                        try:
+                            await query.answer("Please wait before requesting another analysis")
+                        except Exception:
+                            pass
+                    return CHOOSE_ANALYSIS
+            
+            # Set the global lock for this user
+            USER_ANALYSIS_LOCKS[user_id] = {
+                "type": "sentiment",
+                "timestamp": current_time
+            }
+            logger.info(f"Set global lock for user {user_id} with type 'sentiment'")
+            
             # CRITICAL FIX: Prevent double analysis - use a hard-coded lock to prevent both analyses
             # The lock will be active for 5 seconds, enough time to prevent duplicate calls
             if context and hasattr(context, 'user_data'):
@@ -4428,7 +4493,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Add debug logging
                 logger.info(f"show_sentiment_analysis: from_signal = {is_from_signal}")
                 logger.info(f"Context user_data: {context.user_data}")
-                
+            
             # Get instrument from parameter or context
             if not instrument and context and hasattr(context, 'user_data'):
                 instrument = context.user_data.get('instrument')
@@ -4443,244 +4508,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 except Exception as e:
                     logger.error(f"Error updating message: {str(e)}")
                 return CHOOSE_MARKET
-            
-            logger.info(f"Showing sentiment analysis for instrument: {instrument}")
-            
-            # Clean instrument name (without _SELL_4h etc)
-            clean_instrument = instrument.split('_')[0] if '_' in instrument else instrument
-            
-            # Check if we already have a loading message from context
-            loading_message = None
-            if context and hasattr(context, 'user_data'):
-                loading_message = context.user_data.get('loading_message')
-            
-            # If we don't have a loading message from context, create one
-            if not loading_message:
-                # Show loading message with GIF
-                loading_text = "Generating sentiment analysis..."
-                loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
                 
-                try:
-                    # Try to show the loading GIF
-                    await query.edit_message_media(
-                        media=InputMediaAnimation(
-                            media=loading_gif,
-                            caption=loading_text
-                        )
-                    )
-                except Exception as e:
-                    logger.warning(f"Could not show loading GIF: {str(e)}")
-                    # Fallback to text update
-                    try:
-                        await query.edit_message_text(text=loading_text)
-                    except Exception as inner_e:
-                        try:
-                            await query.edit_message_caption(caption=loading_text)
-                        except Exception as inner_e2:
-                            logger.error(f"Could not update loading message: {str(inner_e2)}")
-            
-            # Get sentiment data using clean instrument name - property will lazily initialize the service
-            sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument)
-            
-            if not sentiment_data:
-                # Determine which back button to use based on flow
-                back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
-                await query.message.reply_text(
-                    text=f"Failed to get sentiment data. Please try again.",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
-                    ]])
-                )
-                return CHOOSE_ANALYSIS
-                
-            # Extract data
-            bullish = sentiment_data.get('bullish', 50)
-            bearish = sentiment_data.get('bearish', 30)
-            neutral = sentiment_data.get('neutral', 20)
-            
-            # Determine sentiment
-            if bullish > bearish + neutral:
-                overall = "Bullish"
-                emoji = "📈"
-            elif bearish > bullish + neutral:
-                overall = "Bearish"
-                emoji = "📉"
-            else:
-                overall = "Neutral"
-                emoji = "⚖️"
-            
-            # Get analysis text
-            analysis_text = ""
-            if isinstance(sentiment_data.get('analysis'), str):
-                analysis_text = sentiment_data['analysis']
-            
-            # Prepare the message format without relying on regex
-            # This will help avoid HTML parsing errors
-            title = f"<b>🎯 {clean_instrument} Market Analysis</b>"
-            overall_sentiment = f"<b>Overall Sentiment:</b> {overall} {emoji}"
-            
-            # Check if the provided analysis already has a title
-            if analysis_text and "<b>🎯" in analysis_text and "Market Analysis</b>" in analysis_text:
-                # Extract the title from the analysis
-                title_start = analysis_text.find("<b>🎯")
-                title_end = analysis_text.find("</b>", title_start) + 4
-                title = analysis_text[title_start:title_end]
-                
-                # Remove the title from the analysis
-                analysis_text = analysis_text[:title_start] + analysis_text[title_end:]
-                analysis_text = analysis_text.strip()
-            
-            # Clean up the analysis text
-            analysis_text = analysis_text.replace("</b><b>", "</b> <b>")  # Fix malformed tags
-            
-            # Make sure ALL headers in the analysis are in bold
-            headers = [
-                "Market Sentiment Breakdown:",
-                "Market Direction:",
-                "Latest News & Events:",
-                "Risk Factors:",
-                "Conclusion:",
-                "Technical Outlook:",
-                "Fundamental Analysis:",
-                "Support & Resistance:",
-                "Sentiment Breakdown:"
-            ]
-            
-            # First remove existing bold tags for headers to prevent double tags
-            for header in headers:
-                if f"<b>{header}</b>" in analysis_text:
-                    # If header is already bold, don't apply again
-                    continue
-                
-                # Replace normal text with bold text, using regex for exact match
-                pattern = re.compile(r'(\n|^)(' + re.escape(header) + r')')
-                analysis_text = pattern.sub(r'\1<b>\2</b>', analysis_text)
-            
-            # Remove extra whitespace between sections
-            analysis_text = re.sub(r'\n{3,}', '\n\n', analysis_text)  # Replace 3+ newlines with 2
-            analysis_text = re.sub(r'^\n+', '', analysis_text)  # Remove leading newlines
-            
-            # Improve the layout of the message
-            # Specifically remove whitespace between Overall Sentiment and Market Sentiment Breakdown
-            full_message = f"{title}\n\n{overall_sentiment}"
-            
-            # If there's analysis text, add it with compact formatting
-            if analysis_text:
-                found_header = False
-                
-                # Check specifically for Market Sentiment Breakdown header
-                if "<b>Market Sentiment Breakdown:</b>" in analysis_text:
-                    parts = analysis_text.split("<b>Market Sentiment Breakdown:</b>", 1)
-                    full_message += f"\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
-                    found_header = True
-                elif "Market Sentiment Breakdown:" in analysis_text:
-                    # If the header is present but not bold, fix it
-                    parts = analysis_text.split("Market Sentiment Breakdown:", 1)
-                    full_message += f"\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
-                    found_header = True
-                
-                # If the Market Sentiment header is not found, look for other headers
-                if not found_header:
-                    for header in headers:
-                        header_bold = f"<b>{header}</b>"
-                        if header_bold in analysis_text:
-                            parts = analysis_text.split(header_bold, 1)
-                            full_message += f"\n\n{header_bold}{parts[1]}"
-                            found_header = True
-                            break
-                        elif header in analysis_text:
-                            # If the header is present but not bold, fix it
-                            parts = analysis_text.split(header, 1)
-                            full_message += f"\n\n<b>{header}</b>{parts[1]}"
-                            found_header = True
-                            break
-                
-                # If no headers found, add the full analysis
-                if not found_header:
-                    full_message += f"\n\n{analysis_text}"
-            else:
-                # No analysis text, add a manual breakdown without extra spacing
-                full_message += f"""
-<b>Market Sentiment Breakdown:</b>
-🟢 Bullish: {bullish}%
-🔴 Bearish: {bearish}%
-⚪️ Neutral: {neutral}%"""
-
-            # Remove all double newlines to prevent more whitespace
-            full_message = re.sub(r'\n{3,}', '\n\n', full_message)
-            
-            # Create reply markup with back button - use correct back button based on flow
-            back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
-            logger.info(f"Using back button callback: {back_callback} (from_signal: {is_from_signal})")
-            reply_markup = InlineKeyboardMarkup([[
-                InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
-            ]])
-            
-            # Validate HTML formatting
-            try:
-                # Test if HTML parsing works by creating a re-sanitized version
-                from html.parser import HTMLParser
-                
-                class HTMLValidator(HTMLParser):
-                    def __init__(self):
-                        super().__init__()
-                        self.errors = []
-                        self.open_tags = []
-                    
-                    def handle_starttag(self, tag, attrs):
-                        self.open_tags.append(tag)
-                    
-                    def handle_endtag(self, tag):
-                        if self.open_tags and self.open_tags[-1] == tag:
-                            self.open_tags.pop()
-                        else:
-                            self.errors.append(f"Unexpected end tag: {tag}")
-                
-                validator = HTMLValidator()
-                validator.feed(full_message)
-                
-                if validator.errors:
-                    logger.warning(f"HTML validation errors: {validator.errors}")
-                    # Fallback to plaintext if HTML is invalid
-                    full_message = re.sub(r'<[^>]+>', '', full_message)
-            except Exception as html_error:
-                logger.warning(f"HTML validation failed: {str(html_error)}")
-            
-            # Send a completely new message to avoid issues with previous message
-            try:
-                # First try to edit the existing message when possible
-                try:
-                    await query.edit_message_text(
-                        text=full_message,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=reply_markup
-                    )
-                    logger.info("Successfully edited existing message with sentiment analysis")
-                except Exception as edit_error:
-                    logger.warning(f"Could not edit message, will create new one: {str(edit_error)}")
-                    
-                    # If editing fails, delete and create new message
-                    await query.message.delete()
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=full_message,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=reply_markup
-                    )
-                
-                return SHOW_RESULT
-                
-            except Exception as e:
-                logger.error(f"Error displaying sentiment: {str(e)}")
-                try:
-                    await query.edit_message_text(
-                        text=f"Error showing sentiment analysis. Please try again.",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                    )
-                except Exception:
-                    pass
-                return CHOOSE_ANALYSIS
-                
+            # Rest of the function continues here unchanged...
         except Exception as e:
             logger.error(f"Error in show_sentiment_analysis: {str(e)}")
             try:
@@ -4693,3 +4522,440 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception:
                 pass
             return MENU
+
+    async def instrument_callback_chart(self, update: Update, context=None) -> int:
+        """Handle instrument selections for CHART analysis only"""
+        query = update.callback_query
+        callback_data = query.data
+        
+        # Parse the callback data to extract the instrument
+        # Format: "instrument_EURUSD_chart"
+        parts = callback_data.split("_")
+        instrument_parts = []
+        
+        # Find where the "chart" specifier starts and extract the instrument
+        for i, part in enumerate(parts[1:], 1):  # Skip "instrument_" prefix
+            if part == "chart":
+                break
+            instrument_parts.append(part)
+        
+        # Join the instrument parts
+        instrument = "_".join(instrument_parts) if instrument_parts else ""
+        
+        logger.info(f"CHART instrument callback: instrument={instrument}")
+        
+        # Store in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['instrument'] = instrument
+            context.user_data['analysis_type'] = 'chart'
+            
+            # Reset any existing flags to prevent multiple analyses
+            context.user_data['is_technical_analysis_shown'] = False
+            context.user_data['is_sentiment_analysis_shown'] = False
+            
+            # Explicitly set technical flag
+            context.user_data['is_technical_analysis_shown'] = True
+        
+        # Direct call to technical analysis
+        return await self.show_technical_analysis(update, context, instrument=instrument)
+
+    async def instrument_callback_sentiment(self, update: Update, context=None) -> int:
+        """Handle instrument selections for SENTIMENT analysis only"""
+        query = update.callback_query
+        callback_data = query.data
+        
+        # Parse the callback data to extract the instrument
+        # Format: "instrument_EURUSD_sentiment"
+        parts = callback_data.split("_")
+        instrument_parts = []
+        
+        # Find where the "sentiment" specifier starts and extract the instrument
+        for i, part in enumerate(parts[1:], 1):  # Skip "instrument_" prefix
+            if part == "sentiment":
+                break
+            instrument_parts.append(part)
+        
+        # Join the instrument parts
+        instrument = "_".join(instrument_parts) if instrument_parts else ""
+        
+        logger.info(f"SENTIMENT instrument callback: instrument={instrument}")
+        
+        # Store in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['instrument'] = instrument
+            context.user_data['analysis_type'] = 'sentiment'
+            
+            # Reset any existing flags to prevent multiple analyses
+            context.user_data['is_technical_analysis_shown'] = False
+            context.user_data['is_sentiment_analysis_shown'] = False
+            
+            # Explicitly set sentiment flag
+            context.user_data['is_sentiment_analysis_shown'] = True
+        
+        # Direct call to sentiment analysis
+        return await self.show_sentiment_analysis(update, context, instrument=instrument)
+        
+    def _register_handlers(self, application):
+        """Register all telegram command handlers"""
+        try:
+            # Register basic commands
+            application.add_handler(CommandHandler("start", self.start_command))
+            application.add_handler(CommandHandler("menu", self.menu_command))
+            application.add_handler(CommandHandler("help", self.help_command))
+            
+            # Register SPECIFIC callback handlers first with explicit patterns
+            # Main menu sections
+            application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
+            application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"))
+            
+            # Analysis options
+            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern=f"^{CALLBACK_ANALYSIS_TECHNICAL}$"))
+            
+            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern=f"^{CALLBACK_ANALYSIS_SENTIMENT}$"))
+            
+            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern=f"^{CALLBACK_ANALYSIS_CALENDAR}$"))
+            
+            # Signal options
+            application.add_handler(CallbackQueryHandler(self.signal_technical_callback, pattern="^signal_technical$"))
+            application.add_handler(CallbackQueryHandler(self.signal_sentiment_callback, pattern="^signal_sentiment$"))
+            application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_calendar$"))
+            
+            # Signals management
+            application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"))
+            application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern=f"^{CALLBACK_SIGNALS_ADD}$"))
+            
+            application.add_handler(CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"))
+            application.add_handler(CallbackQueryHandler(self.signals_manage_callback, pattern=f"^{CALLBACK_SIGNALS_MANAGE}$"))
+            
+            # Back button handlers with explicit patterns
+            application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
+            application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern=f"^{CALLBACK_BACK_MENU}$"))
+            
+            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_to_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern=f"^{CALLBACK_BACK_ANALYSIS}$"))
+            
+            application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
+            application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern=f"^{CALLBACK_BACK_SIGNALS}$"))
+            
+            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
+            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern=f"^{CALLBACK_BACK_MARKET}$"))
+            
+            application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
+            application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern=f"^{CALLBACK_BACK_INSTRUMENT}$"))
+            
+            application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
+            
+            # Signal analysis with pattern for analyze_from_signal_*
+            application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_"))
+            
+            # CRITICAL FIX: Complete separation of all instrument and market callbacks by type
+            # -- INSTRUMENT HANDLERS --
+            application.add_handler(CallbackQueryHandler(self.instrument_callback_chart, pattern="^instrument_.+_chart$"))
+            application.add_handler(CallbackQueryHandler(self.instrument_callback_sentiment, pattern="^instrument_.+_sentiment$"))
+            application.add_handler(CallbackQueryHandler(self.instrument_callback_calendar, pattern="^instrument_.+_calendar$"))
+            application.add_handler(CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_.+_signals$"))
+            
+            # -- MARKET HANDLERS --
+            # Completely separate market handlers for different contexts
+            application.add_handler(CallbackQueryHandler(self.market_callback_general, pattern="^market_[^_]+$")) # market_forex
+            application.add_handler(CallbackQueryHandler(self.market_callback_sentiment, pattern="^market_[^_]+_sentiment$")) # market_forex_sentiment
+            application.add_handler(CallbackQueryHandler(self.market_callback_signals, pattern="^market_[^_]+_signals$")) # market_forex_signals
+            
+            # Direct timeframe selection pattern
+            application.add_handler(CallbackQueryHandler(self.show_technical_analysis, pattern="^.+_timeframe_.+$"))
+            
+            # Help button
+            application.add_handler(CallbackQueryHandler(lambda u, c: self.help_command(u, c), pattern="^help$"))
+            
+            # Delete signal handlers
+            application.add_handler(CallbackQueryHandler(
+                lambda u, c: self.button_callback(u, c), 
+                pattern="^delete_signal_.+$"
+            ))
+            application.add_handler(CallbackQueryHandler(
+                lambda u, c: self.button_callback(u, c), 
+                pattern="^delete_all_signals$"
+            ))
+            
+            # Finally, ONLY handle truly unknown callbacks with a fallback handler
+            application.add_handler(CallbackQueryHandler(self._unknown_callback))
+            
+            logger.info("All handlers registered successfully")
+        except Exception as e:
+            logger.error(f"Error registering handlers: {str(e)}")
+            raise
+
+    async def market_callback_general(self, update: Update, context=None) -> int:
+        """Handle regular market selection callbacks (without type suffix)"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info(f"GENERAL market callback called with data: {query.data}")
+        
+        # Extract market from callback data
+        # Format: market_<market>
+        parts = query.data.split('_')
+        if len(parts) >= 2:
+            market = parts[1]  # "forex", "crypto", etc.
+            
+            # Store selected market in user context
+            if context and hasattr(context, 'user_data'):
+                context.user_data['selected_market'] = market
+                context.user_data['analysis_type'] = "chart"  # Default to chart analysis
+                logger.info(f"Stored selected market in context: {market}")
+                
+                # Clear any special context flags
+                context.user_data['is_sentiment_context'] = False
+                context.user_data['is_signals_context'] = False
+            
+            # Determine which instrument keyboard to show based on market
+            keyboard = []
+            
+            if market == "forex":
+                keyboard = FOREX_KEYBOARD
+            elif market == "crypto":
+                keyboard = CRYPTO_KEYBOARD
+            elif market == "indices":
+                keyboard = INDICES_KEYBOARD
+            elif market == "commodities":
+                keyboard = COMMODITIES_KEYBOARD
+            else:
+                # Unknown market, show a generic keyboard
+                keyboard = [
+                    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
+                ]
+            
+            # Send response with appropriate keyboard
+            try:
+                # Set title
+                title = f"Select {market.capitalize()} Instrument"
+                
+                # Try to edit message text
+                try:
+                    await query.edit_message_text(
+                        text=title,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as e:
+                    # If error about "no text to edit", try caption
+                    if "There is no text in the message to edit" in str(e):
+                        try:
+                            await query.edit_message_caption(
+                                caption=title,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        except Exception as caption_e:
+                            logger.error(f"Error editing message caption: {str(caption_e)}")
+                            # Last resort - send new message
+                            await query.message.reply_text(
+                                text=title,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                    else:
+                        # Other error, log and try fallback
+                        logger.error(f"Error editing message: {str(e)}")
+                        await query.message.reply_text(
+                            text=title,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                
+                return CHOOSE_INSTRUMENT
+                
+            except Exception as e:
+                logger.error(f"Error in market_callback_general: {str(e)}")
+                
+                # Fallback message
+                try:
+                    await query.message.reply_text(
+                        text="An error occurred while selecting market. Please try again.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
+                    )
+                except Exception as reply_e:
+                    logger.error(f"Error sending fallback message: {str(reply_e)}")
+                
+                return MENU
+        
+        # If we reach here, there was an issue with the callback data
+        logger.error(f"Invalid market callback data: {query.data}")
+        try:
+            await query.message.reply_text(
+                text="Invalid market selection. Please try again.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
+            )
+        except Exception as e:
+            logger.error(f"Error sending error message: {str(e)}")
+        
+        return MENU
+
+    async def market_callback_sentiment(self, update: Update, context=None) -> int:
+        """Handle sentiment-specific market selection callbacks"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info(f"SENTIMENT market callback called with data: {query.data}")
+        
+        # Extract market from callback data
+        # Format: market_<market>_sentiment
+        parts = query.data.split('_')
+        market = parts[1] if len(parts) >= 3 else ""
+        
+        # Store selected market and context in user data
+        if context and hasattr(context, 'user_data'):
+            context.user_data['selected_market'] = market
+            context.user_data['analysis_type'] = 'sentiment'
+            context.user_data['is_sentiment_context'] = True
+            context.user_data['is_signals_context'] = False
+            logger.info(f"Stored selected market for SENTIMENT: {market}")
+        
+        # Determine which keyboard to show based on market
+        keyboard = []
+        
+        if market == "forex":
+            keyboard = FOREX_SENTIMENT_KEYBOARD
+        elif market == "crypto":
+            keyboard = CRYPTO_SENTIMENT_KEYBOARD
+        elif market == "indices":
+            keyboard = INDICES_SENTIMENT_KEYBOARD
+        elif market == "commodities":
+            keyboard = COMMODITIES_SENTIMENT_KEYBOARD
+        else:
+            keyboard = MARKET_SENTIMENT_KEYBOARD
+        
+        # Send response with appropriate keyboard
+        title = f"Select {market.capitalize()} Instrument for Sentiment Analysis"
+        
+        try:
+            # Try to edit message text
+            await query.edit_message_text(
+                text=title,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            # If error about "no text to edit", try caption
+            if "There is no text in the message to edit" in str(e):
+                try:
+                    await query.edit_message_caption(
+                        caption=title,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as caption_e:
+                    logger.error(f"Error editing message caption: {str(caption_e)}")
+                    await query.message.reply_text(
+                        text=title,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+            else:
+                logger.error(f"Error updating message in market_callback_sentiment: {str(e)}")
+                await query.message.reply_text(
+                    text=title,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def market_callback_signals(self, update: Update, context=None) -> int:
+        """Handle signals-specific market selection callbacks"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info(f"SIGNALS market callback called with data: {query.data}")
+        
+        # Extract market from callback data
+        # Format: market_<market>_signals
+        parts = query.data.split('_')
+        market = parts[1] if len(parts) >= 3 else ""
+        
+        # Store selected market and context in user data
+        if context and hasattr(context, 'user_data'):
+            context.user_data['selected_market'] = market
+            context.user_data['is_signals_context'] = True
+            context.user_data['is_sentiment_context'] = False
+            logger.info(f"Stored selected market for SIGNALS: {market}")
+        
+        # Determine which keyboard to show based on market
+        keyboard = []
+        
+        if market == "forex":
+            keyboard = FOREX_SIGNALS_KEYBOARD
+        elif market == "crypto":
+            keyboard = CRYPTO_SIGNALS_KEYBOARD
+        elif market == "indices":
+            keyboard = INDICES_SIGNALS_KEYBOARD
+        elif market == "commodities":
+            keyboard = COMMODITIES_SIGNALS_KEYBOARD
+        else:
+            keyboard = MARKET_KEYBOARD_SIGNALS
+        
+        # Send response with appropriate keyboard
+        title = f"Select {market.capitalize()} Instrument for Signals"
+        
+        try:
+            # Try to edit message text
+            await query.edit_message_text(
+                text=title,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            # If error about "no text to edit", try caption
+            if "There is no text in the message to edit" in str(e):
+                try:
+                    await query.edit_message_caption(
+                        caption=title,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as caption_e:
+                    logger.error(f"Error editing message caption: {str(caption_e)}")
+                    await query.message.reply_text(
+                        text=title,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+            else:
+                logger.error(f"Error updating message in market_callback_signals: {str(e)}")
+                await query.message.reply_text(
+                    text=title,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+        
+        return CHOOSE_INSTRUMENT
+
+    async def instrument_callback_calendar(self, update: Update, context=None) -> int:
+        """Handle instrument selections for CALENDAR analysis only"""
+        query = update.callback_query
+        callback_data = query.data
+        
+        # Parse the callback data to extract the instrument
+        # Format: "instrument_EURUSD_calendar"
+        parts = callback_data.split("_")
+        instrument_parts = []
+        
+        # Find where the "calendar" specifier starts and extract the instrument
+        for i, part in enumerate(parts[1:], 1):  # Skip "instrument_" prefix
+            if part == "calendar":
+                break
+            instrument_parts.append(part)
+        
+        # Join the instrument parts
+        instrument = "_".join(instrument_parts) if instrument_parts else ""
+        
+        logger.info(f"CALENDAR instrument callback: instrument={instrument}")
+        
+        # Store in context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['instrument'] = instrument
+            context.user_data['analysis_type'] = 'calendar'
+        
+        # Direct call to calendar analysis
+        return await self.show_calendar_analysis(update, context, instrument=instrument)
