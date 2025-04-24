@@ -1278,42 +1278,129 @@ class TelegramService:
             application.add_handler(CommandHandler("menu", self.menu_command))
             application.add_handler(CommandHandler("help", self.help_command))
             
-            # Register main callback handlers - alleen de essentiële handlers
+            # Register SPECIFIC callback handlers first with explicit patterns
+            # Main menu sections
             application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
             application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"))
+            
+            # Analysis options
             application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern="^analysis_technical$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_technical_callback, pattern=f"^{CALLBACK_ANALYSIS_TECHNICAL}$"))
+            
             application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern="^analysis_sentiment$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_sentiment_callback, pattern=f"^{CALLBACK_ANALYSIS_SENTIMENT}$"))
+            
             application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern="^analysis_calendar$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_calendar_callback, pattern=f"^{CALLBACK_ANALYSIS_CALENDAR}$"))
             
-            # Market and instrument handlers
-            application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_"))
-            application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_"))
-            
-            # Back button handlers
-            application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
-            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
-            application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"))
-            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_to_analysis$"))
-            application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
-            application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
-            application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
-            
-            # Signal specific handlers
+            # Signal options
             application.add_handler(CallbackQueryHandler(self.signal_technical_callback, pattern="^signal_technical$"))
             application.add_handler(CallbackQueryHandler(self.signal_sentiment_callback, pattern="^signal_sentiment$"))
             application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_calendar$"))
             
-            # Signal analysis handlers
+            # Signals management
+            application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"))
+            application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern=f"^{CALLBACK_SIGNALS_ADD}$"))
+            
+            application.add_handler(CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"))
+            application.add_handler(CallbackQueryHandler(self.signals_manage_callback, pattern=f"^{CALLBACK_SIGNALS_MANAGE}$"))
+            
+            # Back button handlers with explicit patterns
+            application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
+            application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern=f"^{CALLBACK_BACK_MENU}$"))
+            
+            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_to_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern=f"^{CALLBACK_BACK_ANALYSIS}$"))
+            
+            application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
+            application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern=f"^{CALLBACK_BACK_SIGNALS}$"))
+            
+            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
+            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern=f"^{CALLBACK_BACK_MARKET}$"))
+            
+            application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
+            application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern=f"^{CALLBACK_BACK_INSTRUMENT}$"))
+            
+            application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
+            
+            # Signal analysis with pattern for analyze_from_signal_*
             application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_"))
             
-            # Catch-all handler voor overige callback queries
-            application.add_handler(CallbackQueryHandler(self.button_callback))
+            # Pattern handlers for instrument and market with special handling for differing formats
+            # Register handlers with SPECIFIC patterns for instrument-related callbacks
+            application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_.+_chart$"))
+            application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_.+_sentiment$"))
+            application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_.+_calendar$"))
+            application.add_handler(CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_.+_signals$"))
+            
+            # Direct timeframe selection pattern
+            application.add_handler(CallbackQueryHandler(self.show_technical_analysis, pattern="^.+_timeframe_.+$"))
+            
+            # Handle market selection - be careful with patterns to avoid double processing
+            application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_[^_]+$")) # market_forex 
+            application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_[^_]+_sentiment$")) # market_forex_sentiment
+            application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_[^_]+_signals$")) # market_forex_signals
+            
+            # Help button
+            application.add_handler(CallbackQueryHandler(lambda u, c: self.help_command(u, c), pattern="^help$"))
+            
+            # Delete signal handlers
+            application.add_handler(CallbackQueryHandler(
+                lambda u, c: self.button_callback(u, c), 
+                pattern="^delete_signal_.+$"
+            ))
+            application.add_handler(CallbackQueryHandler(
+                lambda u, c: self.button_callback(u, c), 
+                pattern="^delete_all_signals$"
+            ))
+            
+            # Finally, ONLY handle truly unknown callbacks with a fallback handler
+            application.add_handler(CallbackQueryHandler(self._unknown_callback))
             
             logger.info("All handlers registered successfully")
         except Exception as e:
             logger.error(f"Error registering handlers: {str(e)}")
             raise
+            
+    async def _unknown_callback(self, update: Update, context=None) -> int:
+        """Handle truly unknown callback queries - only gets called if no other handler matched"""
+        query = update.callback_query
+        callback_data = query.data
+        
+        # Log that we hit an unknown callback
+        logger.warning(f"Unknown callback data handled by fallback: {callback_data}")
+        
+        # Answer the callback query
+        await query.answer()
+        
+        try:
+            # Inform the user about the unknown button
+            await query.edit_message_text(
+                text="Unknown button pressed. Returning to main menu.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+            )
+        except Exception as e:
+            # Fallbacks if editing fails
+            if "There is no text in the message to edit" in str(e):
+                try:
+                    await query.edit_message_caption(
+                        caption="Unknown button. Returning to main menu.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                    )
+                except Exception:
+                    await query.message.reply_text(
+                        text="Unknown button. Try the main menu.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Main Menu", callback_data="back_menu")]])
+                    )
+            else:
+                await query.message.reply_text(
+                    text="Error processing your request. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Main Menu", callback_data="back_menu")]])
+                )
+        
+        return MENU
 
     @property
     def signals_enabled(self):
