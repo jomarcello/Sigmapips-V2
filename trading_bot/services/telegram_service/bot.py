@@ -3141,23 +3141,30 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get technical analysis text
             technical_analysis = await self.chart_service.get_technical_analysis(instrument, timeframe)
             
+            # Prepare caption with technical analysis
+            # Note: Telegram has a caption limit of 1024 characters
+            caption = f"{instrument} Technical Analysis"
+            
             # Show the chart
             try:
                 logger.info(f"Sending chart image for {instrument} {timeframe}")
-                # Try to send a new message with the chart
-                await context.bot.send_photo(
+                
+                # Because Telegram has a caption limit, we need to split if necessary
+                # First send the chart with the caption
+                sent_photo = await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=chart_image,
-                    caption=f"{instrument} Technical Analysis",
+                    caption=caption,
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
-                # Send technical analysis text in a separate message
+                # Send technical analysis text in a reply to the photo message
                 if technical_analysis:
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
                         text=technical_analysis,
-                        parse_mode=ParseMode.HTML
+                        parse_mode=ParseMode.HTML,
+                        reply_to_message_id=sent_photo.message_id
                     )
                 
                 # Delete the original message (the one with the loading indicator)
