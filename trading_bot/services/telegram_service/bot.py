@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 import traceback
-from typing import Dict, Any, List, Optional, Union, Tuple, Set
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import logging
 import copy
@@ -644,24 +644,17 @@ class TelegramService:
         self.token = self.bot_token  # Aliased for backward compatibility
         self.proxy_url = proxy_url or os.getenv("TELEGRAM_PROXY_URL", "")
         
-        # Configure custom request handler with significantly improved connection settings
-        # These increased timeout values should help with "service unavailable" errors
+        # Configure custom request handler with improved connection settings
         request = HTTPXRequest(
-            connection_pool_size=100,    # Increased from 50
-            connect_timeout=30.0,        # Increased from 15.0
-            read_timeout=90.0,           # Increased from 45.0 
-            write_timeout=60.0,          # Increased from 30.0
-            pool_timeout=120.0           # Increased from 60.0
+            connection_pool_size=50,  # Increase from 20 to 50
+            connect_timeout=15.0,     # Increase from 10.0 to 15.0
+            read_timeout=45.0,        # Increase from 30.0 to 45.0
+            write_timeout=30.0,       # Increase from 20.0 to 30.0
+            pool_timeout=60.0,        # Increase from 30.0 to 60.0
         )
         
         # Initialize the bot directly with connection pool settings
-        try:
-            self.bot = Bot(token=self.bot_token, request=request)
-            logger.info("Bot instance created successfully with improved connection settings")
-        except Exception as e:
-            logger.error(f"Error creating Bot instance: {str(e)}")
-            raise
-            
+        self.bot = Bot(token=self.bot_token, request=request)
         self.application = None  # Will be initialized in setup()
         
         # Webhook configuration
@@ -695,8 +688,11 @@ class TelegramService:
             if not self.bot_token:
                 raise ValueError("Missing Telegram bot token")
             
-            # Application initialization with additional parameters for reliability
-            self.application = Application.builder().bot(self.bot).concurrent_updates(True).build()
+            # Initialize the bot
+            self.bot = Bot(token=self.bot_token)
+        
+            # Initialize the application
+            self.application = Application.builder().bot(self.bot).build()
         
             # Register the handlers
             self._register_handlers(self.application)
@@ -724,420 +720,10 @@ class TelegramService:
             raise
             
     async def run(self):
-        """Run the telegram service with retry mechanism for Telegram API connection issues"""
+        """Run the telegram service (placeholder for long-running tasks)"""
         logger.info("TelegramService.run() called")
-        instance_id = os.getenv("BOT_INSTANCE_ID", "unknown")
-        logger.info(f"Bot instance ID: {instance_id}")
-        
-        # Record last reset time to avoid excessive resets
-        last_reset_time = 0
-        
-        # First try to initialize and set up the bot properly
-        try:
-            # Create a file-based lock to ensure only one instance is running at a time
-            # This is the most reliable method to prevent conflicts between bot instances
-            lock_path = "/tmp/telegram_bot.lock"
-            
-            # Try to create a lock file
-            try:
-                # Get process ID
-                pid = os.getpid()
-                
-                # Check if lock file exists
-                if os.path.exists(lock_path):
-                    # Read the existing lock file
-                    try:
-                        with open(lock_path, 'r') as f:
-                            existing_pid_str = f.read().strip()
-                            existing_instance = f.read().strip()
-                            logger.warning(f"Existing lock file found with PID: {existing_pid_str}, instance: {existing_instance}")
-                            
-                            # Try to check if process is still running (Linux/Unix only)
-                            if os.name != 'nt':  # Not Windows
-                                try:
-                                    existing_pid = int(existing_pid_str)
-                                    os.kill(existing_pid, 0)  # This will raise OSError if process is not running
-                                    logger.error(f"⚠️ Another bot instance is already running with PID {existing_pid}! Using this instance {instance_id} as backup.")
-                                except (ValueError, OSError):
-                                    # Process is not running, we can take over
-                                    logger.info(f"Taking over lock from non-running process: {existing_pid_str}")
-                                    os.remove(lock_path)
-                    except Exception as read_err:
-                        logger.warning(f"Error reading lock file: {str(read_err)}")
-                        os.remove(lock_path)
-                
-                # Create our lock file
-                with open(lock_path, 'w') as f:
-                    f.write(f"{pid}\n{instance_id}")
-                logger.info(f"Created lock file for instance {instance_id} with PID {pid}")
-            except Exception as lock_err:
-                logger.warning(f"Error managing lock file: {str(lock_err)}")
-            
-            # Initialize the application if not already initialized
-            if not hasattr(self.application, '_initialized') or not self.application._initialized:
-                await self.application.initialize()
-                logger.info("Application initialized successfully")
-            
-            # Start the application (this starts the required components)
-            if not hasattr(self.application, '_running') or not self.application._running:
-                await self.application.start()
-                logger.info("Application started successfully")
-            
-            # Determine if we should use polling based on environment or settings
-            use_polling = os.getenv("FORCE_POLLING", "").lower() == "true"
-            is_local_env = not self.webhook_url or self.webhook_url == ""
-            
-            # ALWAYS clear the webhook first - this helps prevent the conflict error
-            logger.info("🔥 Force-clearing webhook and pending updates to prevent conflicts")
-            try:
-                await self.bot.delete_webhook(drop_pending_updates=True)
-                # Allow time for webhook deletion to propagate
-                await asyncio.sleep(2)
-                logger.info("Webhook cleared successfully")
-                
-                # Send a dummy getUpdates with a specific offset to reset any existing sessions
-                # This helps break free from the "terminated by other getUpdates request" error
-                await self.bot.get_updates(offset=-1, limit=1, timeout=1, allowed_updates=[])
-                logger.info("Successfully reset update session with dummy request")
-            except Exception as clear_e:
-                logger.warning(f"Error while clearing webhook: {str(clear_e)}")
-                # Don't fail completely on this error, continue trying
-            
-            # First validate connection to Telegram with a getMe request before deciding polling/webhook
-            # Special handling for service unavailable errors
-            logger.info("Testing connection to Telegram API with getMe...")
-            connection_attempts = 0
-            max_connection_attempts = 20  # Increased from 5 to 20
-            connection_delay = 5  # Start with 5 seconds
-            
-            # Keep trying to connect until we succeed or reach max attempts
-            while connection_attempts < max_connection_attempts:
-                try:
-                    # Send a test request to Telegram API
-                    me = await self.bot.get_me()
-                    logger.info(f"✅ Successfully connected to Telegram API. Bot: {me.first_name} (@{me.username})")
-                    # Break the loop if we succeeded
-                    break
-                except telegram.error.Conflict as conflict_err:
-                    connection_attempts += 1
-                    logger.error(f"Conflict error during connection attempt {connection_attempts}: {str(conflict_err)}")
-                    
-                    # Perform a reset procedure to break out of conflict state
-                    try:
-                        # More aggressive session reset with random jitter to avoid collisions
-                        wait_time = 3 + random.uniform(0, 5)
-                        logger.info(f"Waiting {wait_time:.1f}s before conflict recovery...")
-                        await asyncio.sleep(wait_time)
-                        
-                        # Try to reset the session state 
-                        await self.bot.delete_webhook(drop_pending_updates=True)
-                        # Use a very large offset to reset getUpdates state
-                        await self.bot.get_updates(offset=999999999, limit=1, timeout=1)
-                        
-                        # If we've tried multiple times without success, try to rebuild the bot
-                        if connection_attempts > 5:
-                            logger.info("Rebuilding bot instance after multiple conflict errors")
-                            
-                            # Create new request handler
-                            request = HTTPXRequest(
-                                connection_pool_size=100,
-                                connect_timeout=30.0,
-                                read_timeout=90.0,
-                                write_timeout=60.0,
-                                pool_timeout=120.0
-                            )
-                            
-                            # Create new bot instance
-                            self.bot = Bot(token=self.bot_token, request=request)
-                            
-                            # Create new application with the bot
-                            self.application = Application.builder().bot(self.bot).build()
-                            self._register_handlers(self.application)
-                            
-                            # Initialize and start the new application
-                            await self.application.initialize()
-                            await self.application.start()
-                    except Exception as reset_err:
-                        logger.error(f"Error during conflict recovery: {str(reset_err)}")
-                    
-                    # Increase delay for next attempt
-                    connection_delay = min(30, connection_delay * 1.2)
-                except Exception as e:
-                    connection_attempts += 1
-                    
-                    # Log the specific error type to help diagnose the issue
-                    error_type = type(e).__name__
-                    error_msg = str(e)
-                    logger.error(f"Connection attempt {connection_attempts}/{max_connection_attempts} failed: {error_type} - {error_msg}")
-                    
-                    # Check if we've hit the maximum attempts
-                    if connection_attempts >= max_connection_attempts:
-                        logger.error(f"⚠️ Maximum connection attempts ({max_connection_attempts}) reached. Cannot connect to Telegram API.")
-                        # We'll continue to the next part as a last resort but log this clearly
-                        logger.error("Continuing despite connection failure, but this may cause issues")
-                        break
-                    
-                    # Use a different message format to better track in logs
-                    logger.info(f"Attempt #{connection_attempts} failed with service unavailable. Retrying in {connection_delay}s...")
-                    
-                    # Wait before retrying with a moderately increasing delay
-                    await asyncio.sleep(connection_delay)
-                    # Increase delay with some randomness, but cap it to avoid very long waits
-                    # Use a gentler backoff for service unavailable
-                    connection_delay = min(30, connection_delay * 1.2 + random.uniform(0, 2))
-                    
-                    # Try to recover by clearing the session every few attempts
-                    if connection_attempts % 5 == 0:
-                        logger.info("Attempting recovery by clearing webhook and session...")
-                        try:
-                            await self.bot.delete_webhook(drop_pending_updates=True)
-                            # Try a different approach to reset session
-                            await self.bot.get_updates(offset=999999999, limit=1, timeout=1)
-                        except Exception:
-                            pass  # Ignore errors during recovery attempt
-            
-            # Try to use a proxy if connection failed despite retries
-            if connection_attempts >= max_connection_attempts:
-                logger.warning("Attempting to set up bot with proxy as direct connection failed")
-                try:
-                    # Check if we have a proxy URL in environment
-                    proxy_url = os.getenv("TELEGRAM_PROXY_URL", "")
-                    if proxy_url:
-                        logger.info(f"Trying connection with proxy: {proxy_url}")
-                        # Create a new request handler with proxy
-                        proxy_request = HTTPXRequest(
-                            connection_pool_size=100,
-                            connect_timeout=30.0,
-                            read_timeout=90.0,
-                            write_timeout=60.0,
-                            pool_timeout=120.0,
-                            proxy=proxy_url
-                        )
-                        # Create a new bot instance with proxy
-                        proxy_bot = Bot(token=self.bot_token, request=proxy_request)
-                        # Test the connection
-                        me = await proxy_bot.get_me()
-                        logger.info(f"✅ Successfully connected via proxy. Bot: {me.first_name}")
-                        # Replace our bot instance with the proxy-enabled one
-                        self.bot = proxy_bot
-                        # Recreate application with proxy-enabled bot
-                        self.application = Application.builder().bot(self.bot).build()
-                        self._register_handlers(self.application)
-                        await self.application.initialize()
-                        await self.application.start()
-                    else:
-                        logger.warning("No proxy URL available to try as fallback")
-                except Exception as proxy_e:
-                    logger.error(f"Failed to connect with proxy: {str(proxy_e)}")
-            
-            # Use polling if there's no webhook URL or explicitly forced
-            if use_polling or is_local_env:
-                logger.info("Starting bot in polling mode...")
-                # Make sure the updater isn't already running
-                if hasattr(self.application, 'updater') and self.application.updater.running:
-                    await self.application.updater.stop()
-                
-                # Delete any existing webhook
-                await self.bot.delete_webhook(drop_pending_updates=True)
-                
-                # Start polling with drop_pending_updates to avoid old message conflicts
-                try:
-                    # Custom parameters to help with network issues
-                    poll_interval = float(os.getenv("POLL_INTERVAL", "1.0"))
-                    poll_timeout = int(os.getenv("POLL_TIMEOUT", "30"))
-                    logger.info(f"Using poll_interval={poll_interval}s, timeout={poll_timeout}s")
-                    
-                    await self.application.updater.start_polling(
-                        poll_interval=poll_interval, 
-                        timeout=poll_timeout, 
-                        drop_pending_updates=True,
-                        allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"],
-                        read_timeout=90.0,  # Increased read timeout
-                        write_timeout=60.0  # Increased write timeout
-                    )
-                    self.polling_started = True
-                    logger.info("Bot started in polling mode")
-                except telegram.error.Conflict as conflict_err:
-                    # Handle the conflict error specifically
-                    logger.error(f"Conflict error when starting polling: {conflict_err}")
-                    
-                    # Only do a hard reset if we haven't done one recently
-                    current_time = time.time()
-                    if current_time - last_reset_time > 60:  # Only reset once per minute maximum
-                        logger.info("🚨 Detected conflict with another bot instance. Attempting recovery...")
-                        last_reset_time = current_time
-                        
-                        # Wait for a random time to avoid multiple instances trying to recover simultaneously
-                        wait_time = 5 + random.randint(1, 10)
-                        logger.info(f"Waiting {wait_time} seconds before recovery attempt...")
-                        await asyncio.sleep(wait_time)
-                        
-                        # Try to send a more aggressive reset request
-                        try:
-                            # Force close any existing sessions
-                            await self.bot.delete_webhook(drop_pending_updates=True)
-                            # Use a very large offset to force Telegram to reset the session
-                            await self.bot.get_updates(offset=999999999, limit=1, timeout=1)
-                            logger.info("Reset complete. Retrying from the beginning...")
-                            
-                            # Restart the application
-                            if hasattr(self.application, 'updater') and self.application.updater.running:
-                                await self.application.updater.stop()
-                            await self.application.stop()
-                            await self.application.shutdown()
-                            
-                            # Recreate the application
-                            self.application = Application.builder().bot(self.bot).build()
-                            self._register_handlers(self.application)
-                            
-                            # Retry from beginning
-                            return await self.run()
-                        except Exception as reset_err:
-                            logger.error(f"Failed to reset: {reset_err}")
-                    else:
-                        logger.info("Skipping reset as one was performed recently. Waiting for retry...")
-                    
-                    # Continue with the main loop to retry later
-                except Exception as poll_err:
-                    # Log other polling errors
-                    logger.error(f"Error starting polling: {type(poll_err).__name__} - {str(poll_err)}")
-                    # Continue to heartbeat loop
-            elif self.webhook_url:
-                # In webhook mode, ensure webhook is properly set
-                logger.info(f"Bot is set up for webhook mode at {self.webhook_url}{self.webhook_path}")
-                # Clear any existing webhook
-                await self.bot.delete_webhook(drop_pending_updates=True)
-                # Wait a moment to ensure webhook is cleared
-                await asyncio.sleep(1)
-                # Set up the webhook
-                await self.bot.set_webhook(
-                    url=f"{self.webhook_url}{self.webhook_path}",
-                    drop_pending_updates=True,
-                    allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"]
-                )
-                logger.info("Webhook set successfully")
-            else:
-                # No webhook URL and not using polling - use a fake polling to keep bot responsive
-                logger.info("No webhook URL provided and polling not forced. Using fallback polling mode.")
-                # Delete any existing webhook
-                await self.bot.delete_webhook(drop_pending_updates=True)
-                
-                # Start polling with drop_pending_updates to avoid old message conflicts
-                if hasattr(self.application, 'updater'):
-                    try:
-                        await self.application.updater.start_polling(
-                            poll_interval=1.0, 
-                            timeout=30, 
-                            drop_pending_updates=True,
-                            allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"]
-                        )
-                        self.polling_started = True
-                        logger.info("Bot started in fallback polling mode")
-                    except telegram.error.Conflict as conflict_err:
-                        logger.error(f"Conflict error in fallback mode: {conflict_err}")
-                        # Skip polling in this case and continue with heartbeat
-                    except Exception as poll_err:
-                        logger.error(f"Error starting fallback polling: {str(poll_err)}")
-            
-            # At this point, we've either succeeded in setting up the bot or failed
-            # Let's log our state clearly
-            if self.polling_started:
-                logger.info("✅ Bot is set up and polling has started successfully")
-            elif self.webhook_url:
-                logger.info("✅ Bot is set up in webhook mode")
-            else:
-                logger.warning("⚠️ Bot setup completed but neither polling nor webhook is active")
-            
-            # Keep the service running with a heartbeat
-            max_retries = 10
-            retry_count = 0
-            retry_delay = 10  # Start with 10 seconds
-            
-            # Log heartbeat start
-            logger.info("Starting heartbeat loop to maintain connection...")
-            
-            while True:
-                try:
-                    # Send a getMe request to keep the connection alive and verify bot is working
-                    bot_info = await self.bot.get_me()
-                    logger.info(f"Bot heartbeat successful: {bot_info.first_name} (@{bot_info.username})")
-                    # Reset retry counters on success
-                    retry_count = 0
-                    retry_delay = 10
-                    # Sleep for 30 minutes between heartbeats
-                    await asyncio.sleep(1800)
-                    
-                except telegram.error.Conflict as conflict_err:
-                    # Handle conflict specifically
-                    logger.error(f"Conflict detected during heartbeat: {conflict_err}")
-                    # Only perform recovery if we haven't done one recently
-                    current_time = time.time()
-                    if current_time - last_reset_time > 60:
-                        logger.info("🚨 Detected conflict during heartbeat. Attempting recovery...")
-                        last_reset_time = current_time
-                        
-                        # Wait for a random time to prevent collisions
-                        wait_time = 5 + random.randint(1, 10)
-                        await asyncio.sleep(wait_time)
-                        
-                        # Reset the bot's session
-                        try:
-                            # Reset webhook and pending updates
-                            await self.bot.delete_webhook(drop_pending_updates=True)
-                            # Reset the get_updates session
-                            await self.bot.get_updates(offset=999999999, limit=1, timeout=1, allowed_updates=[])
-                            logger.info("Session reset complete, continuing heartbeat...")
-                        except Exception as reset_err:
-                            logger.error(f"Reset failed: {reset_err}")
-                    
-                    # Wait a bit longer and continue
-                    await asyncio.sleep(30)
-                    continue
-                
-                except telegram.error.TimedOut as timeout_err:
-                    # Handle timeout errors differently - these are common and can be ignored
-                    logger.warning(f"Heartbeat timed out: {str(timeout_err)}")
-                    # Use a shorter delay for timeouts as they're less severe
-                    await asyncio.sleep(30)
-                    continue
-                    
-                except Exception as e:
-                    retry_count += 1
-                    error_type = type(e).__name__
-                    logger.error(f"Bot heartbeat failed (attempt {retry_count}/{max_retries}): {error_type} - {str(e)}")
-                    
-                    if retry_count >= max_retries:
-                        logger.error("Maximum retries reached, restarting bot initialization")
-                        # Try to restart the bot
-                        try:
-                            # Stop the application components
-                            if hasattr(self, 'application') and self.application:
-                                if hasattr(self.application, 'updater') and self.application.updater.running:
-                                    await self.application.updater.stop()
-                                await self.application.stop()
-                                await self.application.shutdown()
-                            
-                            # Reinitialize the bot with a new application
-                            self.application = Application.builder().bot(self.bot).build()
-                            self._register_handlers(self.application)
-                            
-                            # Restart initialization from the beginning
-                            retry_count = 0
-                            return await self.run()
-                        except Exception as restart_error:
-                            logger.error(f"Failed to restart bot: {str(restart_error)}")
-                            # If we couldn't restart, continue with the retry cycle
-                    
-                    # Wait with exponential backoff
-                    logger.info(f"Attempt #{retry_count} failed in heartbeat. Continuing to retry for {retry_delay}s")
-                    await asyncio.sleep(retry_delay)
-                    # Increase retry delay with some randomness to avoid synchronized retries
-                    retry_delay = min(300, retry_delay * 1.5)  # Cap at 5 minutes
-        
-        except Exception as e:
-            error_type = type(e).__name__
-            logger.error(f"Error in bot run loop: {error_type} - {str(e)}")
-            raise
+        while True:
+            await asyncio.sleep(3600)  # Sleep for an hour
 
     # Calendar service helpers
     @property
@@ -1651,12 +1237,6 @@ class TelegramService:
             application.add_handler(CommandHandler("menu", self.menu_command))
             application.add_handler(CommandHandler("help", self.help_command))
             
-            # Register specific signal handlers with highest priority
-            # These need to be registered first to ensure they handle their patterns
-            application.add_handler(CallbackQueryHandler(self.signal_technical_callback, pattern="^signal_technical$"))
-            application.add_handler(CallbackQueryHandler(self.signal_sentiment_callback, pattern="^signal_sentiment$"))
-            application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_calendar$"))
-            
             # Register main callback handlers - alleen de essentiële handlers
             application.add_handler(CallbackQueryHandler(self.menu_analyse_callback, pattern="^menu_analyse$"))
             application.add_handler(CallbackQueryHandler(self.menu_signals_callback, pattern="^menu_signals$"))
@@ -1677,6 +1257,11 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
             application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
             application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
+            
+            # Signal specific handlers
+            application.add_handler(CallbackQueryHandler(self.signal_technical_callback, pattern="^signal_technical$"))
+            application.add_handler(CallbackQueryHandler(self.signal_sentiment_callback, pattern="^signal_sentiment$"))
+            application.add_handler(CallbackQueryHandler(self.signal_calendar_callback, pattern="^signal_calendar$"))
             
             # Signal analysis handlers
             application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_"))
@@ -2262,7 +1847,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         return await self.show_calendar_analysis(update, context)
 
     async def show_economic_calendar(self, update: Update, context: CallbackContext, currency=None, loading_message=None):
-        """Show the economic calendar for a specific currency or instrument"""
+        """Show the economic calendar for a specific currency"""
         try:
             # VERIFICATION MARKER: SIGMAPIPS_CALENDAR_FIX_APPLIED
             self.logger.info("VERIFICATION MARKER: SIGMAPIPS_CALENDAR_FIX_APPLIED")
@@ -2270,27 +1855,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             chat_id = update.effective_chat.id
             query = update.callback_query
             
-            # Check if we're in a signal flow
-            is_from_signal = False
-            instrument = None
-            if context and hasattr(context, 'user_data'):
-                is_from_signal = context.user_data.get('from_signal', False)
-                # Set in_signal_flow flag to ensure proper return path
-                if is_from_signal:
-                    context.user_data['in_signal_flow'] = True
-                    
-                # Get instrument from context if currency not provided
-                if not currency and 'instrument' in context.user_data:
-                    instrument = context.user_data.get('instrument')
-                    # Extract currency from instrument
-                    if instrument and instrument in INSTRUMENT_CURRENCY_MAP:
-                        currencies = INSTRUMENT_CURRENCY_MAP[instrument]
-                        if currencies:
-                            currency = currencies[0]
-                            self.logger.info(f"Extracted currency {currency} from instrument {instrument}")
-            
             # Log that we're showing the calendar
-            self.logger.info(f"Showing economic calendar - currency: {currency}, instrument: {instrument}, is_from_signal: {is_from_signal}")
+            self.logger.info(f"Showing economic calendar for currency: {currency}")
             
             # Initialize the calendar service
             calendar_service = self._get_calendar_service()
@@ -2348,17 +1914,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Generate mock data
                 today_date = datetime.now().strftime("%B %d, %Y")
                 
-                # Determine which currencies to include
-                calendar_currencies = [currency] if currency else MAJOR_CURRENCIES
-                if instrument and instrument in INSTRUMENT_CURRENCY_MAP:
-                    calendar_currencies = INSTRUMENT_CURRENCY_MAP[instrument]
-                
                 # Use the mock data generator from the calendar service if available
                 if hasattr(calendar_service, '_generate_mock_calendar_data'):
-                    mock_data = calendar_service._generate_mock_calendar_data(calendar_currencies, today_date)
+                    mock_data = calendar_service._generate_mock_calendar_data(MAJOR_CURRENCIES, today_date)
                 else:
                     # Otherwise use our own implementation
-                    mock_data = self._generate_mock_calendar_data(calendar_currencies, today_date)
+                    mock_data = self._generate_mock_calendar_data(MAJOR_CURRENCIES, today_date)
                 
                 # Flatten the mock data
                 flattened_mock = []
@@ -2375,43 +1936,34 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Format the mock data
                 message = await self._format_calendar_events(flattened_mock)
             
-            # Create keyboard with back button based on flow context
+            # Create keyboard with back button if not provided from caller
             keyboard = None
-            if context and hasattr(context, 'user_data'):
-                if context.user_data.get('from_signal', False):
-                    # When we're coming from a signal, the back button should go to signal analysis
-                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]])
-                    self.logger.info("Using back_to_signal_analysis button for signal flow")
-                else:
-                    # Otherwise, go back to the main analysis menu
-                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="menu_analyse")]])
-                    self.logger.info("Using menu_analyse button for regular flow")
+            if context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False):
+                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]])
             else:
-                # Default fallback
                 keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="menu_analyse")]])
             
-            # If we have a query, try to edit message directly
-            if query:
-                try:
-                    await query.edit_message_text(
-                        text=message,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=keyboard
-                    )
-                    self.logger.info("Successfully edited message with calendar data")
-                    # Return appropriate state based on flow
-                    return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
-                except Exception as edit_error:
-                    self.logger.warning(f"Could not edit message: {str(edit_error)}")
-                    # Fall through to send a new message
-            
-            # If we couldn't edit or have a loading message, try to delete and send new message
+            # Try to delete loading message first if it exists
             if loading_message:
                 try:
                     await context.bot.delete_message(chat_id=chat_id, message_id=loading_message.message_id)
                     self.logger.info("Successfully deleted loading message")
                 except Exception as delete_error:
                     self.logger.warning(f"Could not delete loading message: {str(delete_error)}")
+                    
+                    # If deletion fails, try to edit it
+                    try:
+                        await context.bot.edit_message_text(
+                            chat_id=chat_id,
+                            message_id=loading_message.message_id,
+                            text=message,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=keyboard
+                        )
+                        self.logger.info("Edited loading message with calendar data")
+                        return  # Skip sending a new message
+                    except Exception as edit_error:
+                        self.logger.warning(f"Could not edit loading message: {str(edit_error)}")
             
             # Send the message as a new message
             await context.bot.send_message(
@@ -2420,10 +1972,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 parse_mode=ParseMode.HTML,
                 reply_markup=keyboard
             )
-            self.logger.info("Successfully sent calendar data as new message")
-            
-            # Return appropriate state based on flow
-            return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
+            self.logger.info("Successfully deleted loading message and sent new calendar data")
         
         except Exception as e:
             self.logger.error(f"Error showing economic calendar: {str(e)}")
@@ -2436,10 +1985,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 text="<b>⚠️ Error showing economic calendar</b>\n\nSorry, there was an error retrieving the economic calendar data. Please try again later.",
                 parse_mode=ParseMode.HTML
             )
-            
-            # Return appropriate state based on flow
-            is_from_signal = context and hasattr(context, 'user_data') and context.user_data.get('from_signal', False)
-            return SIGNAL_ANALYSIS if is_from_signal else CHOOSE_ANALYSIS
 
     def _generate_mock_calendar_data(self, currencies, date):
         """Generate mock calendar data if the real service fails"""
@@ -2701,12 +2246,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return SIGNAL_ANALYSIS
 
     async def signal_calendar_callback(self, update: Update, context=None) -> int:
-        """Handle signal_calendar button press for showing economic calendar in signal flow"""
+        """Handle signal_calendar button press"""
         query = update.callback_query
         await query.answer()
-        
-        # Enhanced logging for debugging
-        logger.info(f"signal_calendar_callback called with data: {query.data}")
         
         # Check and maintain signal flow context
         is_from_signal = False
@@ -2714,12 +2256,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             is_from_signal = context.user_data.get('from_signal', False)
             # Make sure we stay in the signal flow
             context.user_data['from_signal'] = True
-            context.user_data['in_signal_flow'] = True  # Important for navigation
-            context.user_data['is_signals_context'] = False  # Not in signals context
+            context.user_data['is_signals_context'] = False  # Not in signals context anymore
             context.user_data['analysis_type'] = 'calendar'
             
-            # Debug current context
-            logger.info(f"Context before calendar: {context.user_data}")
+            # Backup signal data to make return possible
+            signal_instrument = context.user_data.get('instrument')
+            signal_direction = context.user_data.get('signal_direction')
+            signal_timeframe = context.user_data.get('signal_timeframe') 
+            
+            # Save these explicitly to ensure they're preserved
+            context.user_data['signal_instrument_backup'] = signal_instrument
+            context.user_data['signal_direction_backup'] = signal_direction
+            context.user_data['signal_timeframe_backup'] = signal_timeframe
         
         # Check if we're in the right flow
         if not is_from_signal:
@@ -2732,6 +2280,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception as e:
                 logger.error(f"Error in signal_calendar_callback redirect: {str(e)}")
             return MENU
+        
+        # Add detailed debug logging
+        logger.info(f"signal_calendar_callback called with data: {query.data}")
         
         # Get the instrument from context
         instrument = None
@@ -2747,22 +2298,63 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             return SIGNAL_ANALYSIS
         
+        # Determine currencies from instrument
+        currencies = []
+        if instrument in INSTRUMENT_CURRENCY_MAP:
+            currencies = INSTRUMENT_CURRENCY_MAP[instrument]
+            logger.info(f"Found currencies for {instrument}: {currencies}")
+        else:
+            # Default to USD if no mapping found
+            currencies = ["USD"]
+            logger.warning(f"No currency mapping found for {instrument}, defaulting to USD")
+        
         # Set loading message
         loading_message = f"Loading economic calendar for {instrument}..."
         
+        # Load economic calendar with currencies from the instrument
         try:
-            # Show initial loading message
+            # Try to show a loading message first
             await query.edit_message_text(text=loading_message)
             
-            # Use the show_economic_calendar method directly
-            # This is the same method used by the menu flow
-            return await self.show_economic_calendar(
-                update=update,
-                context=context,
-                currency=None,  # Let the method determine currency from instrument
-                loading_message=loading_message
+            # Make sure we're in signal flow for the return path
+            if context and hasattr(context, 'user_data'):
+                context.user_data['from_signal'] = True
+                context.user_data['loading_message'] = loading_message
+                
+            # Call the show_economic_calendar with the first currency from the instrument
+            # Note: we set the callback to be back_to_signal_analysis
+            primary_currency = currencies[0] if currencies else "USD"
+            
+            logger.info(f"Showing calendar for primary currency: {primary_currency}")
+            
+            # Initialize services
+            await self.initialize_services()
+            
+            # Format the calendar data
+            calendar_data = await self._get_calendar_service().get_economic_calendar(currency=primary_currency)
+            
+            if not calendar_data:
+                logger.warning(f"No calendar data found for {primary_currency}")
+                calendar_data = self._generate_mock_calendar_data([primary_currency], datetime.now())
+                
+            # Format the calendar events
+            formatted_data = await self._format_calendar_events(calendar_data)
+            
+            # Create keyboard with back button to signal analysis
+            keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")]]
+            
+            # Get flag emoji for the currency
+            currency_flag = CURRENCY_FLAG.get(primary_currency, "🌐")
+            
+            # Send the calendar data
+            await query.edit_message_text(
+                text=f"<b>{currency_flag} Economic Calendar for {primary_currency}</b>\n\n{formatted_data}",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
             )
             
+            return SIGNAL_ANALYSIS
+        
         except Exception as e:
             logger.error(f"Error in signal_calendar_callback: {str(e)}")
             try:
@@ -2773,8 +2365,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
             except Exception:
                 pass
-        
-        return SIGNAL_ANALYSIS
+            
+            return SIGNAL_ANALYSIS
 
     async def back_menu_callback(self, update: Update, context=None) -> int:
         """Handle back_menu button press to return to main menu.
@@ -3658,7 +3250,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Make sure the from_signal flag stays set to TRUE
                 # This is crucial for maintaining the correct flow
                 context.user_data['from_signal'] = True
-                context.user_data['in_signal_flow'] = True
                 
                 signal_id = context.user_data.get('signal_id')
                 signal_instrument = context.user_data.get('instrument')
@@ -3666,12 +3257,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 signal_timeframe = context.user_data.get('signal_timeframe')
                 signal_message = context.user_data.get('original_signal_message')
                 
-                # Log all signal-related context data for debugging
-                signal_keys = {k: v for k, v in context.user_data.items() if 'signal' in k}
-                logger.info(f"Signal context data: {signal_keys}")
-                logger.info(f"Retrieved signal context: id={signal_id}, instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
+                logger.info(f"Retrieved signal context: id={signal_id}, instrument={signal_instrument}, from_signal={context.user_data.get('from_signal', False)}")
             
-            if not signal_message and (not signal_id and not signal_instrument):
+            if not signal_id and not signal_instrument:
                 logger.error("No signal info found in context")
                 # Stuur een nieuw bericht in plaats van bewerken
                 await context.bot.send_message(
@@ -3682,107 +3270,111 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
                 return MENU
             
-            # First try to use the original message if available
-            if signal_message:
-                logger.info(f"Using original signal message: {signal_message[:100]}...")
-                
-                # Create single Analyze Market button instead of the menu
-                # This matches the UI shown in the screenshot
-                callback_data = f"analyze_from_signal_{signal_instrument}_{signal_id}"
-                keyboard = [
-                    [InlineKeyboardButton("🔍 Analyze Market", callback_data=callback_data)]
-                ]
-                
-                # Try to replace text or caption
-                try:
-                    # Check if the message has text or caption
-                    if hasattr(query.message, 'text') and query.message.text:
-                        await query.edit_message_text(
-                            text=signal_message,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    elif hasattr(query.message, 'caption') and query.message.caption:
-                        await query.edit_message_caption(
-                            caption=signal_message,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    else:
-                        # If neither text nor caption, send a new message
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=signal_message,
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    
-                    return SIGNAL_DETAILS
-                except Exception as message_error:
-                    logger.error(f"Error showing original signal message: {str(message_error)}")
-                    # Fall through to try using signal data
+            # Try to get the signal data from storage
+            signal_data = None
+            if signal_id:
+                signal_data = await self._get_signal_by_id(signal_id)
+                logger.info(f"Retrieved signal data for ID {signal_id}: {signal_data is not None}")
             
-            # For direct messages where we have signal instrument & direction
-            # but no complete message, reconstruct a basic signal
-            if signal_instrument:
-                instrument = signal_instrument
-                direction = signal_direction or "UNKNOWN"
-                timeframe = signal_timeframe or "1h"
+            # Keyboard voor signal details
+            keyboard = [
+                [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}_{signal_id or 'unknown'}")]
+            ]
+            
+            # Prepare message content
+            message_text = ""
+            
+            # If signal data is found, use it
+            if signal_data:
+                # Get the formatted message from the signal
+                message_text = signal_data.get('message', "Signal details not available.")
+            # If we have the saved original message, use that
+            elif signal_message:
+                message_text = signal_message
+            # If still no signal data but we have instrument info
+            elif signal_instrument:
+                # Create a minimal signal with the data we have
+                logger.info(f"Creating minimal signal message with available data")
                 
-                # Create a basic signal message
-                message = f"<b>📊 Signal for {instrument} • {timeframe}</b>\n\n"
-                message += f"<b>Direction:</b> {direction}\n"
+                # Fallback: create a basic message with available information
+                direction = signal_direction or "unknown"
+                direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴" if direction.upper() == "SELL" else "⚪"
                 
-                # Include basic hint
-                message += "\nSelect the button below to analyze this signal."
-                
-                # Create single Analyze Market button
-                callback_data = f"analyze_from_signal_{instrument}_{signal_id}"
-                keyboard = [
-                    [InlineKeyboardButton("🔍 Analyze Market", callback_data=callback_data)]
-                ]
-                
-                # Show the signal with the Analyze Market button
+                message_text = f"<b>🎯 Trading Signal</b>\n\n"
+                message_text += f"<b>Instrument:</b> {signal_instrument}\n"
+                if signal_direction:
+                    message_text += f"<b>Direction:</b> {signal_direction} {direction_emoji}\n"
+                if signal_timeframe:
+                    message_text += f"<b>Timeframe:</b> {signal_timeframe}\n"
+            else:
+                # Fallback bericht
+                message_text = "Signal not found. Please use the main menu to continue."
+                keyboard = START_KEYBOARD
+            
+            # Controleer of het bericht een foto/media bevat
+            has_photo = bool(query.message.photo) or query.message.animation is not None
+            
+            if has_photo:
                 try:
-                    await query.edit_message_text(
-                        text=message,
+                    # Als het een foto/media bevat, gebruik edit_message_media om terug te gaan
+                    # Stuur een transparante afbeelding om de foto te vervangen door tekst
+                    transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
+                    
+                    await query.edit_message_media(
+                        media=InputMediaDocument(
+                            media=transparent_gif,
+                            caption=message_text,
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as media_error:
+                    logger.warning(f"Could not edit media message: {str(media_error)}")
+                    
+                    # Als media bewerken mislukt, probeer een nieuw bericht te sturen
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=message_text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
                     
-                    # Return to signal details state
-                    return SIGNAL_DETAILS
-                    
-                except Exception as e:
-                    logger.error(f"Error showing reconstructed signal message: {str(e)}")
-                    
-                    # Fallback to sending a new message
+                    # Probeer het oorspronkelijke bericht te verwijderen
                     try:
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=message,
+                        await query.delete_message()
+                    except Exception as delete_error:
+                        logger.warning(f"Could not delete original message: {str(delete_error)}")
+            else:
+                # Als het een tekstbericht is, gebruik de standaard edit_message_text
+                try:
+                    await query.edit_message_text(
+                        text=message_text,
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    logger.warning(f"Could not edit text message: {str(text_error)}")
+                    
+                    # Als tekstbericht bewerken mislukt, probeer caption te bewerken
+                    try:
+                        await query.edit_message_caption(
+                            caption=message_text,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
                         )
-                        return SIGNAL_DETAILS
-                    except Exception:
-                        pass
-            
-            # If we get here, we couldn't show the signal message
-            logger.error("Failed to return to signal")
-            
-            # Error recovery - try to go back to main menu
-            try:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="Error returning to signal. Please use the main menu.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception:
-                pass
-            
-            return MENU
+                    except Exception as caption_error:
+                        logger.warning(f"Could not edit caption: {str(caption_error)}")
+                        
+                        # Als alles mislukt, stuur een nieuw bericht
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=message_text,
+                            reply_markup=InlineKeyboardMarkup(keyboard),
+                            parse_mode=ParseMode.HTML
+                        )
+                    
+            # Return to signal details state
+            return SIGNAL_DETAILS
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_callback: {str(e)}")
@@ -3801,7 +3393,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return MENU
 
     async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
-        """Handle analyze_from_signal button press to show signal analysis menu"""
+        """Handle analyze_from_signal button press"""
         try:
             query = update.callback_query
             await query.answer()
@@ -3827,19 +3419,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Store in context for other handlers
                 if context and hasattr(context, 'user_data'):
-                    # Clear any previous flow-specific data to prevent mixing
-                    flow_keys_to_clear = [
-                        'market', 'analysis_type', 'is_signals_context',
-                        'selected_market', 'timeframe_selection', 'styles'
-                    ]
-                    
-                    for key in flow_keys_to_clear:
-                        if key in context.user_data:
-                            del context.user_data[key]
-                    
                     # Set flags to indicate we're in a signal flow
                     context.user_data['from_signal'] = True
-                    context.user_data['in_signal_flow'] = True
                     context.user_data['is_signals_context'] = False  # Important: not in signals context
                     
                     # Store signal data for other handlers
@@ -3850,32 +3431,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Save original signal message context (for returning back)
                     if hasattr(query, 'message') and query.message:
-                        # Check if the message has text or caption
-                        if hasattr(query.message, 'text') and query.message.text:
+                        if query.message.text:
                             context.user_data['original_signal_message'] = query.message.text
-                            logger.info(f"Saved original signal text: {query.message.text[:50]}...")
-                        elif hasattr(query.message, 'caption') and query.message.caption:
+                        elif query.message.caption:
                             context.user_data['original_signal_message'] = query.message.caption
-                            logger.info(f"Saved original signal caption: {query.message.caption[:50]}...")
-                        
-                        # Store message ID if available to help with navigation
-                        if hasattr(query.message, 'message_id'):
-                            context.user_data['original_signal_message_id'] = query.message.message_id
-                            logger.info(f"Saved original signal message ID: {query.message.message_id}")
-                        
-                        # Store chat ID for potential future use
-                        if hasattr(query.message, 'chat') and hasattr(query.message.chat, 'id'):
-                            context.user_data['original_signal_chat_id'] = query.message.chat.id
-                    
-                    # Create backup of signal data that won't be modified
-                    context.user_data['signal_instrument_backup'] = instrument
-                    context.user_data['signal_direction_backup'] = direction
-                    context.user_data['signal_timeframe_backup'] = timeframe
-                    context.user_data['signal_id_backup'] = signal_id
                     
                     # Log stored context
-                    signal_keys = {k: v for k, v in context.user_data.items() if 'signal' in k or k in ['instrument', 'from_signal', 'in_signal_flow']}
-                    logger.info(f"Stored signal context: {signal_keys}")
+                    logger.info(f"Stored signal context - instrument: {instrument}, timeframe: {timeframe}")
                 
                 # Show signal analysis menu - vertical layout with 3 services
                 keyboard = [
@@ -3899,24 +3461,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 except Exception as e:
                     logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
                     
-                    # Fallback - try to send a new message if we couldn't edit the current one
+                    # Fallback
                     try:
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=f"<b>Signal Analysis for {instrument}</b>\n\nChoose analysis type:",
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                        return SIGNAL_ANALYSIS
-                    except Exception:
-                        # Final fallback - show error message
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
+                        await query.edit_message_text(
                             text="Error showing signal analysis menu. Please try again.",
                             reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                             parse_mode=ParseMode.HTML
                         )
-                        return MENU
+                    except Exception:
+                        pass
+                        
+                    return MENU
             else:
                 # Invalid callback data format
                 logger.error(f"Invalid callback data format: {callback_data}")
@@ -3940,7 +3495,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     )
             except Exception:
                 pass
-            
+                
             return MENU
 
     async def button_callback(self, update: Update, context=None) -> int:
@@ -3949,42 +3504,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             query = update.callback_query
             callback_data = query.data
             
+            # Log the callback data
             logger.info(f"Button callback opgeroepen met data: {callback_data}")
             
-            # Answer the callback query to remove the loading indicator on the button
+            # Answer the callback query to stop the loading indicator
             await query.answer()
             
-            # Split the callback data for pattern matching
-            parts = callback_data.split("_")
-            
-            # Handle analyze_from_signal buttons
+            # Handle analyze from signal button
             if callback_data.startswith("analyze_from_signal_"):
-                logger.info(f"Handling analyze_from_signal in button_callback: {callback_data}")
                 return await self.analyze_from_signal_callback(update, context)
                 
-            # Handle back_to_signal_analysis specifically
-            if callback_data == "back_to_signal_analysis":
-                logger.info(f"Handling back_to_signal_analysis in button_callback")
-                return await self.back_to_signal_analysis_callback(update, context)
+            # Help button
+            if callback_data == "help":
+                await self.help_command(update, context)
+                return MENU
                 
-            # Handle signal-specific buttons that might be missed by the specific handlers
-            if callback_data == "signal_technical":
-                logger.info(f"Handling signal_technical in general button_callback")
-                return await self.signal_technical_callback(update, context)
+            # Menu navigation
+            if callback_data == CALLBACK_MENU_ANALYSE:
+                return await self.menu_analyse_callback(update, context)
+            elif callback_data == CALLBACK_MENU_SIGNALS:
+                return await self.menu_signals_callback(update, context)
             
-            if callback_data == "signal_sentiment":
-                logger.info(f"Handling signal_sentiment in general button_callback")
-                return await self.signal_sentiment_callback(update, context)
+            # Analysis type selection
+            elif callback_data == CALLBACK_ANALYSIS_TECHNICAL or callback_data == "analysis_technical":
+                return await self.analysis_technical_callback(update, context)
+            elif callback_data == CALLBACK_ANALYSIS_SENTIMENT or callback_data == "analysis_sentiment":
+                return await self.analysis_sentiment_callback(update, context)
+            elif callback_data == CALLBACK_ANALYSIS_CALENDAR or callback_data == "analysis_calendar":
+                return await self.analysis_calendar_callback(update, context)
                 
-            if callback_data == "signal_calendar":
-                logger.info(f"Handling signal_calendar in general button_callback")
-                return await self.signal_calendar_callback(update, context)
-                
-            # Handle back_to_signal button
-            if callback_data == "back_to_signal":
-                logger.info(f"Handling back_to_signal in button_callback")
-                return await self.back_to_signal_callback(update, context)
-            
             # Direct instrument_timeframe callbacks  
             if "_timeframe_" in callback_data:
                 # Format: instrument_EURUSD_timeframe_H1
@@ -4016,14 +3564,77 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if callback_data == "signals_manage" or callback_data == CALLBACK_SIGNALS_MANAGE:
                 return await self.signals_manage_callback(update, context)
             
-            # Generic handlers for unmatched patterns - log it
-            logger.warning(f"Unhandled callback_data: {callback_data}")
+            # Back navigation handlers
+            if callback_data == "back_menu" or callback_data == CALLBACK_BACK_MENU:
+                return await self.back_menu_callback(update, context)
+            elif callback_data == "back_analysis" or callback_data == CALLBACK_BACK_ANALYSIS:
+                return await self.analysis_callback(update, context)
+            elif callback_data == "back_signals" or callback_data == CALLBACK_BACK_SIGNALS:
+                return await self.back_signals_callback(update, context)
+            elif callback_data == "back_market" or callback_data == CALLBACK_BACK_MARKET:
+                return await self.back_market_callback(update, context)
+            elif callback_data == "back_instrument":
+                return await self.back_instrument_callback(update, context)
+            elif callback_data == "back_to_signal_analysis":
+                return await self.back_to_signal_analysis_callback(update, context)
+            elif callback_data == "back_to_signal":
+                return await self.back_to_signal_callback(update, context)
             
+            # Handle delete signal
+            if callback_data.startswith("delete_signal_"):
+                # Extract signal ID from callback data
+                signal_id = callback_data.replace("delete_signal_", "")
+                
+                try:
+                    # Delete the signal subscription
+                    response = self.db.supabase.table('signal_subscriptions').delete().eq('id', signal_id).execute()
+                    
+                    if response and response.data:
+                        # Successfully deleted
+                        await query.answer("Signal subscription removed successfully")
+                    else:
+                        # Failed to delete
+                        await query.answer("Failed to remove signal subscription")
+                    
+                    # Refresh the manage signals view
+                    return await self.signals_manage_callback(update, context)
+                    
+                except Exception as e:
+                    logger.error(f"Error deleting signal subscription: {str(e)}")
+                    await query.answer("Error removing signal subscription")
+                    return await self.signals_manage_callback(update, context)
+                    
+            # Handle delete all signals
+            if callback_data == "delete_all_signals":
+                user_id = update.effective_user.id
+                
+                try:
+                    # Delete all signal subscriptions for this user
+                    response = self.db.supabase.table('signal_subscriptions').delete().eq('user_id', user_id).execute()
+                    
+                    if response and response.data:
+                        # Successfully deleted
+                        await query.answer("All signal subscriptions removed successfully")
+                    else:
+                        # Failed to delete
+                        await query.answer("Failed to remove signal subscriptions")
+                    
+                    # Refresh the manage signals view
+                    return await self.signals_manage_callback(update, context)
+                    
+                except Exception as e:
+                    logger.error(f"Error deleting all signal subscriptions: {str(e)}")
+                    await query.answer("Error removing signal subscriptions")
+                    return await self.signals_manage_callback(update, context)
+                    
+                    
+            # Default handling if no specific callback found, go back to menu
+            logger.warning(f"Unhandled callback_data: {callback_data}")
             return MENU
             
         except Exception as e:
             logger.error(f"Error in button_callback: {str(e)}")
-            logger.error(traceback.format_exc())
+            logger.exception(e)
             return MENU
 
     async def market_callback(self, update: Update, context=None) -> int:
