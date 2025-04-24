@@ -126,7 +126,7 @@ async def startup_event():
         
         # Register command handlers manually
         telegram_service.application.add_handler(CommandHandler("start", telegram_service.start_command))
-        telegram_service.application.add_handler(CommandHandler("menu", telegram_service.show_main_menu))
+        telegram_service.application.add_handler(CommandHandler("menu", telegram_service.menu_command))
         telegram_service.application.add_handler(CommandHandler("help", telegram_service.help_command))
         telegram_service.application.add_handler(CommandHandler("set_subscription", telegram_service.set_subscription_command))
         telegram_service.application.add_handler(CommandHandler("set_payment_failed", telegram_service.set_payment_failed_command))
