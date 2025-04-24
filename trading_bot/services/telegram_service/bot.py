@@ -740,6 +740,16 @@ class TelegramService:
         self.logger.info("Getting calendar service")
         return self.calendar_service
 
+    @property
+    def sentiment_service(self):
+        """Lazy loaded sentiment service"""
+        if self._sentiment_service is None:
+            # Only initialize the sentiment service when it's first accessed
+            logger.info("Lazy loading sentiment service")
+            from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
+            self._sentiment_service = MarketSentimentService()
+        return self._sentiment_service
+
     async def _format_calendar_events(self, calendar_data):
         """Format the calendar data into a readable HTML message"""
         self.logger.info(f"Formatting calendar data with type {type(calendar_data)}")
@@ -4236,3 +4246,282 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.exception(e)
             # Initialize empty dict on error
             self.user_signals = {}
+
+    async def show_sentiment_analysis(self, update: Update, context=None, instrument=None) -> int:
+        """Show sentiment analysis for a selected instrument"""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            # Check if we're in the signal flow
+            is_from_signal = False
+            if context and hasattr(context, 'user_data'):
+                is_from_signal = context.user_data.get('from_signal', False)
+                # Add debug logging
+                logger.info(f"show_sentiment_analysis: from_signal = {is_from_signal}")
+                logger.info(f"Context user_data: {context.user_data}")
+            
+            # Get instrument from parameter or context
+            if not instrument and context and hasattr(context, 'user_data'):
+                instrument = context.user_data.get('instrument')
+            
+            if not instrument:
+                logger.error("No instrument provided for sentiment analysis")
+                try:
+                    await query.edit_message_text(
+                        text="Please select an instrument first.",
+                        reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating message: {str(e)}")
+                return CHOOSE_MARKET
+            
+            logger.info(f"Showing sentiment analysis for instrument: {instrument}")
+            
+            # Clean instrument name (without _SELL_4h etc)
+            clean_instrument = instrument.split('_')[0] if '_' in instrument else instrument
+            
+            # Check if we already have a loading message from context
+            loading_message = None
+            if context and hasattr(context, 'user_data'):
+                loading_message = context.user_data.get('loading_message')
+            
+            # If we don't have a loading message from context, create one
+            if not loading_message:
+                # Show loading message with GIF
+                loading_text = "Generating sentiment analysis..."
+                loading_gif = "https://media.giphy.com/media/dpjUltnOPye7azvAhH/giphy.gif"
+                
+                try:
+                    # Try to show the loading GIF
+                    await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media=loading_gif,
+                            caption=loading_text
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not show loading GIF: {str(e)}")
+                    # Fallback to text update
+                    try:
+                        await query.edit_message_text(text=loading_text)
+                    except Exception as inner_e:
+                        try:
+                            await query.edit_message_caption(caption=loading_text)
+                        except Exception as inner_e2:
+                            logger.error(f"Could not update loading message: {str(inner_e2)}")
+            
+            # Get sentiment data using clean instrument name - property will lazily initialize the service
+            sentiment_data = await self.sentiment_service.get_sentiment(clean_instrument)
+            
+            if not sentiment_data:
+                # Determine which back button to use based on flow
+                back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
+                await query.message.reply_text(
+                    text=f"Failed to get sentiment data. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
+                    ]])
+                )
+                return CHOOSE_ANALYSIS
+            
+            # Extract data
+            bullish = sentiment_data.get('bullish', 50)
+            bearish = sentiment_data.get('bearish', 30)
+            neutral = sentiment_data.get('neutral', 20)
+            
+            # Determine sentiment
+            if bullish > bearish + neutral:
+                overall = "Bullish"
+                emoji = "📈"
+            elif bearish > bullish + neutral:
+                overall = "Bearish"
+                emoji = "📉"
+            else:
+                overall = "Neutral"
+                emoji = "⚖️"
+            
+            # Get analysis text
+            analysis_text = ""
+            if isinstance(sentiment_data.get('analysis'), str):
+                analysis_text = sentiment_data['analysis']
+            
+            # Prepare the message format without relying on regex
+            # This will help avoid HTML parsing errors
+            title = f"<b>🎯 {clean_instrument} Market Analysis</b>"
+            overall_sentiment = f"<b>Overall Sentiment:</b> {overall} {emoji}"
+            
+            # Check if the provided analysis already has a title
+            if analysis_text and "<b>🎯" in analysis_text and "Market Analysis</b>" in analysis_text:
+                # Extract the title from the analysis
+                title_start = analysis_text.find("<b>🎯")
+                title_end = analysis_text.find("</b>", title_start) + 4
+                title = analysis_text[title_start:title_end]
+                
+                # Remove the title from the analysis
+                analysis_text = analysis_text[:title_start] + analysis_text[title_end:]
+                analysis_text = analysis_text.strip()
+            
+            # Clean up the analysis text
+            analysis_text = analysis_text.replace("</b><b>", "</b> <b>")  # Fix malformed tags
+            
+            # Make sure ALL headers in the analysis are in bold
+            headers = [
+                "Market Sentiment Breakdown:",
+                "Market Direction:",
+                "Latest News & Events:",
+                "Risk Factors:",
+                "Conclusion:",
+                "Technical Outlook:",
+                "Fundamental Analysis:",
+                "Support & Resistance:",
+                "Sentiment Breakdown:"
+            ]
+            
+            # First remove existing bold tags for headers to prevent double tags
+            for header in headers:
+                if f"<b>{header}</b>" in analysis_text:
+                    # If header is already bold, don't apply again
+                    continue
+                
+                # Replace normal text with bold text, using regex for exact match
+                pattern = re.compile(r'(\n|^)(' + re.escape(header) + r')')
+                analysis_text = pattern.sub(r'\1<b>\2</b>', analysis_text)
+            
+            # Remove extra whitespace between sections
+            analysis_text = re.sub(r'\n{3,}', '\n\n', analysis_text)  # Replace 3+ newlines with 2
+            analysis_text = re.sub(r'^\n+', '', analysis_text)  # Remove leading newlines
+            
+            # Improve the layout of the message
+            # Specifically remove whitespace between Overall Sentiment and Market Sentiment Breakdown
+            full_message = f"{title}\n\n{overall_sentiment}"
+            
+            # If there's analysis text, add it with compact formatting
+            if analysis_text:
+                found_header = False
+                
+                # Check specifically for Market Sentiment Breakdown header
+                if "<b>Market Sentiment Breakdown:</b>" in analysis_text:
+                    parts = analysis_text.split("<b>Market Sentiment Breakdown:</b>", 1)
+                    full_message += f"\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
+                    found_header = True
+                elif "Market Sentiment Breakdown:" in analysis_text:
+                    # If the header is present but not bold, fix it
+                    parts = analysis_text.split("Market Sentiment Breakdown:", 1)
+                    full_message += f"\n\n<b>Market Sentiment Breakdown:</b>{parts[1]}"
+                    found_header = True
+                
+                # If the Market Sentiment header is not found, look for other headers
+                if not found_header:
+                    for header in headers:
+                        header_bold = f"<b>{header}</b>"
+                        if header_bold in analysis_text:
+                            parts = analysis_text.split(header_bold, 1)
+                            full_message += f"\n\n{header_bold}{parts[1]}"
+                            found_header = True
+                            break
+                        elif header in analysis_text:
+                            # If the header is present but not bold, fix it
+                            parts = analysis_text.split(header, 1)
+                            full_message += f"\n\n<b>{header}</b>{parts[1]}"
+                            found_header = True
+                            break
+                
+                # If no headers found, add the full analysis
+                if not found_header:
+                    full_message += f"\n\n{analysis_text}"
+            else:
+                # No analysis text, add a manual breakdown without extra spacing
+                full_message += f"""
+<b>Market Sentiment Breakdown:</b>
+🟢 Bullish: {bullish}%
+🔴 Bearish: {bearish}%
+⚪️ Neutral: {neutral}%"""
+
+            # Remove all double newlines to prevent more whitespace
+            full_message = re.sub(r'\n{3,}', '\n\n', full_message)
+            
+            # Create reply markup with back button - use correct back button based on flow
+            back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
+            logger.info(f"Using back button callback: {back_callback} (from_signal: {is_from_signal})")
+            reply_markup = InlineKeyboardMarkup([[
+                InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
+            ]])
+            
+            # Validate HTML formatting
+            try:
+                # Test if HTML parsing works by creating a re-sanitized version
+                from html.parser import HTMLParser
+                
+                class HTMLValidator(HTMLParser):
+                    def __init__(self):
+                        super().__init__()
+                        self.errors = []
+                        self.open_tags = []
+                    
+                    def handle_starttag(self, tag, attrs):
+                        self.open_tags.append(tag)
+                    
+                    def handle_endtag(self, tag):
+                        if self.open_tags and self.open_tags[-1] == tag:
+                            self.open_tags.pop()
+                        else:
+                            self.errors.append(f"Unexpected end tag: {tag}")
+                
+                validator = HTMLValidator()
+                validator.feed(full_message)
+                
+                if validator.errors:
+                    logger.warning(f"HTML validation errors: {validator.errors}")
+                    # Fallback to plaintext if HTML is invalid
+                    full_message = re.sub(r'<[^>]+>', '', full_message)
+            except Exception as html_error:
+                logger.warning(f"HTML validation failed: {str(html_error)}")
+            
+            # Send a completely new message to avoid issues with previous message
+            try:
+                # First try to edit the existing message when possible
+                try:
+                    await query.edit_message_text(
+                        text=full_message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                    logger.info("Successfully edited existing message with sentiment analysis")
+                except Exception as edit_error:
+                    logger.warning(f"Could not edit message, will create new one: {str(edit_error)}")
+                    
+                    # If editing fails, delete and create new message
+                    await query.message.delete()
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=full_message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=reply_markup
+                    )
+                
+                return SHOW_RESULT
+                
+            except Exception as e:
+                logger.error(f"Error displaying sentiment: {str(e)}")
+                try:
+                    await query.edit_message_text(
+                        text=f"Error showing sentiment analysis. Please try again.",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                    )
+                except Exception:
+                    pass
+                return CHOOSE_ANALYSIS
+                
+        except Exception as e:
+            logger.error(f"Error in show_sentiment_analysis: {str(e)}")
+            try:
+                # Try to recover
+                if update and update.callback_query:
+                    await update.callback_query.edit_message_text(
+                        text="An error occurred. Please try again.",
+                        reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                    )
+            except Exception:
+                pass
+            return MENU
