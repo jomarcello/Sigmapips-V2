@@ -732,7 +732,7 @@ class TelegramService:
                 logger.info("Starting Telegram polling in run() method")
                 try:
                     # Try to start polling if not already started
-                    await self.application.updater.start_polling(
+                        await self.application.updater.start_polling(
                         allowed_updates=['message', 'callback_query', 'my_chat_member'],
                         drop_pending_updates=True,
                         error_callback=lambda e: logger.error(f"Polling error in run: {e}")
@@ -913,7 +913,7 @@ class TelegramService:
             # If we get "There is no text in the message to edit" error, try to edit caption
             if "There is no text in the message to edit" in str(e):
                 try:
-                    await query.edit_message_caption(
+                        await query.edit_message_caption(
                         caption=text,
                         reply_markup=keyboard,
                         parse_mode=parse_mode
@@ -923,7 +923,7 @@ class TelegramService:
                     logger.error(f"Error editing message caption: {str(caption_e)}")
                     # Try sending a new message as a last resort
                     try:
-                        await query.message.reply_text(
+                                await query.message.reply_text(
                             text=text,
                             reply_markup=keyboard,
                             parse_mode=parse_mode
@@ -936,7 +936,7 @@ class TelegramService:
                 # For other errors, log and try a fallback
                 logger.error(f"Error updating message: {str(e)}")
                 try:
-                    await query.message.reply_text(
+                        await query.message.reply_text(
                         text=text,
                         reply_markup=keyboard,
                         parse_mode=parse_mode
@@ -1157,7 +1157,7 @@ class TelegramService:
                         ]
                         
                         # Send the signal
-                        await self.bot.send_message(
+                                await self.bot.send_message(
                             chat_id=admin_id,
                             text=message,
                             parse_mode=ParseMode.HTML,
@@ -1197,7 +1197,7 @@ class TelegramService:
                     ]
                     
                     # Send the signal
-                    await self.bot.send_message(
+                        await self.bot.send_message(
                         chat_id=user_id,
                         text=message,
                         parse_mode=ParseMode.HTML,
@@ -1400,12 +1400,12 @@ class TelegramService:
             # Fallbacks if editing fails
             if "There is no text in the message to edit" in str(e):
                 try:
-                    await query.edit_message_caption(
+                        await query.edit_message_caption(
                         caption="Unknown button. Returning to main menu.",
                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
                     )
                 except Exception:
-                    await query.message.reply_text(
+                        await query.message.reply_text(
                         text="Unknown button. Try the main menu.",
                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Main Menu", callback_data="back_menu")]])
                     )
@@ -1612,7 +1612,7 @@ Start today with a FREE 14-day trial!
                     logger.info(f"Extracted chat ID from message: {chat_id}")
                 except ValueError:
                     logger.error(f"Invalid chat ID format in message: {command_parts[1]}")
-                    await update.message.reply_text(f"Invalid chat ID format: {command_parts[1]}")
+                        await update.message.reply_text(f"Invalid chat ID format: {command_parts[1]}")
                     return
             # Fallback to context args if needed
             elif context and context.args and len(context.args) > 0:
@@ -1717,7 +1717,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Als media update mislukt, probeer tekst te updaten
                 try:
-                    await query.edit_message_text(
+                        await query.edit_message_text(
                         text="Select your analysis type:",
                         reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
                         parse_mode=ParseMode.HTML
@@ -1726,15 +1726,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # Als tekst updaten mislukt, probeer bijschrift te updaten
                     if "There is no text in the message to edit" in str(text_error):
                         try:
-                            await query.edit_message_caption(
+                                    await query.edit_message_caption(
                                 caption="Select your analysis type:",
                                 reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
                                 parse_mode=ParseMode.HTML
                             )
-                        except Exception as caption_error:
+                    except Exception as caption_error:
                             logger.error(f"Failed to update caption: {str(caption_error)}")
                             # Laatste redmiddel: stuur een nieuw bericht
-                            await context.bot.send_animation(
+                                    await context.bot.send_animation(
                                 chat_id=update.effective_chat.id,
                                 animation=gif_url,
                                 caption="Select your analysis type:",
@@ -1744,7 +1744,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     else:
                         logger.error(f"Failed to update message: {str(text_error)}")
                         # Laatste redmiddel: stuur een nieuw bericht
-                        await context.bot.send_animation(
+                                await context.bot.send_animation(
                             chat_id=update.effective_chat.id,
                             animation=gif_url,
                             caption="Select your analysis type:",
@@ -1779,12 +1779,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         # Verwijder eventuele vorige berichten met callback query
                         if hasattr(update, 'callback_query') and update.callback_query:
                             try:
-                                await update.callback_query.message.delete()
-                            except Exception:
+                                        await update.callback_query.message.delete()
+                    except Exception:
                                 pass
                         
                         # Send the GIF using regular animation method
-                        await update.message.reply_animation(
+                                await update.message.reply_animation(
                             animation=gif_url,
                             caption=WELCOME_MESSAGE,
                             parse_mode=ParseMode.HTML,
@@ -1795,27 +1795,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         if hasattr(update, 'callback_query') and update.callback_query:
                             try:
                                 # Verwijder het huidige bericht
-                                await update.callback_query.message.delete()
+                                        await update.callback_query.message.delete()
                                 
                                 # Stuur nieuw bericht met de welkomst GIF
-                                await bot.send_animation(
+                                        await bot.send_animation(
                                     chat_id=update.effective_chat.id,
                                     animation=gif_url,
                                     caption=WELCOME_MESSAGE,
                                     parse_mode=ParseMode.HTML,
                                     reply_markup=reply_markup
                                 )
-                            except Exception as e:
+                    except Exception as e:
                                 logger.error(f"Failed to handle callback query: {str(e)}")
                                 # Valt terug op tekstwijziging als verwijderen niet lukt
-                                await update.callback_query.edit_message_text(
+                                        await update.callback_query.edit_message_text(
                                     text=WELCOME_MESSAGE,
                                     parse_mode=ParseMode.HTML,
                                     reply_markup=reply_markup
                                 )
                         else:
                             # Final fallback - try to send a new message
-                            await bot.send_animation(
+                                    await bot.send_animation(
                                 chat_id=update.effective_chat.id,
                                 animation=gif_url,
                                 caption=WELCOME_MESSAGE,
@@ -1826,13 +1826,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.error(f"Failed to send menu GIF: {str(e)}")
                     # Fallback to text-only approach
                     if hasattr(update, 'message') and update.message:
-                        await update.message.reply_text(
+                                await update.message.reply_text(
                             text=WELCOME_MESSAGE,
                             parse_mode=ParseMode.HTML,
                             reply_markup=reply_markup
                         )
                     else:
-                        await bot.send_message(
+                                await bot.send_message(
                             chat_id=update.effective_chat.id,
                             text=WELCOME_MESSAGE,
                             parse_mode=ParseMode.HTML,
@@ -1841,13 +1841,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             else:
                 # Skip GIF mode - just send text
                 if hasattr(update, 'message') and update.message:
-                    await update.message.reply_text(
+                        await update.message.reply_text(
                         text=WELCOME_MESSAGE,
                         parse_mode=ParseMode.HTML,
                         reply_markup=reply_markup
                     )
                 else:
-                    await bot.send_message(
+                        await bot.send_message(
                         chat_id=update.effective_chat.id,
                         text=WELCOME_MESSAGE,
                         parse_mode=ParseMode.HTML,
@@ -1907,7 +1907,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # If that fails due to caption, try editing caption
             if "There is no text in the message to edit" in str(text_error):
                 try:
-                    await query.edit_message_caption(
+                        await query.edit_message_caption(
                         caption="Select market for technical analysis:",
                         reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
                         parse_mode=ParseMode.HTML
@@ -1915,7 +1915,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 except Exception as e:
                     logger.error(f"Failed to update caption in analysis_technical_callback: {str(e)}")
                     # Try to send a new message as last resort
-                    await query.message.reply_text(
+                        await query.message.reply_text(
                         text="Select market for technical analysis:",
                         reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
                         parse_mode=ParseMode.HTML
@@ -1967,7 +1967,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # If that fails due to caption, try editing caption
             if "There is no text in the message to edit" in str(text_error):
                 try:
-                    await query.edit_message_caption(
+                        await query.edit_message_caption(
                         caption="Select market for sentiment analysis:",
                         reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
                         parse_mode=ParseMode.HTML
@@ -1975,7 +1975,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 except Exception as e:
                     logger.error(f"Failed to update caption in analysis_sentiment_callback: {str(e)}")
                     # Try to send a new message as last resort
-                    await query.message.reply_text(
+                        await query.message.reply_text(
                         text="Select market for sentiment analysis:",
                         reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD),
                         parse_mode=ParseMode.HTML
@@ -2113,14 +2113,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Try to delete loading message first if it exists
             if loading_message:
                 try:
-                    await context.bot.delete_message(chat_id=chat_id, message_id=loading_message.message_id)
+                        await context.bot.delete_message(chat_id=chat_id, message_id=loading_message.message_id)
                     self.logger.info("Successfully deleted loading message")
                 except Exception as delete_error:
                     self.logger.warning(f"Could not delete loading message: {str(delete_error)}")
                     
                     # If deletion fails, try to edit it
                     try:
-                        await context.bot.edit_message_text(
+                                await context.bot.edit_message_text(
                             chat_id=chat_id,
                             message_id=loading_message.message_id,
                             text=message,
@@ -2531,7 +2531,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 try:
                     # If message has photo or animation, replace media
                     if query.message.photo or query.message.animation:
-                        await query.edit_message_media(
+                                await query.edit_message_media(
                             media=InputMediaAnimation(
                                 media=gif_url,
                                 caption=WELCOME_MESSAGE
@@ -2540,7 +2540,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         )
                     else:
                         # Otherwise just update text
-                        await query.edit_message_text(
+                                await query.edit_message_text(
                             text=WELCOME_MESSAGE,
                             parse_mode=ParseMode.HTML,
                             reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
@@ -2550,22 +2550,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Last resort: try to update just the caption
                     try:
-                        await query.edit_message_caption(
+                                await query.edit_message_caption(
                             caption=WELCOME_MESSAGE,
                             parse_mode=ParseMode.HTML,
                             reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                         )
                     except Exception as caption_e:
-                        logger.error(f"Failed to update caption in back_menu_callback: {str(caption_e)}")
-                        
-                        # Absolute last resort: send a new message
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=WELCOME_MESSAGE,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                        logger.error(f"Error editing message caption: {str(caption_e)}")
+                        try:
+                            await query.message.reply_text(
+                                text="Unknown button pressed. Returning to main menu.",
+                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                            )
+                        except Exception as reply_e:
+                            logger.error(f"Error sending reply message: {str(reply_e)}")
+                else:
+                    logger.error(f"Error in button_callback default handling: {str(e)}")
+                    try:
+                        await query.message.reply_text(
+                            text="Unknown button pressed. Returning to main menu.",
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
                         )
-            
+                    except Exception as reply_e:
+                        logger.error(f"Error sending reply message: {str(reply_e)}")
             return MENU
         except Exception as e:
             logger.error(f"Error in back_menu_callback: {str(e)}")
@@ -2631,7 +2638,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 try:
                     # If message has photo or animation, replace media
                     if hasattr(query.message, 'photo') and query.message.photo or hasattr(query.message, 'animation') and query.message.animation:
-                        await query.edit_message_media(
+                                await query.edit_message_media(
                             media=InputMediaAnimation(
                                 media=signals_gif_url,
                                 caption="<b>📈 Signal Management</b>\n\nManage your trading signals"
@@ -2640,7 +2647,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         )
                     else:
                         # Otherwise just update text
-                        await query.edit_message_text(
+                                await query.edit_message_text(
                             text="<b>📈 Signal Management</b>\n\nManage your trading signals",
                             parse_mode=ParseMode.HTML,
                             reply_markup=reply_markup
@@ -2651,7 +2658,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Last resort: try to update just the caption
                     try:
-                        await query.edit_message_caption(
+                                await query.edit_message_caption(
                             caption="<b>📈 Signal Management</b>\n\nManage your trading signals",
                             parse_mode=ParseMode.HTML,
                             reply_markup=reply_markup
@@ -2660,7 +2667,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         logger.error(f"Failed to update caption in menu_signals_callback: {str(caption_e)}")
                         
                         # Absolute last resort: send a new message
-                        await context.bot.send_message(
+                                await context.bot.send_message(
                             chat_id=update.effective_chat.id,
                             text="<b>📈 Signal Management</b>\n\nManage your trading signals",
                             parse_mode=ParseMode.HTML,
@@ -2822,7 +2829,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # Probeer foto/media te vervangen met transparante afbeelding en menu tekst
                     transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
                     
-                    await query.edit_message_media(
+                        await query.edit_message_media(
                         media=InputMediaDocument(
                             media=transparent_gif,
                             caption=menu_text,
@@ -2835,7 +2842,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.warning(f"Could not edit media message: {str(media_error)}")
                     
                     # Als media bewerking mislukt, stuur een nieuw bericht
-                    await context.bot.send_message(
+                        await context.bot.send_message(
                         chat_id=update.effective_chat.id,
                         text=menu_text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -2844,14 +2851,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Probeer het oorspronkelijke bericht te verwijderen
                     try:
-                        await query.delete_message()
+                                await query.delete_message()
                         logger.info("Deleted original message after sending new message")
                     except Exception as delete_error:
                         logger.warning(f"Could not delete original message: {str(delete_error)}")
             else:
                 # Voor tekstberichten gebruiken we de standaard bewerkingsmethode
                 try:
-                    await query.edit_message_text(
+                        await query.edit_message_text(
                         text=menu_text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
@@ -2862,7 +2869,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Probeer caption te bewerken als fallback
                     try:
-                        await query.edit_message_caption(
+                                await query.edit_message_caption(
                             caption=menu_text,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
@@ -2872,7 +2879,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         logger.warning(f"Could not update caption: {str(caption_error)}")
                         
                         # Stuur een nieuw bericht als laatste redmiddel
-                        await context.bot.send_message(
+                                await context.bot.send_message(
                             chat_id=update.effective_chat.id,
                             text=menu_text,
                             reply_markup=InlineKeyboardMarkup(keyboard),
@@ -2887,7 +2894,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Poging tot herstel door naar analyse selectie te gaan
             try:
                 if update and update.effective_chat:
-                    await context.bot.send_message(
+                        await context.bot.send_message(
                         chat_id=update.effective_chat.id,
                         text="Select your analysis type:",
                         reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
@@ -2897,7 +2904,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception:
                 # Laatste redmiddel - update bericht met foutmelding
                 if query:
-                    await self.update_message(
+                        await self.update_message(
                         query, 
                         "Sorry, an error occurred. Please use /menu to start again.", 
                         keyboard=None
@@ -3007,7 +3014,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # Stuur een transparante afbeelding om de foto te vervangen door tekst
                     transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
                     
-                    await query.edit_message_media(
+                        await query.edit_message_media(
                         media=InputMediaDocument(
                             media=transparent_gif,
                             caption=message_text,
@@ -3019,7 +3026,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.warning(f"Could not edit media message: {str(media_error)}")
                     
                     # Als media bewerken mislukt, probeer een nieuw bericht te sturen
-                    await context.bot.send_message(
+                        await context.bot.send_message(
                         chat_id=update.effective_chat.id,
                         text=message_text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -3028,13 +3035,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Probeer het oorspronkelijke bericht te verwijderen
                     try:
-                        await query.delete_message()
+                                await query.delete_message()
                     except Exception as delete_error:
                         logger.warning(f"Could not delete original message: {str(delete_error)}")
             else:
                 # Als het een tekstbericht is, gebruik de standaard edit_message_text
                 try:
-                    await query.edit_message_text(
+                        await query.edit_message_text(
                         text=message_text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
@@ -3044,7 +3051,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Als tekstbericht bewerken mislukt, probeer caption te bewerken
                     try:
-                        await query.edit_message_caption(
+                                await query.edit_message_caption(
                             caption=message_text,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
@@ -3053,7 +3060,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         logger.warning(f"Could not edit caption: {str(caption_error)}")
                         
                         # Als alles mislukt, stuur een nieuw bericht
-                        await context.bot.send_message(
+                                await context.bot.send_message(
                             chat_id=update.effective_chat.id,
                             text=message_text,
                             reply_markup=InlineKeyboardMarkup(keyboard),
@@ -3103,8 +3110,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     )
                     if query:
                         try:
-                            await query.answer("Please wait before requesting another analysis")
-                        except Exception:
+                                    await query.answer("Please wait before requesting another analysis")
+                    except Exception:
                             pass
                     return CHOOSE_ANALYSIS
             
@@ -3205,7 +3212,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.warning(f"Could not show loading GIF: {str(gif_error)}")
                 # Fallback to text loading message
                 try:
-                    await query.edit_message_text(text=loading_text)
+                        await query.edit_message_text(text=loading_text)
                 except Exception:
                     pass
             
@@ -3261,7 +3268,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             truncated_caption = analysis_text
                         
                         # Update message with photo file
-                        await query.edit_message_media(
+                                await query.edit_message_media(
                             media=InputMediaPhoto(
                                 media=photo_file,
                                 caption=truncated_caption,
@@ -3278,7 +3285,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             
                             # Send each chunk as a separate message
                             for chunk in chunks:
-                                await context.bot.send_message(
+                                        await context.bot.send_message(
                                     chat_id=update.effective_chat.id,
                                     text=chunk,
                                     parse_mode=ParseMode.HTML
@@ -3294,7 +3301,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             else:
                                 truncated_caption = analysis_text
                                 
-                            await query.message.reply_photo(
+                                    await query.message.reply_photo(
                                 photo=file,
                                 caption=truncated_caption,
                                 parse_mode=ParseMode.HTML,
@@ -3305,14 +3312,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             if analysis_text and len(analysis_text) > 1000 and not from_signal:
                                 chunks = [analysis_text[i:i+4000] for i in range(0, len(analysis_text), 4000)]
                                 for chunk in chunks:
-                                    await context.bot.send_message(
+                                            await context.bot.send_message(
                                         chat_id=update.effective_chat.id,
                                         text=chunk,
                                         parse_mode=ParseMode.HTML
                                     )
                     except Exception as fallback_error:
                         logger.error(f"Failed to send local file as fallback: {str(fallback_error)}")
-                        await query.message.reply_text(
+                                await query.message.reply_text(
                             text=f"Error sending chart. Analysis: {analysis_text[:1000] if analysis_text else 'Not available'}",
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
@@ -3331,7 +3338,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Probeer het originele bericht te bewerken in plaats van te verwijderen en een nieuw bericht te versturen
                 try:
-                    await query.edit_message_media(
+                        await query.edit_message_media(
                         media=InputMediaPhoto(
                             media=chart_image,
                             caption=truncated_analysis,
@@ -3344,7 +3351,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.warning(f"Could not edit message media: {str(edit_error)}")
                     
                     # Als bewerken niet lukt, dan versturen we een nieuw bericht
-                    await context.bot.send_photo(
+                        await context.bot.send_photo(
                         chat_id=update.effective_chat.id,
                         photo=chart_image,
                         caption=truncated_analysis,
@@ -3353,7 +3360,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     )
                     
                     # Alleen verwijderen als het nieuwe bericht succesvol is verstuurd
-                    await query.delete_message()
+                        await query.delete_message()
                 
                 # If the analysis text was truncated, send the full analysis as a separate message
                 if analysis_text and len(analysis_text) > 1000 and not from_signal:
@@ -3362,7 +3369,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Send each chunk as a separate message
                     for chunk in chunks:
-                        await context.bot.send_message(
+                                await context.bot.send_message(
                             chat_id=update.effective_chat.id,
                             text=chunk,
                             parse_mode=ParseMode.HTML
@@ -3375,7 +3382,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Simple fallback error handling
                 try:
-                    await query.edit_message_text(
+                        await query.edit_message_text(
                         text=f"Error sending chart for {instrument}. Please try again later.",
                         reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                     )
@@ -3390,7 +3397,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Try to recover
             try:
                 if update and update.callback_query:
-                    await update.callback_query.edit_message_text(
+                        await update.callback_query.edit_message_text(
                         text="Sorry, an error occurred. Please try again.",
                         reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                     )
@@ -3488,7 +3495,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # Stuur een transparante afbeelding om de foto te vervangen door tekst
                     transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
                     
-                    await query.edit_message_media(
+                        await query.edit_message_media(
                         media=InputMediaDocument(
                             media=transparent_gif,
                             caption=message_text,
@@ -3500,7 +3507,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     logger.warning(f"Could not edit media message: {str(media_error)}")
                     
                     # Als media bewerken mislukt, probeer een nieuw bericht te sturen
-                    await context.bot.send_message(
+                        await context.bot.send_message(
                         chat_id=update.effective_chat.id,
                         text=message_text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -3509,13 +3516,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Probeer het oorspronkelijke bericht te verwijderen
                     try:
-                        await query.delete_message()
+                                await query.delete_message()
                     except Exception as delete_error:
                         logger.warning(f"Could not delete original message: {str(delete_error)}")
             else:
                 # Als het een tekstbericht is, gebruik de standaard edit_message_text
                 try:
-                    await query.edit_message_text(
+                        await query.edit_message_text(
                         text=message_text,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
@@ -3525,7 +3532,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Als tekstbericht bewerken mislukt, probeer caption te bewerken
                     try:
-                        await query.edit_message_caption(
+                                await query.edit_message_caption(
                             caption=message_text,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
@@ -3534,7 +3541,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         logger.warning(f"Could not edit caption: {str(caption_error)}")
                         
                         # Als alles mislukt, stuur een nieuw bericht
-                        await context.bot.send_message(
+                                await context.bot.send_message(
                             chat_id=update.effective_chat.id,
                             text=message_text,
                             reply_markup=InlineKeyboardMarkup(keyboard),
@@ -3617,7 +3624,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 try:
                     # If this is a direct message, edit the current message
-                    await query.edit_message_text(
+                        await query.edit_message_text(
                         text=f"<b>Signal Analysis for {instrument}</b>\n\nChoose analysis type:",
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
@@ -3631,7 +3638,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Fallback
                     try:
-                        await query.edit_message_text(
+                                await query.edit_message_text(
                             text="Error showing signal analysis menu. Please try again.",
                             reply_markup=InlineKeyboardMarkup(START_KEYBOARD),
                             parse_mode=ParseMode.HTML
@@ -3657,7 +3664,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Try to handle the error gracefully
             try:
                 if update and update.callback_query:
-                    await update.callback_query.edit_message_text(
+                        await update.callback_query.edit_message_text(
                         text="An error occurred during signal analysis. Please try again.",
                         reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                     )
@@ -3774,17 +3781,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     if response and response.data:
                         # Successfully deleted
-                        await query.answer("Signal subscription removed successfully")
+                                await query.answer("Signal subscription removed successfully")
                     else:
                         # Failed to delete
-                        await query.answer("Failed to remove signal subscription")
+                                await query.answer("Failed to remove signal subscription")
                     
                     # Refresh the manage signals view
                     return await self.signals_manage_callback(update, context)
                     
                 except Exception as e:
                     logger.error(f"Error deleting signal subscription: {str(e)}")
-                    await query.answer("Error removing signal subscription")
+                        await query.answer("Error removing signal subscription")
                     return await self.signals_manage_callback(update, context)
                     
             # Handle delete all signals
@@ -3797,17 +3804,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     if response and response.data:
                         # Successfully deleted
-                        await query.answer("All signal subscriptions removed successfully")
+                                await query.answer("All signal subscriptions removed successfully")
                     else:
                         # Failed to delete
-                        await query.answer("Failed to remove signal subscriptions")
+                                await query.answer("Failed to remove signal subscriptions")
                     
                     # Refresh the manage signals view
                     return await self.signals_manage_callback(update, context)
                     
                 except Exception as e:
                     logger.error(f"Error deleting all signal subscriptions: {str(e)}")
-                    await query.answer("Error removing signal subscriptions")
+                        await query.answer("Error removing signal subscriptions")
                     return await self.signals_manage_callback(update, context)
                     
                     
@@ -3823,29 +3830,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Als dat niet lukt, probeer dan het bijschrift te bewerken of een nieuw bericht te sturen
                 if "There is no text in the message to edit" in str(e):
                     try:
-                        await query.edit_message_caption(
+                                await query.edit_message_caption(
                             caption="Unknown button pressed. Returning to main menu.",
                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
                         )
                     except Exception as caption_e:
                         logger.error(f"Error editing message caption: {str(caption_e)}")
                         try:
+                        try:
+                            await query.message.reply_text(
+                                text="Unknown button pressed. Returning to main menu.",
+                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                            )
+                        except Exception as reply_e:
+                            logger.error(f"Error sending reply message: {str(reply_e)}")
+                    logger.error(f"Error in button_callback default handling: {str(e)}")
+                    try:
+                                await query.message.reply_text(
+                            text="Unknown button pressed. Returning to main menu.",
+                    try:
                         await query.message.reply_text(
                             text="Unknown button pressed. Returning to main menu.",
                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
                         )
-                            except Exception as reply_e:
-                            logger.error(f"Error sending reply message: {str(reply_e)}")
-                else:
-                    logger.error(f"Error in button_callback default handling: {str(e)}")
-                    try:
-                    await query.message.reply_text(
-                        text="Unknown button pressed. Returning to main menu.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
-                    )
-                    except Exception as reply_e:
-                        logger.error(f"Error sending reply message: {str(reply_e)}")
-            return MENU
             
         except Exception as e:
             logger.error(f"Error in button_callback: {str(e)}")
@@ -3948,7 +3955,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Probeer eerst om de tekst van het bericht te bewerken
                 try:
-                    await query.edit_message_text(
+                        await query.edit_message_text(
                         text=title,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
@@ -3957,21 +3964,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # dan proberen we het bijschrift (caption) te bewerken
                     if "There is no text in the message to edit" in str(e):
                         try:
-                            await query.edit_message_caption(
+                                    await query.edit_message_caption(
                                 caption=title,
                                 reply_markup=InlineKeyboardMarkup(keyboard)
                             )
-                        except Exception as caption_e:
+                    except Exception as caption_e:
                             logger.error(f"Error editing message caption: {str(caption_e)}")
                             # Als dit ook niet lukt, stuur dan een nieuw bericht
-                            await query.message.reply_text(
+                                    await query.message.reply_text(
                                 text=title,
                                 reply_markup=InlineKeyboardMarkup(keyboard)
                             )
                     else:
                         # Als het een andere fout is, log dan de fout en probeer een fallback
                         logger.error(f"Error editing message: {str(e)}")
-                        await query.message.reply_text(
+                                await query.message.reply_text(
                             text=title,
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
@@ -3983,7 +3990,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Fallback message
                 try:
-                    await query.message.reply_text(
+                        await query.message.reply_text(
                         text="An error occurred while selecting market. Please try again.",
                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
                     )
@@ -4086,7 +4093,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 try:
                     # Probeer eerst het bericht te bewerken als tekstbericht
-                    await query.edit_message_text(
+                        await query.edit_message_text(
                         text=f"Select instrument for sentiment analysis:",
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
@@ -4096,15 +4103,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # probeer dan het bijschrift te bewerken
                     if "There is no text in the message to edit" in str(e):
                         try:
-                            await query.edit_message_caption(
+                                    await query.edit_message_caption(
                                 caption=f"Select instrument for sentiment analysis:",
                                 reply_markup=InlineKeyboardMarkup(keyboard),
                                 parse_mode=ParseMode.HTML
                             )
-                        except Exception as caption_e:
+                    except Exception as caption_e:
                             logger.error(f"Error updating caption in instrument_callback: {str(caption_e)}")
                             # Last resort - send a new message
-                            await query.message.reply_text(
+                                    await query.message.reply_text(
                                 text=f"Select instrument for sentiment analysis:",
                                 reply_markup=InlineKeyboardMarkup(keyboard),
                                 parse_mode=ParseMode.HTML
@@ -4112,7 +4119,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     else:
                         # Bij andere fouten, log de fout en stuur een nieuw bericht
                         logger.error(f"Error updating message in instrument_callback: {str(e)}")
-                        await query.message.reply_text(
+                                await query.message.reply_text(
                             text=f"Select instrument for sentiment analysis:",
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
@@ -4292,7 +4299,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     caption = "Select your signal options:" if is_signals_context else "Select your analysis type:"
                     keyboard = SIGNALS_KEYBOARD if is_signals_context else ANALYSIS_KEYBOARD
                     
-                    await query.edit_message_media(
+                        await query.edit_message_media(
                         media=InputMediaDocument(
                             media=transparent_gif,
                             caption=caption
@@ -4311,7 +4318,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         caption = "Select your signal options:" if is_signals_context else "Select your analysis type:"
                         keyboard = SIGNALS_KEYBOARD if is_signals_context else ANALYSIS_KEYBOARD
                         
-                        await query.edit_message_caption(
+                                await query.edit_message_caption(
                             caption=caption,
                             reply_markup=InlineKeyboardMarkup(keyboard),
                             parse_mode=ParseMode.HTML
@@ -4362,21 +4369,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Fallback if we cannot delete the message
                 try:
-                    await query.edit_message_text(
+                        await query.edit_message_text(
                         text="Select your analysis type:",
                         reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                     )
                 except Exception:
                     try:
                         # If we can't edit text, try caption
-                        await query.edit_message_caption(
+                                await query.edit_message_caption(
                             caption="Select your analysis type:",
                             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                         )
                     except Exception as e:
                         logger.error(f"Failed to update message: {str(e)}")
                         # As a last resort, send a new message
-                        await context.bot.send_message(
+                                await context.bot.send_message(
                             chat_id=chat_id,
                             text="Select your analysis type:",
                             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
@@ -4390,7 +4397,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Try to recover
             if update and update.effective_chat:
                 try:
-                    await context.bot.send_message(
+                        await context.bot.send_message(
                         chat_id=update.effective_chat.id,
                         text="Something went wrong. Please try again.",
                         reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
@@ -4458,8 +4465,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     )
                     if query:
                         try:
-                            await query.answer("Please wait before requesting another analysis")
-                        except Exception:
+                                    await query.answer("Please wait before requesting another analysis")
+                    except Exception:
                             pass
                     return CHOOSE_ANALYSIS
             
@@ -4512,7 +4519,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if not instrument:
                 logger.error("No instrument provided for sentiment analysis")
                 try:
-                    await query.edit_message_text(
+                        await query.edit_message_text(
                         text="Please select an instrument first.",
                         reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
                     )
@@ -4526,7 +4533,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             try:
                 # Try to recover
                 if update and update.callback_query:
-                    await update.callback_query.edit_message_text(
+                        await update.callback_query.edit_message_text(
                         text="An error occurred. Please try again.",
                         reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                     )
@@ -4748,7 +4755,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Try to edit message text
                 try:
-                    await query.edit_message_text(
+                        await query.edit_message_text(
                         text=title,
                         reply_markup=InlineKeyboardMarkup(keyboard)
                     )
@@ -4756,21 +4763,21 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # If error about "no text to edit", try caption
                     if "There is no text in the message to edit" in str(e):
                         try:
-                            await query.edit_message_caption(
+                                    await query.edit_message_caption(
                                 caption=title,
                                 reply_markup=InlineKeyboardMarkup(keyboard)
                             )
-                        except Exception as caption_e:
+                    except Exception as caption_e:
                             logger.error(f"Error editing message caption: {str(caption_e)}")
                             # Last resort - send new message
-                            await query.message.reply_text(
+                                    await query.message.reply_text(
                                 text=title,
                                 reply_markup=InlineKeyboardMarkup(keyboard)
                             )
                     else:
                         # Other error, log and try fallback
                         logger.error(f"Error editing message: {str(e)}")
-                        await query.message.reply_text(
+                                await query.message.reply_text(
                             text=title,
                             reply_markup=InlineKeyboardMarkup(keyboard)
                         )
@@ -4782,7 +4789,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Fallback message
                 try:
-                    await query.message.reply_text(
+                        await query.message.reply_text(
                         text="An error occurred while selecting market. Please try again.",
                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
                     )
@@ -4842,7 +4849,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         try:
             # Try to edit message text
-                    await query.edit_message_text(
+                        await query.edit_message_text(
                 text=title,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
@@ -4851,14 +4858,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # If error about "no text to edit", try caption
             if "There is no text in the message to edit" in str(e):
                 try:
-                    await query.edit_message_caption(
+                        await query.edit_message_caption(
                         caption=title,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
                 except Exception as caption_e:
                     logger.error(f"Error editing message caption: {str(caption_e)}")
-                    await query.message.reply_text(
+                        await query.message.reply_text(
                         text=title,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
@@ -4920,14 +4927,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # If error about "no text to edit", try caption
             if "There is no text in the message to edit" in str(e):
                 try:
-                    await query.edit_message_caption(
+                        await query.edit_message_caption(
                         caption=title,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
                 except Exception as caption_e:
                     logger.error(f"Error editing message caption: {str(caption_e)}")
-                    await query.message.reply_text(
+                        await query.message.reply_text(
                         text=title,
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
