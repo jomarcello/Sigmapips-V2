@@ -108,7 +108,7 @@ CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
 CALLBACK_ANALYSIS_SENTIMENT = "analysis_sentiment"
 CALLBACK_ANALYSIS_CALENDAR = "analysis_calendar"
 CALLBACK_BACK_MENU = "back_menu"
-CALLBACK_BACK_ANALYSIS = "back_analysis"
+CALLBACK_BACK_ANALYSIS = "back_to_analysis"
 CALLBACK_BACK_MARKET = "back_market"
 CALLBACK_BACK_INSTRUMENT = "back_instrument"
 CALLBACK_BACK_SIGNALS = "back_signals"
@@ -1269,99 +1269,26 @@ class TelegramService:
         """Utility to update a message with error handling"""
         try:
             logger.info("Updating message")
+            # Try to edit message text first
+            await query.edit_message_text(
+                text=text,
+                reply_markup=keyboard,
+                parse_mode=parse_mode
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"Could not update message text: {str(e)}")
             
-            # Check if the message contains media (photo or animation)
-            has_media = bool(query.message.photo) or query.message.animation is not None
-            
-            if has_media:
-                logger.info("Message contains media, using special handling")
-                # For media messages, we need to handle differently
-                try:
-                    # Try to edit the caption first (most media messages use caption)
-                    await query.edit_message_caption(
-                        caption=text,
-                        reply_markup=keyboard,
-                        parse_mode=parse_mode
-                    )
-                    logger.info("Successfully updated message caption")
-                    return True
-                except Exception as caption_error:
-                    logger.warning(f"Could not update caption: {str(caption_error)}")
-                    
-                    # If caption update fails and it's a specific error about empty caption
-                    if "Message caption is empty" in str(caption_error):
-                        try:
-                            # Try replacing media with a transparent placeholder
-                            transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
-                            
-                            # Use InputMediaDocument to replace the media
-                            await query.edit_message_media(
-                                media=InputMediaDocument(
-                                    media=transparent_gif,
-                                    caption=text,
-                                    parse_mode=parse_mode
-                                ),
-                                reply_markup=keyboard
-                            )
-                            logger.info("Successfully replaced media with placeholder and updated caption")
-                            return True
-                        except Exception as media_error:
-                            logger.warning(f"Could not replace media: {str(media_error)}")
-                    
-                    # As a last resort for media messages, delete and send new
-                    try:
-                        # Get chat ID for the new message
-                        chat_id = query.message.chat_id
-                        
-                        # Send new message
-                        await query.bot.send_message(
-                            chat_id=chat_id,
-                            text=text,
-                            reply_markup=keyboard,
-                            parse_mode=parse_mode
-                        )
-                        
-                        # Try to delete the old message
-                        try:
-                            await query.message.delete()
-                            logger.info("Successfully deleted old message after sending new one")
-                        except Exception as delete_error:
-                            logger.warning(f"Could not delete old message: {str(delete_error)}")
-                            
-                        logger.info("Successfully sent new message as replacement for media message")
-                        return True
-                    except Exception as new_msg_error:
-                        logger.error(f"Failed to send new message: {str(new_msg_error)}")
-                        return False
-            
-            # Standard approach for text messages
+            # If text update fails, try to edit caption
             try:
-                # Try to edit message text
-                await query.edit_message_text(
-                    text=text,
+                await query.edit_message_caption(
+                    caption=text,
                     reply_markup=keyboard,
                     parse_mode=parse_mode
                 )
-                logger.info("Successfully updated message text")
                 return True
-            except Exception as text_error:
-                logger.warning(f"Could not update message text: {str(text_error)}")
-                
-                # If text update fails with a specific error
-                if "There is no text in the message to edit" in str(text_error):
-                    try:
-                        # Try to edit caption as fallback
-                        await query.edit_message_caption(
-                            caption=text,
-                            reply_markup=keyboard,
-                            parse_mode=parse_mode
-                        )
-                        logger.info("Successfully updated message caption as fallback")
-                        return True
-                    except Exception as caption_error:
-                        logger.error(f"Could not update caption either: {str(caption_error)}")
-                else:
-                    logger.error(f"Could not update message text: {str(text_error)}")
+            except Exception as e2:
+                logger.error(f"Could not update caption either: {str(e2)}")
                 
                 # As a last resort, send a new message
                 try:
@@ -1372,15 +1299,10 @@ class TelegramService:
                         reply_markup=keyboard,
                         parse_mode=parse_mode
                     )
-                    logger.info("Successfully sent new message as fallback")
                     return True
-                except Exception as new_msg_error:
-                    logger.error(f"Failed to send new message: {str(new_msg_error)}")
+                except Exception as e3:
+                    logger.error(f"Failed to send new message: {str(e3)}")
                     return False
-                    
-        except Exception as e:
-            logger.error(f"Unexpected error in update_message: {str(e)}")
-            return False
     
     # Missing handler implementations
     async def back_signals_callback(self, update: Update, context=None) -> int:
@@ -1746,33 +1668,26 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.market_callback, pattern="^market_"))
             application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_"))
             
-            # Handle back button navigation
-            application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
-            application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
-            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
-            application.add_handler(CallbackQueryHandler(self.back_analysis_callback, pattern="^back_analysis$"))
+            # Back button handlers
             application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
-            application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
+            application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
+            application.add_handler(CallbackQueryHandler(self.back_menu_callback, pattern="^back_menu$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.analysis_callback, pattern="^back_to_analysis$"))
             application.add_handler(CallbackQueryHandler(self.back_to_signal_analysis_callback, pattern="^back_to_signal_analysis$"))
+            application.add_handler(CallbackQueryHandler(self.back_to_signal_callback, pattern="^back_to_signal$"))
+            application.add_handler(CallbackQueryHandler(self.back_signals_callback, pattern="^back_signals$"))
             
-            # Signals management
-            application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern="^signals_add$"))
-            application.add_handler(CallbackQueryHandler(self.signals_manage_callback, pattern="^signals_manage$"))
-            
-            # Signal from analysis
+            # Signal analysis handlers
             application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_"))
             
-            # Fallback to the generic button handler for any unmatched patterns
+            # Catch-all handler voor overige callback queries
             application.add_handler(CallbackQueryHandler(self.button_callback))
             
-            # Load saved signals
-            asyncio.create_task(self._load_signals())
-            
             logger.info("All handlers registered successfully")
-            
         except Exception as e:
             logger.error(f"Error registering handlers: {str(e)}")
-            logger.exception(e)
+            raise
 
     @property
     def signals_enabled(self):
@@ -4029,99 +3944,86 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return MENU
 
     async def button_callback(self, update: Update, context=None) -> int:
-        """Handle button callbacks for the main app flow"""
-        query = update.callback_query
-        data = query.data
-        
-        self.logger.info(f"Button callback opgeroepen met data: {data}")
-        
-        # Always acknowledge the callback to prevent timeouts
+        """Handle button callback queries"""
         try:
-            await query.answer()
-        except Exception as e:
-            self.logger.error(f"Error answering callback query: {str(e)}")
-        
-        try:
-            # Main menu buttons
-            if data == "menu_analyse":
-                return await self.menu_analyse_callback(update, context)
-            elif data == "menu_signals":
-                return await self.menu_signals_callback(update, context)
+            query = update.callback_query
+            callback_data = query.data
             
-            # Analysis submenu buttons
-            elif data == CALLBACK_ANALYSIS_TECHNICAL:
-                return await self.analysis_technical_callback(update, context)
-            elif data == CALLBACK_ANALYSIS_SENTIMENT:
-                return await self.analysis_sentiment_callback(update, context)
-            elif data == CALLBACK_ANALYSIS_CALENDAR:
-                return await self.analysis_calendar_callback(update, context)
+            logger.info(f"Button callback opgeroepen met data: {callback_data}")
+            
+            # Answer the callback query to remove the loading indicator on the button
+            await query.answer()
+            
+            # Split the callback data for pattern matching
+            parts = callback_data.split("_")
+            
+            # Handle analyze_from_signal buttons
+            if callback_data.startswith("analyze_from_signal_"):
+                logger.info(f"Handling analyze_from_signal in button_callback: {callback_data}")
+                return await self.analyze_from_signal_callback(update, context)
                 
-            # Signal analysis buttons
-            elif data == "signal_technical":
-                return await self.signal_technical_callback(update, context)
-            elif data == "signal_sentiment":
-                return await self.signal_sentiment_callback(update, context)
-            elif data == "signal_calendar":
-                return await self.signal_calendar_callback(update, context)
-                
-            # Back buttons
-            elif data == CALLBACK_BACK_MENU:
-                return await self.back_menu_callback(update, context)
-            elif data == CALLBACK_BACK_ANALYSIS:
-                return await self.back_analysis_callback(update, context)
-            elif data == CALLBACK_BACK_SIGNALS:
-                return await self.back_signals_callback(update, context)
-            elif data == CALLBACK_BACK_MARKET:
-                return await self.back_market_callback(update, context)
-            elif data == CALLBACK_BACK_INSTRUMENT:
-                return await self.back_instrument_callback(update, context)
-            elif data == "back_to_signal":
-                return await self.back_to_signal_callback(update, context)
-            elif data == "back_to_signal_analysis":
+            # Handle back_to_signal_analysis specifically
+            if callback_data == "back_to_signal_analysis":
+                logger.info(f"Handling back_to_signal_analysis in button_callback")
                 return await self.back_to_signal_analysis_callback(update, context)
                 
-            # Signal management buttons
-            elif data == CALLBACK_SIGNALS_ADD:
-                return await self.signals_add_callback(update, context)
-            elif data == CALLBACK_SIGNALS_MANAGE:
-                return await self.signals_manage_callback(update, context)
+            # Handle signal-specific buttons that might be missed by the specific handlers
+            if callback_data == "signal_technical":
+                logger.info(f"Handling signal_technical in general button_callback")
+                return await self.signal_technical_callback(update, context)
+            
+            if callback_data == "signal_sentiment":
+                logger.info(f"Handling signal_sentiment in general button_callback")
+                return await self.signal_sentiment_callback(update, context)
                 
-            # Market selection buttons
-            elif data.startswith("market_"):
-                return await self.market_callback(update, context)
+            if callback_data == "signal_calendar":
+                logger.info(f"Handling signal_calendar in general button_callback")
+                return await self.signal_calendar_callback(update, context)
                 
-            # Instrument selection buttons
-            elif data.startswith("instrument_"):
+            # Handle back_to_signal button
+            if callback_data == "back_to_signal":
+                logger.info(f"Handling back_to_signal in button_callback")
+                return await self.back_to_signal_callback(update, context)
+            
+            # Direct instrument_timeframe callbacks  
+            if "_timeframe_" in callback_data:
+                # Format: instrument_EURUSD_timeframe_H1
+                parts = callback_data.split("_")
+                instrument = parts[1]
+                timeframe = parts[3] if len(parts) > 3 else "1h"  # Default to 1h
+                return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
+            
+            # Verwerk instrument keuzes met specifiek type (chart, sentiment, calendar)
+            if "_chart" in callback_data or "_sentiment" in callback_data or "_calendar" in callback_data:
+                # Direct doorsturen naar de instrument_callback methode
+                logger.info(f"Specifiek instrument type gedetecteerd in: {callback_data}")
                 return await self.instrument_callback(update, context)
-            elif data.startswith("instrument_signals_"):
+            
+            # Handle instrument signal choices
+            if "_signals" in callback_data and callback_data.startswith("instrument_"):
+                logger.info(f"Signal instrument selection detected: {callback_data}")
                 return await self.instrument_signals_callback(update, context)
-                
-            # Analysis buttons
-            elif data.startswith("analysis_"):
-                return await self.analysis_callback(update, context)
-                
-            # Signal analysis flow
-            elif data.startswith("analyze_from_signal_"):
-                return await self.analyze_from_signal_callback(update, context)
             
-            else:
-                self.logger.warning(f"Unhandled callback_data: {data}")
-                return MENU
+            # Speciale afhandeling voor markt keuzes
+            if callback_data.startswith("market_"):
+                return await self.market_callback(update, context)
+            
+            # Signals handlers
+            if callback_data == "signals_add" or callback_data == CALLBACK_SIGNALS_ADD:
+                return await self.signals_add_callback(update, context)
                 
+            # Manage signals handler
+            if callback_data == "signals_manage" or callback_data == CALLBACK_SIGNALS_MANAGE:
+                return await self.signals_manage_callback(update, context)
+            
+            # Generic handlers for unmatched patterns - log it
+            logger.warning(f"Unhandled callback_data: {callback_data}")
+            
+            return MENU
+            
         except Exception as e:
-            self.logger.error(f"Error handling button callback: {str(e)}")
-            self.logger.exception(e)
-            
-            # Keep users from getting stuck
-            try:
-                # Try to return to menu on error
-                await query.edit_message_text(
-                    text="An error occurred. Please try again.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-            except Exception as edit_error:
-                self.logger.error(f"Error sending error message: {str(edit_error)}")
-            
+            logger.error(f"Error in button_callback: {str(e)}")
+            logger.error(traceback.format_exc())
             return MENU
 
     async def market_callback(self, update: Update, context=None) -> int:
@@ -4603,82 +4505,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     pass
             
             return MENU
-    
-    async def back_analysis_callback(self, update: Update, context=None) -> int:
-        """Handle back_analysis button press to return to analysis menu"""
-        try:
-            query = update.callback_query
-            await query.answer()
-            
-            logger.info("Back to analysis menu requested")
-            
-            # Check if message has media content
-            has_media = bool(query.message.photo) or query.message.animation is not None
-            
-            if has_media:
-                # If message has media, we need special handling
-                try:
-                    # Try to delete the message and send a new one
-                    chat_id = update.effective_chat.id
-                    message_id = query.message.message_id
-                    
-                    await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-                    
-                    # Send the analysis menu with a GIF
-                    gif_url = random.choice(gif_utils.ANALYSIS_GIFS)
-                    await context.bot.send_animation(
-                        chat_id=chat_id,
-                        animation=gif_url,
-                        caption="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                    return CHOOSE_ANALYSIS
-                    
-                except Exception as delete_error:
-                    logger.warning(f"Could not delete media message: {str(delete_error)}")
-                    
-                    # Fallback to replacing media
-                    try:
-                        # Use a transparent GIF as fallback
-                        transparent_gif = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Transparent.gif/1px-Transparent.gif"
-                        
-                        await query.edit_message_media(
-                            media=InputMediaDocument(
-                                media=transparent_gif,
-                                caption="Select your analysis type:"
-                            ),
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                        )
-                        return CHOOSE_ANALYSIS
-                    except Exception as e:
-                        logger.error(f"Failed to update media: {str(e)}")
-            
-            # Regular message handling (no media)
-            await self.update_message(
-                query=query,
-                text="Select your analysis type:",
-                keyboard=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-            )
-            
-            return CHOOSE_ANALYSIS
-            
-        except Exception as e:
-            logger.error(f"Error in back_analysis_callback: {str(e)}")
-            logger.exception(e)
-            
-            # Send a new message as fallback
-            if update and update.effective_chat:
-                try:
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                    )
-                except Exception:
-                    pass
-                    
-            return CHOOSE_ANALYSIS
 
     async def _load_signals(self):
         """Load and cache previously saved signals"""
