@@ -455,7 +455,8 @@ class TradingViewCalendarService:
                             importance_map = {
                                 3: "High",
                                 2: "Medium",
-                                1: "Low"
+                                1: "Low",
+                                -1: "Low"  # Map unknown/low importance (-1) to Low
                             }
                             
                             # Gebruik direct het currency veld uit het event als het aanwezig is
