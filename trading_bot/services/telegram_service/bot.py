@@ -3130,13 +3130,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return MENU
             
             # Create the keyboard with appropriate back button based on flow
-            keyboard = []
+            back_button = None
+            back_text = "⬅️ Back to "
             
             # Add the appropriate back button based on whether we're in signal flow or menu flow
             if from_signal:
-                keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal_analysis")])
+                back_button = "back_to_signal_analysis"
+                back_text += "Signal Analysis"
             else:
-                keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
+                back_button = "back_instrument"
+                back_text += "Instruments"
             
             # Get technical analysis text
             technical_analysis = await self.chart_service.get_technical_analysis(instrument, timeframe)
@@ -3163,13 +3166,19 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             try:
                 logger.info(f"Sending chart image for {instrument} {timeframe}")
                 
-                # Send the chart with full analysis in caption
-                await context.bot.send_photo(
+                # Send the chart with full analysis in caption but WITHOUT navigation buttons
+                sent_photo = await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=chart_image,
                     caption=caption,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode=ParseMode.HTML
+                )
+                
+                # Send a separate message with just the back button
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=back_text,
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data=back_button)]])
                 )
                 
                 # Delete the original message (the one with the loading indicator)
