@@ -1660,72 +1660,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
-        # Gebruik de juiste analyse GIF URL
-        gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-        
-        # Probeer eerst het huidige bericht te verwijderen en een nieuw bericht te sturen met de analyse GIF
-        try:
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=update.effective_chat.id,
-                animation=gif_url,
-                caption="Select your analysis type:",
-                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                parse_mode=ParseMode.HTML
-            )
-            return CHOOSE_ANALYSIS
-        except Exception as delete_error:
-            logger.warning(f"Could not delete message: {str(delete_error)}")
+        # CRITICAL FIX: Reset analysis context to prevent multiple analyses being triggered
+        if context and hasattr(context, 'user_data'):
+            # Clear analysis specific flags
+            context.user_data['is_technical_analysis_shown'] = False
+            context.user_data['is_sentiment_analysis_shown'] = False
+            context.user_data['from_signal'] = False
+            # Add a timestamp to prevent race conditions
+            context.user_data['menu_timestamp'] = time.time()
+            logger.info("Reset analysis context in menu_analyse_callback")
             
-            # Als verwijderen mislukt, probeer de media te updaten
-            try:
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=gif_url,
-                        caption="Select your analysis type:"
-                    ),
-                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                )
-                return CHOOSE_ANALYSIS
-            except Exception as media_error:
-                logger.warning(f"Could not update media: {str(media_error)}")
-                
-                # Als media update mislukt, probeer tekst te updaten
-                try:
-                    await query.edit_message_text(
-                        text="Select your analysis type:",
-                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as text_error:
-                    # Als tekst updaten mislukt, probeer bijschrift te updaten
-                    if "There is no text in the message to edit" in str(text_error):
-                        try:
-                            await query.edit_message_caption(
-                                caption="Select your analysis type:",
-                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception as caption_error:
-                            logger.error(f"Failed to update caption: {str(caption_error)}")
-                            # Laatste redmiddel: stuur een nieuw bericht
-                            await context.bot.send_animation(
-                                chat_id=update.effective_chat.id,
-                                animation=gif_url,
-                                caption="Select your analysis type:",
-                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                                parse_mode=ParseMode.HTML
-                            )
-                    else:
-                        logger.error(f"Failed to update message: {str(text_error)}")
-                        # Laatste redmiddel: stuur een nieuw bericht
-                        await context.bot.send_animation(
-                            chat_id=update.effective_chat.id,
-                            animation=gif_url,
-                            caption="Select your analysis type:",
-                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                            parse_mode=ParseMode.HTML
-                        )
+        # Use appropriate HTML formatting for the text
+        analysis_menu_text = """
+<b>📊 Analysis Menu</b>
+
+Choose the type of analysis you'd like to perform:
+"""
+        
+        # Show analysis options with inline keyboard
+        await query.edit_message_text(
+            text=analysis_menu_text.strip(),
+            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+            parse_mode=ParseMode.HTML
+        )
         
         return CHOOSE_ANALYSIS
 
@@ -3057,6 +3014,22 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             query = update.callback_query
             from_signal = False
             
+            # CRITICAL FIX: Prevent double analysis - use a hard-coded lock to prevent both analyses
+            # The lock will be active for 5 seconds, enough time to prevent duplicate calls
+            if context and hasattr(context, 'user_data'):
+                current_time = time.time()
+                last_analysis_time = context.user_data.get('last_analysis_time', 0)
+                last_analysis_type = context.user_data.get('last_analysis_type', '')
+                
+                # If another analysis was shown in the last 1 second, block this one
+                if current_time - last_analysis_time < 1.0 and last_analysis_type and last_analysis_type != 'technical':
+                    logger.warning(f"Blocked duplicate analysis call - last type: {last_analysis_type}, current: technical, time diff: {current_time - last_analysis_time:.2f}s")
+                    return CHOOSE_ANALYSIS
+                
+                # Set the lock
+                context.user_data['last_analysis_time'] = current_time
+                context.user_data['last_analysis_type'] = 'technical'
+            
             # Check if we're in signal flow
             if context and hasattr(context, 'user_data') and context.user_data.get('from_signal'):
                 from_signal = True
@@ -4359,6 +4332,22 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             query = update.callback_query
             await query.answer()
             
+            # CRITICAL FIX: Prevent double analysis - use a hard-coded lock to prevent both analyses
+            # The lock will be active for 5 seconds, enough time to prevent duplicate calls
+            if context and hasattr(context, 'user_data'):
+                current_time = time.time()
+                last_analysis_time = context.user_data.get('last_analysis_time', 0)
+                last_analysis_type = context.user_data.get('last_analysis_type', '')
+                
+                # If another analysis was shown in the last 1 second, block this one
+                if current_time - last_analysis_time < 1.0 and last_analysis_type and last_analysis_type != 'sentiment':
+                    logger.warning(f"Blocked duplicate analysis call - last type: {last_analysis_type}, current: sentiment, time diff: {current_time - last_analysis_time:.2f}s")
+                    return CHOOSE_ANALYSIS
+                
+                # Set the lock
+                context.user_data['last_analysis_time'] = current_time
+                context.user_data['last_analysis_type'] = 'sentiment'
+            
             # Check if we're in the signal flow
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
@@ -4377,7 +4366,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Add debug logging
                 logger.info(f"show_sentiment_analysis: from_signal = {is_from_signal}")
                 logger.info(f"Context user_data: {context.user_data}")
-            
+                
             # Get instrument from parameter or context
             if not instrument and context and hasattr(context, 'user_data'):
                 instrument = context.user_data.get('instrument')
