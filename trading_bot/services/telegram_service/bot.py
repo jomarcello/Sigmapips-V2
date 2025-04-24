@@ -670,14 +670,10 @@ class TelegramService:
             
         logger.info(f"Bot initialized with webhook URL: {self.webhook_url} and path: {self.webhook_path}")
         
-        # Initialize API services
-        self.chart_service = ChartService()  # Initialize chart service
-        # Lazy load services only when needed
+        # Initialize API services using lazy loading
+        self._chart_service = None
         self._calendar_service = None
         self._sentiment_service = None
-        
-        # Don't use asyncio.create_task here - it requires a running event loop
-        # We'll initialize chart service later when the event loop is running
         
         # Bot application initialization
         self.persistence = None
@@ -717,9 +713,12 @@ class TelegramService:
     async def initialize_services(self):
         """Initialize services that require an asyncio event loop"""
         try:
-            # Initialize chart service
-            await self.chart_service.initialize()
-            logger.info("Chart service initialized")
+            # Only initialize chart service if it's already been accessed
+            if hasattr(self, '_chart_service') and self._chart_service is not None:
+                await self._chart_service.initialize()
+                logger.info("Chart service initialized")
+            else:
+                logger.info("Chart service not yet accessed, skipping initialization")
         except Exception as e:
             logger.error(f"Error initializing services: {str(e)}")
             raise
@@ -752,6 +751,17 @@ class TelegramService:
             # Wait and retry if needed
             await asyncio.sleep(60)  # Wait a minute before potentially retrying
             raise  # Re-raise to allow handling at a higher level
+
+    # Chart service helpers
+    @property
+    def chart_service(self):
+        """Lazy loaded chart service"""
+        if self._chart_service is None:
+            # Only initialize the chart service when it's first accessed
+            logger.info("Lazy loading chart service")
+            from trading_bot.services.chart_service.chart import ChartService
+            self._chart_service = ChartService()
+        return self._chart_service
 
     # Calendar service helpers
     @property
@@ -1674,10 +1684,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Add a timestamp to prevent race conditions
             context.user_data['menu_timestamp'] = time.time()
             logger.info("Reset analysis context in menu_analyse_callback")
-            
+        
         # Gebruik de juiste analyse GIF URL
         gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-         
+        
         # Probeer eerst het huidige bericht te verwijderen en een nieuw bericht te sturen met de analyse GIF
         try:
             await query.message.delete()
@@ -1691,7 +1701,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return CHOOSE_ANALYSIS
         except Exception as delete_error:
             logger.warning(f"Could not delete message: {str(delete_error)}")
-             
+            
             # Als verwijderen mislukt, probeer de media te updaten
             try:
                 await query.edit_message_media(
@@ -1704,7 +1714,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return CHOOSE_ANALYSIS
             except Exception as media_error:
                 logger.warning(f"Could not update media: {str(media_error)}")
-                 
+                
                 # Als media update mislukt, probeer tekst te updaten
                 try:
                     await query.edit_message_text(
@@ -2897,9 +2907,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     async def initialize_services(self):
         """Initialize services that require an asyncio event loop"""
         try:
-            # Initialize chart service
-            await self.chart_service.initialize()
-            logger.info("Chart service initialized")
+            # Only initialize chart service if it's already been accessed
+            if hasattr(self, '_chart_service') and self._chart_service is not None:
+                await self._chart_service.initialize()
+                logger.info("Chart service initialized")
+            else:
+                logger.info("Chart service not yet accessed, skipping initialization")
         except Exception as e:
             logger.error(f"Error initializing services: {str(e)}")
             raise
@@ -3196,10 +3209,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 except Exception:
                     pass
             
-            # Start chart service initialization if needed
-            if not hasattr(self, 'chart_service') or not self.chart_service:
-                from trading_bot.services.chart_service.chart import ChartService
-                self.chart_service = ChartService()
+            # Use the chart_service property (which now handles lazy loading)
+            logger.info("Using chart_service property with lazy loading")
             
             # Start both requests in parallel
             chart_task = asyncio.create_task(self.chart_service.get_chart(instrument, timeframe))
@@ -3385,7 +3396,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     )
             except Exception:
                 pass
-                
+            
             return MENU
 
     async def back_to_signal_callback(self, update: Update, context=None) -> int:
@@ -3819,19 +3830,19 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     except Exception as caption_e:
                         logger.error(f"Error editing message caption: {str(caption_e)}")
                         try:
-                            await query.message.reply_text(
-                                text="Unknown button pressed. Returning to main menu.",
-                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
-                            )
+                        await query.message.reply_text(
+                            text="Unknown button pressed. Returning to main menu.",
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                        )
                         except Exception as reply_e:
                             logger.error(f"Error sending reply message: {str(reply_e)}")
                 else:
                     logger.error(f"Error in button_callback default handling: {str(e)}")
                     try:
-                        await query.message.reply_text(
-                            text="Unknown button pressed. Returning to main menu.",
-                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
-                        )
+                    await query.message.reply_text(
+                        text="Unknown button pressed. Returning to main menu.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                    )
                     except Exception as reply_e:
                         logger.error(f"Error sending reply message: {str(reply_e)}")
             return MENU
@@ -4047,7 +4058,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             elif analysis_type == "signals":
                 # This should be handled by instrument_signals_callback
                 return await self.instrument_signals_callback(update, context)
-                
+        
         elif callback_data.startswith("market_"):
             # Handle market_*_sentiment callbacks
             market = parts[1]
@@ -4508,7 +4519,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 except Exception as e:
                     logger.error(f"Error updating message: {str(e)}")
                 return CHOOSE_MARKET
-                
+            
             # Rest of the function continues here unchanged...
         except Exception as e:
             logger.error(f"Error in show_sentiment_analysis: {str(e)}")
@@ -4545,7 +4556,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         logger.info(f"CHART instrument callback: instrument={instrument}")
         
         # Store in context
-        if context and hasattr(context, 'user_data'):
+            if context and hasattr(context, 'user_data'):
             context.user_data['instrument'] = instrument
             context.user_data['analysis_type'] = 'chart'
             
@@ -4787,7 +4798,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 text="Invalid market selection. Please try again.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
             )
-        except Exception as e:
+            except Exception as e:
             logger.error(f"Error sending error message: {str(e)}")
         
         return MENU
@@ -4831,7 +4842,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         try:
             # Try to edit message text
-            await query.edit_message_text(
+                    await query.edit_message_text(
                 text=title,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
