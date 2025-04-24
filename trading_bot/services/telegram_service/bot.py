@@ -3131,15 +3131,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Create the keyboard with appropriate back button based on flow
             back_button = None
-            back_text = "⬅️ Back to "
             
             # Add the appropriate back button based on whether we're in signal flow or menu flow
             if from_signal:
                 back_button = "back_to_signal_analysis"
-                back_text += "Signal Analysis"
             else:
                 back_button = "back_instrument"
-                back_text += "Instruments"
             
             # Get technical analysis text
             technical_analysis = await self.chart_service.get_technical_analysis(instrument, timeframe)
@@ -3177,7 +3174,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Send a separate message with just the back button
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=back_text,
+                    text="",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data=back_button)]])
                 )
                 
