@@ -852,10 +852,9 @@ class TelegramService:
         
     # Utility functions that might be missing
     async def update_message(self, query, text, keyboard=None, parse_mode=ParseMode.HTML):
-        """Utility to update a message with error handling"""
+        """Helper function to update a message with error handling"""
         try:
-            logger.info("Updating message")
-            # Try to edit message text first
+            # First try to edit the message text
             await query.edit_message_text(
                 text=text,
                 reply_markup=keyboard,
@@ -863,31 +862,40 @@ class TelegramService:
             )
             return True
         except Exception as e:
-            logger.warning(f"Could not update message text: {str(e)}")
-            
-            # If text update fails, try to edit caption
-            try:
-                await query.edit_message_caption(
-                    caption=text,
-                    reply_markup=keyboard,
-                    parse_mode=parse_mode
-                )
-                return True
-            except Exception as e2:
-                logger.error(f"Could not update caption either: {str(e2)}")
-                
-                # As a last resort, send a new message
+            # If we get "There is no text in the message to edit" error, try to edit caption
+            if "There is no text in the message to edit" in str(e):
                 try:
-                    chat_id = query.message.chat_id
-                    await query.bot.send_message(
-                        chat_id=chat_id,
+                    await query.edit_message_caption(
+                        caption=text,
+                        reply_markup=keyboard,
+                        parse_mode=parse_mode
+                    )
+                    return True
+                except Exception as caption_e:
+                    logger.error(f"Error editing message caption: {str(caption_e)}")
+                    # Try sending a new message as a last resort
+                    try:
+                        await query.message.reply_text(
+                            text=text,
+                            reply_markup=keyboard,
+                            parse_mode=parse_mode
+                        )
+                        return True
+                    except Exception as reply_e:
+                        logger.error(f"Error sending new message: {str(reply_e)}")
+                        return False
+            else:
+                # For other errors, log and try a fallback
+                logger.error(f"Error updating message: {str(e)}")
+                try:
+                    await query.message.reply_text(
                         text=text,
                         reply_markup=keyboard,
                         parse_mode=parse_mode
                     )
                     return True
-                except Exception as e3:
-                    logger.error(f"Failed to send new message: {str(e3)}")
+                except Exception as reply_e:
+                    logger.error(f"Error sending fallback message: {str(reply_e)}")
                     return False
     
     # Missing handler implementations
@@ -3630,11 +3638,45 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
             # Default handling if no specific callback found, go back to menu
             logger.warning(f"Unhandled callback_data: {callback_data}")
+            try:
+                # Probeer eerst om de tekst van het bericht te bewerken
+                await query.edit_message_text(
+                    text="Unknown button pressed. Returning to main menu.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                )
+            except Exception as e:
+                # Als dat niet lukt, probeer dan het bijschrift te bewerken of een nieuw bericht te sturen
+                if "There is no text in the message to edit" in str(e):
+                    try:
+                        await query.edit_message_caption(
+                            caption="Unknown button pressed. Returning to main menu.",
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                        )
+                    except Exception as caption_e:
+                        logger.error(f"Error editing message caption: {str(caption_e)}")
+                        await query.message.reply_text(
+                            text="Unknown button pressed. Returning to main menu.",
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                        )
+                else:
+                    logger.error(f"Error in button_callback default handling: {str(e)}")
+                    await query.message.reply_text(
+                        text="Unknown button pressed. Returning to main menu.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                    )
             return MENU
             
         except Exception as e:
             logger.error(f"Error in button_callback: {str(e)}")
             logger.exception(e)
+            try:
+                # Probeer een nieuw bericht te sturen als er een algemene fout optreedt
+                await update.effective_message.reply_text(
+                    text="An error occurred. Please try again or use /menu to return to the main menu.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Main Menu", callback_data="back_menu")]])
+                )
+            except Exception as reply_e:
+                logger.error(f"Error sending error message: {str(reply_e)}")
             return MENU
 
     async def market_callback(self, update: Update, context=None) -> int:
@@ -3720,10 +3762,35 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 elif "signals" in context_suffix:
                     title = f"Select {market.capitalize()} Instrument for Signals"
                 
-                await query.edit_message_text(
-                    text=title,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                # Probeer eerst om de tekst van het bericht te bewerken
+                try:
+                    await query.edit_message_text(
+                        text=title,
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                except Exception as e:
+                    # Als we een fout krijgen over "There is no text in the message to edit",
+                    # dan proberen we het bijschrift (caption) te bewerken
+                    if "There is no text in the message to edit" in str(e):
+                        try:
+                            await query.edit_message_caption(
+                                caption=title,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                        except Exception as caption_e:
+                            logger.error(f"Error editing message caption: {str(caption_e)}")
+                            # Als dit ook niet lukt, stuur dan een nieuw bericht
+                            await query.message.reply_text(
+                                text=title,
+                                reply_markup=InlineKeyboardMarkup(keyboard)
+                            )
+                    else:
+                        # Als het een andere fout is, log dan de fout en probeer een fallback
+                        logger.error(f"Error editing message: {str(e)}")
+                        await query.message.reply_text(
+                            text=title,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
                 
                 return CHOOSE_INSTRUMENT
                 
@@ -3731,18 +3798,26 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.error(f"Error in market_callback: {str(e)}")
                 
                 # Fallback message
-                await query.edit_message_text(
-                    text="An error occurred while selecting market. Please try again.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
-                )
+                try:
+                    await query.message.reply_text(
+                        text="An error occurred while selecting market. Please try again.",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
+                    )
+                except Exception as reply_e:
+                    logger.error(f"Error sending fallback message: {str(reply_e)}")
+                
                 return MENU
         
         # If we reach here, there was an issue with the callback data
         logger.error(f"Invalid market callback data: {query.data}")
-        await query.edit_message_text(
-            text="Invalid market selection. Please try again.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
-        )
+        try:
+            await query.message.reply_text(
+                text="Invalid market selection. Please try again.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_menu")]])
+            )
+        except Exception as e:
+            logger.error(f"Error sending error message: {str(e)}")
+        
         return MENU
 
     async def instrument_callback(self, update: Update, context=None) -> int:
@@ -3813,22 +3888,33 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     keyboard = MARKET_SENTIMENT_KEYBOARD
                 
                 try:
+                    # Probeer eerst het bericht te bewerken als tekstbericht
                     await query.edit_message_text(
                         text=f"Select instrument for sentiment analysis:",
                         reply_markup=InlineKeyboardMarkup(keyboard),
                         parse_mode=ParseMode.HTML
                     )
                 except Exception as e:
-                    logger.error(f"Error updating message in instrument_callback: {str(e)}")
-                    try:
-                        await query.edit_message_caption(
-                            caption=f"Select instrument for sentiment analysis:",
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as e:
-                        logger.error(f"Error updating caption in instrument_callback: {str(e)}")
-                        # Last resort - send a new message
+                    # Als dat niet lukt wegens "There is no text in the message to edit" fout,
+                    # probeer dan het bijschrift te bewerken
+                    if "There is no text in the message to edit" in str(e):
+                        try:
+                            await query.edit_message_caption(
+                                caption=f"Select instrument for sentiment analysis:",
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as caption_e:
+                            logger.error(f"Error updating caption in instrument_callback: {str(caption_e)}")
+                            # Last resort - send a new message
+                            await query.message.reply_text(
+                                text=f"Select instrument for sentiment analysis:",
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        # Bij andere fouten, log de fout en stuur een nieuw bericht
+                        logger.error(f"Error updating message in instrument_callback: {str(e)}")
                         await query.message.reply_text(
                             text=f"Select instrument for sentiment analysis:",
                             reply_markup=InlineKeyboardMarkup(keyboard),
