@@ -2179,6 +2179,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             context.user_data['from_signal'] = True
             context.user_data['is_signals_context'] = False  # Not in signals context anymore
             context.user_data['analysis_type'] = 'technical'
+            # Reset any flags that might cause both analyses to show
+            context.user_data['is_technical_analysis_shown'] = True
+            context.user_data['is_sentiment_analysis_shown'] = False
         
         # Check if we're in the right flow
         if not is_from_signal:
@@ -2240,6 +2243,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             context.user_data['from_signal'] = True
             context.user_data['is_signals_context'] = False  # Not in signals context anymore
             context.user_data['analysis_type'] = 'sentiment'
+            # Reset any flags that might cause both analyses to show
+            context.user_data['is_technical_analysis_shown'] = False
+            context.user_data['is_sentiment_analysis_shown'] = True
         
         # Check if we're in the right flow
         if not is_from_signal:
@@ -2924,6 +2930,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # Ensure the from_signal flag stays set to maintain correct flow
                 context.user_data['from_signal'] = True
                 
+                # Reset all analysis flags so they can be shown fresh
+                context.user_data['is_technical_analysis_shown'] = False
+                context.user_data['is_sentiment_analysis_shown'] = False
+                
                 # Get all relevant signal data
                 instrument = context.user_data.get('instrument')
                 signal_id = context.user_data.get('signal_id')
@@ -3033,6 +3043,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if context and hasattr(context, 'user_data') and context.user_data.get('from_signal'):
                 from_signal = True
                 logger.info("In signal flow, from_signal=True")
+                
+                # Controleer of we al technical analysis aan het tonen zijn
+                if from_signal and not context.user_data.get('is_technical_analysis_shown', True):
+                    logger.warning("Avoiding multiple technical analyses - flag indicates this is not requested")
+                    return SIGNAL_ANALYSIS
+                
+                # Set the flag to indicate we're showing technical analysis
+                context.user_data['is_technical_analysis_shown'] = True
             
             # Get the current user data
             context_user_data = context.user_data if context and hasattr(context, 'user_data') else {}
@@ -4300,6 +4318,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
                 is_from_signal = context.user_data.get('from_signal', False)
+                # Controleer of we al sentiment analysis aan het tonen zijn
+                if is_from_signal and not context.user_data.get('is_sentiment_analysis_shown', True):
+                    logger.warning("Avoiding multiple sentiment analyses - flag indicates this is not requested")
+                    return SIGNAL_ANALYSIS
+                
+                # Set the flag to indicate we're showing sentiment analysis
+                context.user_data['is_sentiment_analysis_shown'] = True
+                
                 # Add debug logging
                 logger.info(f"show_sentiment_analysis: from_signal = {is_from_signal}")
                 logger.info(f"Context user_data: {context.user_data}")
