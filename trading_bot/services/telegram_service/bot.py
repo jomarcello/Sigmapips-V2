@@ -1670,19 +1670,72 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             context.user_data['menu_timestamp'] = time.time()
             logger.info("Reset analysis context in menu_analyse_callback")
             
-        # Use appropriate HTML formatting for the text
-        analysis_menu_text = """
-<b>📊 Analysis Menu</b>
-
-Choose the type of analysis you'd like to perform:
-"""
-        
-        # Show analysis options with inline keyboard
-        await query.edit_message_text(
-            text=analysis_menu_text.strip(),
-            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-            parse_mode=ParseMode.HTML
-        )
+        # Gebruik de juiste analyse GIF URL
+        gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+         
+        # Probeer eerst het huidige bericht te verwijderen en een nieuw bericht te sturen met de analyse GIF
+        try:
+            await query.message.delete()
+            await context.bot.send_animation(
+                chat_id=update.effective_chat.id,
+                animation=gif_url,
+                caption="Select your analysis type:",
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                parse_mode=ParseMode.HTML
+            )
+            return CHOOSE_ANALYSIS
+        except Exception as delete_error:
+            logger.warning(f"Could not delete message: {str(delete_error)}")
+             
+            # Als verwijderen mislukt, probeer de media te updaten
+            try:
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=gif_url,
+                        caption="Select your analysis type:"
+                    ),
+                    reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
+                )
+                return CHOOSE_ANALYSIS
+            except Exception as media_error:
+                logger.warning(f"Could not update media: {str(media_error)}")
+                 
+                # Als media update mislukt, probeer tekst te updaten
+                try:
+                    await query.edit_message_text(
+                        text="Select your analysis type:",
+                        reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as text_error:
+                    # Als tekst updaten mislukt, probeer bijschrift te updaten
+                    if "There is no text in the message to edit" in str(text_error):
+                        try:
+                            await query.edit_message_caption(
+                                caption="Select your analysis type:",
+                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as caption_error:
+                            logger.error(f"Failed to update caption: {str(caption_error)}")
+                            # Laatste redmiddel: stuur een nieuw bericht
+                            await context.bot.send_animation(
+                                chat_id=update.effective_chat.id,
+                                animation=gif_url,
+                                caption="Select your analysis type:",
+                                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                                parse_mode=ParseMode.HTML
+                            )
+                    else:
+                        logger.error(f"Failed to update message: {str(text_error)}")
+                        # Laatste redmiddel: stuur een nieuw bericht
+                        await context.bot.send_animation(
+                            chat_id=update.effective_chat.id,
+                            animation=gif_url,
+                            caption="Select your analysis type:",
+                            reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
         
         return CHOOSE_ANALYSIS
 
@@ -3730,16 +3783,22 @@ Choose the type of analysis you'd like to perform:
                         )
                     except Exception as caption_e:
                         logger.error(f"Error editing message caption: {str(caption_e)}")
+                        try:
+                            await query.message.reply_text(
+                                text="Unknown button pressed. Returning to main menu.",
+                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
+                            )
+                        except Exception as reply_e:
+                            logger.error(f"Error sending reply message: {str(reply_e)}")
+                else:
+                    logger.error(f"Error in button_callback default handling: {str(e)}")
+                    try:
                         await query.message.reply_text(
                             text="Unknown button pressed. Returning to main menu.",
                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
                         )
-                else:
-                    logger.error(f"Error in button_callback default handling: {str(e)}")
-                    await query.message.reply_text(
-                        text="Unknown button pressed. Returning to main menu.",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
-                    )
+                    except Exception as reply_e:
+                        logger.error(f"Error sending reply message: {str(reply_e)}")
             return MENU
             
         except Exception as e:
@@ -3753,6 +3812,9 @@ Choose the type of analysis you'd like to perform:
                 )
             except Exception as reply_e:
                 logger.error(f"Error sending error message: {str(reply_e)}")
+                # Als het sturen van een nieuw bericht mislukt, probeer dan stil te falen
+                # zonder de gebruiker lastig te vallen met foutmeldingen
+                pass
             return MENU
 
     async def market_callback(self, update: Update, context=None) -> int:
