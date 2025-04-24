@@ -1,18 +1,51 @@
 import logging
 import os
 import json
+import sys
+import socket
+import fcntl
+import errno
+import asyncio
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import stripe
 import time
 # Import telegram components only when needed to reduce startup time
+import telegram
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 from telegram import BotCommand
+from telegram.error import Conflict, NetworkError, TelegramError
 
 # Configureer logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Function to ensure only one instance of the bot is running
+def obtain_lock():
+    """Try to obtain a lock file to ensure only one instance runs"""
+    lock_file = '/tmp/sigmapips_bot.lock'
+    
+    # Create a lock file descriptor
+    lock_fd = open(lock_file, 'w')
+    
+    try:
+        # Try to get an exclusive lock
+        fcntl.lockf(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # If we're here, we got the lock
+        # Keep the file descriptor open to maintain the lock
+        logger.info("Successfully obtained lock - no other instances running")
+        return lock_fd
+    except IOError as e:
+        if e.errno == errno.EAGAIN:
+            # Another instance has the lock
+            logger.error("Another instance is already running. Exiting.")
+            sys.exit(1)
+        # Some other error
+        raise
+
+# Get lock at the beginning
+lock_fd = obtain_lock()
 
 # Laad omgevingsvariabelen
 load_dotenv()
@@ -133,7 +166,7 @@ async def startup_event():
         telegram_service.application.add_handler(CallbackQueryHandler(telegram_service.button_callback))
         
         # Load signals
-        telegram_service._load_signals()
+        await telegram_service._load_signals()
         
         # Set bot commands
         commands = [
@@ -142,16 +175,38 @@ async def startup_event():
             BotCommand("help", "Show available commands and how to use the bot")
         ]
         
-        # Initialize the application and start in polling mode
-        await telegram_service.application.initialize()
-        await telegram_service.application.start()
-        await telegram_service.application.updater.start_polling()
-        telegram_service.polling_started = True
-        
-        # Set the commands
-        await telegram_service.bot.set_my_commands(commands)
-        
-        logger.info("Telegram bot initialized successfully in polling mode")
+        # Initialize the application and start in polling mode with error handlers
+        try:
+            await telegram_service.application.initialize()
+            await telegram_service.application.start()
+            
+            # Configure error handling for the updater's polling
+            if hasattr(telegram_service.application, 'updater'):
+                # Set allowed_updates to filter which updates to process
+                await telegram_service.application.updater.start_polling(
+                    allowed_updates=['message', 'callback_query', 'my_chat_member'],
+                    drop_pending_updates=True,  # Ignore updates that came in while the bot was down
+                    error_callback=lambda e: logger.error(f"Polling error: {e}")
+                )
+                telegram_service.polling_started = True
+                logger.info("Telegram bot polling started with error handling")
+            else:
+                logger.error("No updater available for polling")
+                
+            # Set the commands
+            await telegram_service.bot.set_my_commands(commands)
+            
+            logger.info("Telegram bot initialized successfully in polling mode")
+            
+        except Conflict as e:
+            logger.error(f"Telegram Conflict error: {e}")
+            logger.error("This error indicates another bot instance is already running.")
+            logger.error("Ensure only one instance of this application is running.")
+            logger.error("The lock mechanism should prevent this, but something went wrong.")
+            sys.exit(1)
+        except Exception as bot_error:
+            logger.error(f"Error starting Telegram bot: {bot_error}")
+            raise
         
         # Manually register signal endpoints
         @app.post("/signal")
