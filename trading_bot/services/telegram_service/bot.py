@@ -722,8 +722,31 @@ class TelegramService:
     async def run(self):
         """Run the telegram service (placeholder for long-running tasks)"""
         logger.info("TelegramService.run() called")
-        while True:
-            await asyncio.sleep(3600)  # Sleep for an hour
+        try:
+            # Start polling or webhook with better error handling
+            if self.application and not self.polling_started:
+                logger.info("Starting Telegram polling in run() method")
+                try:
+                    # Try to start polling if not already started
+                    await self.application.updater.start_polling(
+                        allowed_updates=['message', 'callback_query', 'my_chat_member'],
+                        drop_pending_updates=True,
+                        error_callback=lambda e: logger.error(f"Polling error in run: {e}")
+                    )
+                    self.polling_started = True
+                    logger.info("Polling started successfully in run() method")
+                except Exception as e:
+                    logger.error(f"Error starting polling in run() method: {e}")
+            
+            # Keep the service running
+            while True:
+                await asyncio.sleep(3600)  # Sleep for an hour
+                logger.info("TelegramService.run() - heartbeat check")
+        except Exception as e:
+            logger.error(f"Error in TelegramService.run(): {e}")
+            # Wait and retry if needed
+            await asyncio.sleep(60)  # Wait a minute before potentially retrying
+            raise  # Re-raise to allow handling at a higher level
 
     # Calendar service helpers
     @property
@@ -3861,12 +3884,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 context.user_data['instrument'] = instrument
                 context.user_data['analysis_type'] = analysis_type
             
-            # Handle the different analysis types
+            # Handle the different analysis types - only call the specific function requested
             if analysis_type == "chart":
+                # For chart type, only show technical analysis
                 return await self.show_technical_analysis(update, context, instrument=instrument)
             elif analysis_type == "sentiment":
+                # For sentiment type, only show sentiment analysis
                 return await self.show_sentiment_analysis(update, context, instrument=instrument)
             elif analysis_type == "calendar":
+                # For calendar type, only show calendar analysis
                 return await self.show_calendar_analysis(update, context, instrument=instrument)
             elif analysis_type == "signals":
                 # This should be handled by instrument_signals_callback
