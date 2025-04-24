@@ -9,17 +9,21 @@ from telegram import Bot, Update
 from telegram.ext import Application
 from telegram.constants import ParseMode
 
-from services.database.db import Database  # Gewijzigde import
+from trading_bot.services.database.db import Database  # Updated import path
 
 logger = logging.getLogger(__name__)
 
 class TelegramService:
-    def __init__(self, db: Database):
-        """Initialize telegram service"""        self.token = os.getenv("TELEGRAM_BOT_TOKEN")
+    def __init__(self, db: Database, stripe_service=None, bot_token=None, lazy_init=False):
+        """Initialize telegram service"""
+        # Use provided bot_token or fall back to environment variable
+        self.token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
         if not self.token:
             raise ValueError("Missing TELEGRAM_BOT_TOKEN")
             
         self.db = db
+        self.stripe_service = stripe_service
+        self.lazy_init = lazy_init
         
         # SSL setup zonder verificatie voor ontwikkeling
         ssl_context = ssl.create_default_context()
@@ -29,6 +33,8 @@ class TelegramService:
         # Gebruik Application builder voor bot setup
         self.app = Application.builder().token(self.token).build()
         self.bot = self.app.bot
+        self.application = self.app  # Alias for self.app to match usage in run method
+        self.polling_started = False
         
         logger.info("Telegram service initialized")
             
@@ -39,6 +45,22 @@ class TelegramService:
             logger.info(f"Successfully connected to Telegram API. Bot info: {info}")
         except Exception as e:
             logger.error(f"Failed to connect to Telegram API: {str(e)}")
+            raise
+            
+    async def initialize_services(self):
+        """Initialize required services"""
+        logger.info("Initializing dependent services")
+        try:
+            # Initialize the bot first
+            await self.initialize()
+            logger.info("Telegram bot initialized")
+            
+            # Initialize any other required services here
+            # For now, this is a placeholder
+            logger.info("All services initialized")
+            return True
+        except Exception as e:
+            logger.error(f"Error in initialize_services: {str(e)}")
             raise
             
     async def send_signal(self, chat_id: str, signal: Dict[str, Any], sentiment: str = None, chart: str = None, events: list = None):
@@ -83,7 +105,9 @@ class TelegramService:
             for event in events[:3]:  # Show max 3 events
                 message += f"• {event}\n"
                 
-        return message    async def run(self):
+        return message
+        
+    async def run(self):
         """Run the telegram service (placeholder for long-running tasks)"""
         logger.info("TelegramService.run() called")
         try:
@@ -106,3 +130,58 @@ class TelegramService:
             logger.error(f"Error in TelegramService.run(): {e}")
             await asyncio.sleep(60)  # Wait a minute before potentially retrying
             raise
+            
+    # Command handlers required by main.py
+    async def start_command(self, update: Update, context):
+        """Handler for /start command"""
+        logger.info("Start command received")
+        # Placeholder implementation
+        if update.effective_chat:
+            await update.effective_message.reply_text("Welcome to SigmaPips Trading Bot!")
+        
+    async def show_main_menu(self, update: Update, context):
+        """Handler for /menu command"""
+        logger.info("Menu command received")
+        # Placeholder implementation
+        if update.effective_chat:
+            await update.effective_message.reply_text("Main menu (placeholder)")
+        
+    async def help_command(self, update: Update, context):
+        """Handler for /help command"""
+        logger.info("Help command received")
+        # Placeholder implementation
+        if update.effective_chat:
+            await update.effective_message.reply_text("Help information (placeholder)")
+        
+    async def set_subscription_command(self, update: Update, context):
+        """Handler for /set_subscription command"""
+        logger.info("Set subscription command received")
+        # Placeholder implementation
+        if update.effective_chat:
+            await update.effective_message.reply_text("Subscription settings (placeholder)")
+        
+    async def set_payment_failed_command(self, update: Update, context):
+        """Handler for /set_payment_failed command"""
+        logger.info("Set payment failed command received")
+        # Placeholder implementation
+        if update.effective_chat:
+            await update.effective_message.reply_text("Payment failed (placeholder)")
+        
+    async def button_callback(self, update: Update, context):
+        """Handler for inline button callbacks"""
+        logger.info("Button callback received")
+        # Placeholder implementation
+        if update.callback_query:
+            await update.callback_query.answer("Button pressed (placeholder)")
+        
+    async def _load_signals(self):
+        """Load signals from database"""
+        logger.info("Loading signals (placeholder)")
+        # Placeholder implementation
+        return []
+        
+    async def process_signal(self, signal_data):
+        """Process incoming trading signal"""
+        logger.info(f"Processing signal: {signal_data}")
+        # Placeholder implementation
+        return True
