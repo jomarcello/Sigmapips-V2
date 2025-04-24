@@ -40,9 +40,7 @@ class TradingViewNodeService(TradingViewService):
             "ETHUSD": "https://www.tradingview.com/chart/?symbol=ETHUSD"
         }
         
-        # Initialize screenshot cache
-        self.screenshot_cache = {}
-        self.screenshot_cache_ttl = 60 * 10  # 10 minutes cache
+        # Screenshot cache removed
         
         logger.info(f"TradingView Node.js service initialized")
     
@@ -213,16 +211,7 @@ class TradingViewNodeService(TradingViewService):
     async def take_screenshot_of_url(self, url: str, fullscreen: bool = False) -> Optional[bytes]:
         """Take a screenshot of a URL using Node.js"""
         try:
-            # Check cache first
-            cache_key = f"{url}_{fullscreen}"
-            current_time = time.time()
-            
-            if hasattr(self, 'screenshot_cache') and cache_key in self.screenshot_cache:
-                cached_time, cached_screenshot = self.screenshot_cache[cache_key]
-                # If cache is still valid (less than cache TTL seconds old)
-                if current_time - cached_time < self.screenshot_cache_ttl:
-                    logger.info(f"Using cached screenshot for URL: {url}")
-                    return cached_screenshot
+            # Cache checking removed
             
             # Genereer een unieke bestandsnaam voor de screenshot
             timestamp = int(time.time())
@@ -279,11 +268,7 @@ class TradingViewNodeService(TradingViewService):
                     except Exception as e:
                         logger.warning(f"Failed to remove temporary screenshot file: {str(e)}")
                     
-                    # Cache the screenshot
-                    if hasattr(self, 'screenshot_cache'):
-                        self.screenshot_cache[cache_key] = (current_time, screenshot_data)
-                    
-                    # Return the screenshot data
+                    # Return the screenshot data directly without caching
                     return screenshot_data
                 else:
                     logger.error(f"Screenshot file not found: {screenshot_path}")
