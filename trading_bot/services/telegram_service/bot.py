@@ -3141,31 +3141,54 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Get technical analysis text
             technical_analysis = await self.chart_service.get_technical_analysis(instrument, timeframe)
             
-            # Prepare caption with technical analysis
-            # Note: Telegram has a caption limit of 1024 characters
-            caption = f"{instrument} Technical Analysis"
+            # Prepare a condensed caption with technical analysis info
+            # Telegram has a caption limit of 1024 characters, so need to condense and shorten
+            caption = f"{instrument} - {timeframe}\n\n"
+            
+            if technical_analysis:
+                # Extract key information from the analysis text
+                trend_match = re.search(r"showing (.*?) momentum", technical_analysis)
+                trend = trend_match.group(1) if trend_match else "mixed"
+                
+                rsi_match = re.search(r"RSI: ([\d.]+) \((.*?)\)", technical_analysis)
+                rsi_value = rsi_match.group(1) if rsi_match else "50.00"
+                rsi_status = rsi_match.group(2) if rsi_match else "neutral"
+                
+                macd_match = re.search(r"MACD: (.*?) \(", technical_analysis)
+                macd_status = macd_match.group(1) if macd_match else "neutral"
+                
+                ma_match = re.search(r"confirming (.*?) bias", technical_analysis)
+                ma_bias = ma_match.group(1) if ma_match else "mixed"
+                
+                support_match = re.search(r"Support: ([\d.]+)", technical_analysis)
+                support = support_match.group(1) if support_match else "N/A"
+                
+                resistance_match = re.search(r"Resistance: ([\d.]+)", technical_analysis)
+                resistance = resistance_match.group(1) if resistance_match else "N/A"
+                
+                # Create a condensed analysis
+                caption += f"Market shows {trend} momentum with {ma_bias} bias.\n\n"
+                caption += f"🔑 Key Levels:\n"
+                caption += f"Support: {support}\n"
+                caption += f"Resistance: {resistance}\n\n"
+                caption += f"📈 Indicators:\n"
+                caption += f"RSI: {rsi_value} ({rsi_status})\n"
+                caption += f"MACD: {macd_status}\n"
+            else:
+                caption += "Technical analysis currently unavailable."
             
             # Show the chart
             try:
                 logger.info(f"Sending chart image for {instrument} {timeframe}")
                 
-                # Because Telegram has a caption limit, we need to split if necessary
-                # First send the chart with the caption
-                sent_photo = await context.bot.send_photo(
+                # Send the chart with condensed analysis in caption
+                await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=chart_image,
                     caption=caption,
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
                 )
-                
-                # Send technical analysis text in a reply to the photo message
-                if technical_analysis:
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=technical_analysis,
-                        parse_mode=ParseMode.HTML,
-                        reply_to_message_id=sent_photo.message_id
-                    )
                 
                 # Delete the original message (the one with the loading indicator)
                 logger.info(f"Deleting original message {query.message.message_id}")
