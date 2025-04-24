@@ -1848,6 +1848,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Check if signal-specific data is present in callback data
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'technical'
+            
+            # Reset analysis flags to ensure proper display
+            context.user_data['is_technical_analysis_shown'] = False
+            context.user_data['is_sentiment_analysis_shown'] = False
+            
+            # Clear possible from_signal flag
+            context.user_data['from_signal'] = False
         
         # Set the callback data
         callback_data = query.data
@@ -1901,6 +1908,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'sentiment'
+            
+            # Reset analysis flags to ensure proper display
+            context.user_data['is_technical_analysis_shown'] = False
+            context.user_data['is_sentiment_analysis_shown'] = False
+            
+            # Clear possible from_signal flag
+            context.user_data['from_signal'] = False
         
         # Set the callback data
         callback_data = query.data
@@ -2179,7 +2193,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             context.user_data['from_signal'] = True
             context.user_data['is_signals_context'] = False  # Not in signals context anymore
             context.user_data['analysis_type'] = 'technical'
-            # Reset any flags that might cause both analyses to show
+            
+            # IMPORTANT: Ensure proper flag setting to prevent multiple analyses
+            # These flags control what is shown in the analysis flow
             context.user_data['is_technical_analysis_shown'] = True
             context.user_data['is_sentiment_analysis_shown'] = False
         
@@ -2243,7 +2259,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             context.user_data['from_signal'] = True
             context.user_data['is_signals_context'] = False  # Not in signals context anymore
             context.user_data['analysis_type'] = 'sentiment'
-            # Reset any flags that might cause both analyses to show
+            
+            # IMPORTANT: Ensure proper flag setting to prevent multiple analyses
+            # These flags control what is shown in the analysis flow
             context.user_data['is_technical_analysis_shown'] = False
             context.user_data['is_sentiment_analysis_shown'] = True
         
@@ -3044,13 +3062,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 from_signal = True
                 logger.info("In signal flow, from_signal=True")
                 
-                # Controleer of we al technical analysis aan het tonen zijn
+                # Explicitly set the technical analysis flag to true and sentiment to false
+                # This ensures we don't get double analyses
+                context.user_data['is_technical_analysis_shown'] = True
+                context.user_data['is_sentiment_analysis_shown'] = False
+                
+                # Skip if already showing technical analysis from a different flow
                 if from_signal and not context.user_data.get('is_technical_analysis_shown', True):
                     logger.warning("Avoiding multiple technical analyses - flag indicates this is not requested")
                     return SIGNAL_ANALYSIS
-                
-                # Set the flag to indicate we're showing technical analysis
-                context.user_data['is_technical_analysis_shown'] = True
             
             # Get the current user data
             context_user_data = context.user_data if context and hasattr(context, 'user_data') else {}
@@ -3586,6 +3606,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Answer the callback query to stop the loading indicator
             await query.answer()
             
+            # Reset analysis flags when switching between analyses to prevent confusion
+            if context and hasattr(context, 'user_data'):
+                # Reset analysis flags when any non-back button is clicked
+                if not callback_data.startswith("back_"):
+                    # Clear analysis flags
+                    context.user_data['is_technical_analysis_shown'] = False
+                    context.user_data['is_sentiment_analysis_shown'] = False
+            
             # Handle analyze from signal button
             if callback_data.startswith("analyze_from_signal_"):
                 return await self.analyze_from_signal_callback(update, context)
@@ -3608,6 +3636,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.analysis_sentiment_callback(update, context)
             elif callback_data == CALLBACK_ANALYSIS_CALENDAR or callback_data == "analysis_calendar":
                 return await self.analysis_calendar_callback(update, context)
+            # Handle signal analysis buttons
+            elif callback_data == "signal_technical":
+                return await self.signal_technical_callback(update, context)
+            elif callback_data == "signal_sentiment":
+                return await self.signal_sentiment_callback(update, context)
+            elif callback_data == "signal_calendar":
+                return await self.signal_calendar_callback(update, context)
                 
             # Direct instrument_timeframe callbacks  
             if "_timeframe_" in callback_data:
@@ -3918,13 +3953,23 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if context and hasattr(context, 'user_data'):
                 context.user_data['instrument'] = instrument
                 context.user_data['analysis_type'] = analysis_type
+                
+                # Reset any existing flags to prevent multiple analyses
+                context.user_data['is_technical_analysis_shown'] = False
+                context.user_data['is_sentiment_analysis_shown'] = False
             
             # Handle the different analysis types - only call the specific function requested
             if analysis_type == "chart":
                 # For chart type, only show technical analysis
+                # Set the flag before calling the function
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['is_technical_analysis_shown'] = True
                 return await self.show_technical_analysis(update, context, instrument=instrument)
             elif analysis_type == "sentiment":
                 # For sentiment type, only show sentiment analysis
+                # Set the flag before calling the function
+                if context and hasattr(context, 'user_data'):
+                    context.user_data['is_sentiment_analysis_shown'] = True
                 return await self.show_sentiment_analysis(update, context, instrument=instrument)
             elif analysis_type == "calendar":
                 # For calendar type, only show calendar analysis
@@ -3932,7 +3977,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             elif analysis_type == "signals":
                 # This should be handled by instrument_signals_callback
                 return await self.instrument_signals_callback(update, context)
-        
+                
         elif callback_data.startswith("market_"):
             # Handle market_*_sentiment callbacks
             market = parts[1]
@@ -4318,13 +4363,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             is_from_signal = False
             if context and hasattr(context, 'user_data'):
                 is_from_signal = context.user_data.get('from_signal', False)
+                
+                # Explicitly set the sentiment analysis flag to true and technical to false
+                # This ensures we don't get double analyses
+                context.user_data['is_technical_analysis_shown'] = False
+                context.user_data['is_sentiment_analysis_shown'] = True
+                
                 # Controleer of we al sentiment analysis aan het tonen zijn
                 if is_from_signal and not context.user_data.get('is_sentiment_analysis_shown', True):
                     logger.warning("Avoiding multiple sentiment analyses - flag indicates this is not requested")
                     return SIGNAL_ANALYSIS
-                
-                # Set the flag to indicate we're showing sentiment analysis
-                context.user_data['is_sentiment_analysis_shown'] = True
                 
                 # Add debug logging
                 logger.info(f"show_sentiment_analysis: from_signal = {is_from_signal}")
@@ -4393,7 +4441,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     ]])
                 )
                 return CHOOSE_ANALYSIS
-            
+                
             # Extract data
             bullish = sentiment_data.get('bullish', 50)
             bearish = sentiment_data.get('bearish', 30)
