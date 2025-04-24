@@ -758,7 +758,7 @@ class TelegramService:
         """Lazy loaded chart service"""
         if self._chart_service is None:
             # Only initialize the chart service when it's first accessed
-            logger.info("Lazy loading chart service")
+            self.logger.info("Lazy loading chart service")
             from trading_bot.services.chart_service.chart import ChartService
             self._chart_service = ChartService()
         return self._chart_service
@@ -3834,7 +3834,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             text="Unknown button pressed. Returning to main menu.",
                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]])
                         )
-                        except Exception as reply_e:
+                            except Exception as reply_e:
                             logger.error(f"Error sending reply message: {str(reply_e)}")
                 else:
                     logger.error(f"Error in button_callback default handling: {str(e)}")
