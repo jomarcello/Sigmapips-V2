@@ -1236,6 +1236,9 @@ class TelegramService:
             # Signal from analysis
             application.add_handler(CallbackQueryHandler(self.analyze_from_signal_callback, pattern="^analyze_from_signal_.*$"))
             
+            # Ensure back_instrument is properly handled
+            application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
+            
             # Catch-all handler for any other callbacks
             application.add_handler(CallbackQueryHandler(self.button_callback))
             
@@ -2567,6 +2570,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.back_signals_callback(update, context)
             elif callback_data == "back_market" or callback_data == CALLBACK_BACK_MARKET:
                 return await self.back_market_callback(update, context)
+            elif callback_data == "back_instrument" or callback_data == CALLBACK_BACK_INSTRUMENT:
+                logger.info("Explicitly handling back_instrument callback in button_callback")
+                return await self.back_instrument_callback(update, context)
                 
             # Handle delete signal
             if callback_data.startswith("delete_signal_"):
@@ -4847,6 +4853,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
+        # Add detailed logging
+        logger.info("back_instrument_callback called")
+        logger.info(f"Query data: {query.data}")
+        if context and hasattr(context, 'user_data'):
+            logger.info(f"Context user_data: {context.user_data}")
+        
         try:
             # Clear style/timeframe data but keep instrument
             if context and hasattr(context, 'user_data'):
@@ -4854,6 +4866,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 for key in keys_to_clear:
                     if key in context.user_data:
                         del context.user_data[key]
+                logger.info("Cleared style/timeframe data from context")
             
             # Get market and analysis type from context
             market = None
@@ -4862,6 +4875,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 market = context.user_data.get('market')
                 analysis_type = context.user_data.get('analysis_type')
                 is_signals_context = context.user_data.get('is_signals_context', False)
+                logger.info(f"Context info: market={market}, analysis_type={analysis_type}, is_signals_context={is_signals_context}")
             
             if not market:
                 logger.warning("No market found in context, defaulting to forex")
@@ -4869,13 +4883,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # If we're in signals context, go back to signals menu
             if is_signals_context and hasattr(self, 'back_signals_callback'):
+                logger.info("Going back to signals menu because is_signals_context=True")
                 return await self.back_signals_callback(update, context)
             
             # Otherwise go back to market selection
+            logger.info("Going back to market selection")
             return await self.back_market_callback(update, context)
             
         except Exception as e:
             logger.error(f"Failed to handle back_instrument_callback: {str(e)}")
+            logger.exception(e)
             # Try to recover by going to market selection
             if hasattr(self, 'back_market_callback'):
                 return await self.back_market_callback(update, context)
