@@ -27,6 +27,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Currency to flag emoji mapping
+CURRENCY_FLAG_MAP = {
+    "USD": "🇺🇸",
+    "EUR": "🇪🇺",
+    "GBP": "🇬🇧",
+    "JPY": "🇯🇵",
+    "CHF": "🇨🇭",
+    "AUD": "🇦🇺",
+    "NZD": "🇳🇿",
+    "CAD": "🇨🇦",
+}
+
 # Map of major currencies to country codes for TradingView API
 CURRENCY_COUNTRY_MAP = {
     "USD": "US",
@@ -207,11 +219,29 @@ class TradingViewCalendarService:
                 response_text = re.sub(r'";(\s*[,}])', r'"\1', response_text)
                 
                 data = json.loads(response_text)
+                logger.info(f"Raw API response type: {type(data)}")
+                logger.info(f"Raw API response sample: {json.dumps(data[:2] if isinstance(data, list) else data, indent=2)}")
+
                 if isinstance(data, dict):
+                    logger.info(f"Response is a dictionary with keys: {list(data.keys())}")
                     data = data.get("result", []) if "result" in data else data.get("data", [])
                 
+                if not isinstance(data, list):
+                    logger.error(f"Unexpected data format: {type(data)}")
+                    return []
+                
+                logger.info(f"Processing {len(data)} events from API")
+                
                 # Process events
+                logger.info("Converting TradingView events to our format")
                 events = []
+                
+                # Log first few raw events for debugging
+                for idx, raw_event in enumerate(data[:5]):
+                    logger.info(f"Raw event {idx + 1}: {json.dumps(raw_event)}")
+                
+                # Start processing events
+                skipped = 0
                 for event in data:
                     try:
                         # Get currency code
@@ -231,11 +261,25 @@ class TradingViewCalendarService:
                         event_time = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
                         time_str = event_time.strftime("%H:%M")
                         
+                        # Extract event title - try different possible field names
+                        event_title = event.get('title') or event.get('event') or event.get('description') or event.get('name')
+                        if not event_title:
+                            logger.warning(f"Missing title in event: {json.dumps(event)}")
+                            continue
+                        
+                        # Log the found title and where it came from
+                        for field in ['title', 'event', 'description', 'name']:
+                            if field in event:
+                                logger.info(f"Found event name in field '{field}': {event[field]}")
+
+                        # Log raw event data for debugging
+                        logger.info(f"Processing event: title='{event_title}', country='{currency_code}', importance={importance_value}, impact='{impact}'")
+
                         # Create event object
                         event_obj = {
                             "country": currency_code,
                             "time": time_str,
-                            "event": event.get("title", ""),
+                            "event": event_title,  # Use the extracted title
                             "impact": impact,
                         }
                         
@@ -272,9 +316,15 @@ class TradingViewCalendarService:
     async def get_economic_calendar(self, currencies: List[str] = None, days_ahead: int = 0, min_impact: str = "Low") -> str:
         """Format calendar data for display"""
         try:
+            # Get events
             events = await self.get_calendar(days_ahead=days_ahead, min_impact=min_impact)
+            
+            # Filter by currencies if specified
             if currencies:
-                events = [e for e in events if e["country"] in currencies]
+                # Create mapping of currency codes to their respective country codes
+                currency_countries = {currency: CURRENCY_COUNTRY_MAP.get(currency, currency) for currency in currencies}
+                events = [e for e in events if e["country"] in currency_countries.values()]
+                
             return await format_calendar_for_telegram(events)
         except Exception as e:
             logger.error(f"Error getting economic calendar: {str(e)}")
@@ -288,11 +338,38 @@ async def format_calendar_for_telegram(events: List[Dict]) -> str:
     message = "<b>📅 Economic Calendar</b>\n\n"
     message += "<b>Impact:</b> 🔴 High   🟠 Medium   🟢 Low\n\n"
     
+    # Create reverse mapping from country to currency
+    COUNTRY_CURRENCY_MAP = {country: currency for currency, country in CURRENCY_COUNTRY_MAP.items()}
+    
+    # Group events by currency
+    currency_events = {}
     for event in sorted(events, key=lambda x: x["time"]):
-        impact_emoji = IMPACT_EMOJI[event["impact"]]
+        country = event["country"]
+        # Convert country code back to currency code
+        currency = COUNTRY_CURRENCY_MAP.get(country, country)
+        if currency not in currency_events:
+            currency_events[currency] = []
+        currency_events[currency].append(event)
+    
+    # Format events by currency
+    for currency in sorted(currency_events.keys()):
+        # Get the appropriate flag emoji for the currency
+        flag_emoji = CURRENCY_FLAG_MAP.get(currency, "🏴‍☠️")
+        message += f"{flag_emoji} {currency}\n"
         
-        # Format event line
-        event_line = f"{event['time']} - 「{event['country']}」 - {event['event']} {impact_emoji}"
+        for event in currency_events[currency]:
+            event_time = event["time"]
+            impact_emoji = IMPACT_EMOJI[event["impact"]]
+            
+            # Try all possible title fields
+            event_title = event["event"]
+            logger.info(f"Processing event for {currency} at {event_time}: {event_title}")
+            
+            # Format event line with time, impact emoji, and event title
+            event_line = f"{event_time} - {impact_emoji} {event_title}"
+            message += event_line + "\n"
+    
+    return message
         
         # Add values if available
         values = []
