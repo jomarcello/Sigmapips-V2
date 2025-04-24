@@ -231,32 +231,62 @@ class TradingViewCalendarService:
                     'limit': 1000
                 }
             
-            # Filter by currency if specified
-            if currency:
-                logger.info(f"Filtering by currency: {currency}")
-                country_code = CURRENCY_COUNTRY_MAP.get(currency)
-                if country_code:
-                    params['countries'] = country_code
+                # Filter by currency if specified
+                if currency:
+                    logger.info(f"Filtering by currency: {currency}")
+                    country_code = CURRENCY_COUNTRY_MAP.get(currency)
+                    if country_code:
+                        params['countries'] = country_code
+                
+                # Make request to TradingView
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                    "Accept": "application/json, text/plain, */*",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Origin": "https://www.tradingview.com",
+                    "Referer": "https://www.tradingview.com/economic-calendar/",
+                    "Cache-Control": "no-cache",
+                    "Pragma": "no-cache",
+                    "Connection": "keep-alive"
+                }
             
-            # Make request to TradingView
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
-                "Accept": "application/json",
-                "Origin": "https://www.tradingview.com",
-                "Referer": "https://www.tradingview.com/economic-calendar/"
-            }
-            
-            async with self.session.get(
-                self.base_url, 
-                params=params, 
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=15)
-            ) as response:
-                if response.status != 200:
-                    logger.error(f"Error response from TradingView: {response.status}")
-                    if HAS_CUSTOM_MOCK_DATA:
-                        return generate_mock_calendar_data(days_ahead, min_impact)
-                    return []
+                full_url = f"{self.base_url}"
+                logger.info(f"Making request to: {full_url}")
+                logger.info(f"Request params: {params}")
+                logger.info(f"Request headers: {headers}")
+                
+                async with self.session.get(
+                    full_url, 
+                    params=params, 
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as response:
+                    logger.info(f"Response status: {response.status}")
+                    logger.info(f"Response headers: {dict(response.headers)}")
+                    if response.status != 200:
+                        response_text = await response.text()
+                        logger.error(f"Error response from TradingView: {response.status}")
+                        logger.error(f"Response body: {response_text}")
+                        if attempt < max_retries - 1:
+                            logger.warning(f"Request failed, retrying in {retry_delay} seconds...")
+                            await asyncio.sleep(retry_delay)
+                            retry_delay *= 2
+                            continue
+                        logger.error("Request failed after all retries, falling back to mock data")
+                        if HAS_CUSTOM_MOCK_DATA:
+                            return generate_mock_calendar_data(days_ahead, min_impact)
+                        return []
+
+                    # Process the successful response
+                    response_text = await response.text()
+                    try:
+                        response_data = json.loads(response_text)
+                        logger.info(f"Successfully parsed response JSON, data type: {type(response_data)}")
+                        return response_data
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse response JSON: {str(e)}")
+                        logger.error(f"Raw response: {response_text}")
+                        return []
                 
                 self.last_successful_call = datetime.now()
                 response_text = await response.text()
