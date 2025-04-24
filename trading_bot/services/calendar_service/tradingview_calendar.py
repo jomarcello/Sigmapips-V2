@@ -131,58 +131,105 @@ class TradingViewCalendarService:
         return date.isoformat() + '.000Z'
         
     async def _check_api_health(self) -> bool:
-        """Check if the TradingView API endpoint is working"""
-        try:
-            await self._ensure_session()
-            params = {
-                'from': self._format_date(datetime.now()),
-                'to': self._format_date(datetime.now() + timedelta(days=1)),
-                'limit': 1
-            }
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
-                "Accept": "application/json",
-                "Origin": "https://www.tradingview.com",
-                "Referer": "https://www.tradingview.com/economic-calendar/"
-            }
-            full_url = f"{self.base_url}"
-            logger.info(f"Checking API health: {full_url}")
-            async with self.session.get(full_url, params=params, headers=headers) as response:
-                logger.info(f"Health check response status: {response.status}")
-                return response.status == 200
-        except Exception as e:
-            logger.error(f"API health check failed: {str(e)}")
-            return False
+        """Check if the TradingView API endpoint is working with retry mechanism"""
+        max_retries = 3
+        retry_delay = 1  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                await self._ensure_session()
+                params = {
+                    'from': self._format_date(datetime.now()),
+                    'to': self._format_date(datetime.now() + timedelta(days=1)),
+                    'limit': 1
+                }
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                    "Accept": "application/json, text/plain, */*",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Origin": "https://www.tradingview.com",
+                    "Referer": "https://www.tradingview.com/economic-calendar/",
+                    "Cache-Control": "no-cache",
+                    "Pragma": "no-cache"
+                }
+                
+                full_url = f"{self.base_url}"
+                logger.info(f"API health check attempt {attempt + 1}/{max_retries}: {full_url}")
+                
+                async with self.session.get(
+                    full_url, 
+                    params=params, 
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as response:
+                    logger.info(f"Health check response status: {response.status}")
+                    if response.status == 200:
+                        # Try to parse response to verify it's valid JSON
+                        data = await response.json()
+                        if isinstance(data, (list, dict)):
+                            logger.info("API health check successful: received valid JSON response")
+                            return True
+                        else:
+                            logger.warning(f"API returned unexpected data type: {type(data)}")
+                    else:
+                        logger.warning(f"API returned non-200 status: {response.status}")
+                        
+            except aiohttp.ClientError as e:
+                logger.error(f"API connection error on attempt {attempt + 1}: {str(e)}")
+            except json.JSONDecodeError as e:
+                logger.error(f"API returned invalid JSON on attempt {attempt + 1}: {str(e)}")
+            except Exception as e:
+                logger.error(f"Unexpected error during API health check on attempt {attempt + 1}: {str(e)}")
+            
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                await asyncio.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+        
+        logger.error("API health check failed after all retry attempts")
+        return False
             
     def _map_importance(self, importance_value: int) -> str:
         """Map TradingView importance values to impact levels"""
         return IMPORTANCE_MAP.get(importance_value, "Low")  # Default to Low if unknown value
 
     async def get_calendar(self, days_ahead: int = 0, min_impact: str = "Low", currency: str = None) -> List[Dict[str, Any]]:
-        """Fetch calendar events from TradingView"""
-        try:
-            logger.info(f"Starting calendar fetch from TradingView (days_ahead={days_ahead}, min_impact={min_impact}, currency={currency})")
-            await self._ensure_session()
-            
-            # First check if the API is healthy
-            is_healthy = await self._check_api_health()
-            if not is_healthy:
-                logger.error("TradingView API is not healthy, using fallback or returning empty list")
-                if HAS_CUSTOM_MOCK_DATA:
-                    return generate_mock_calendar_data(days_ahead, min_impact)
-                return []
-            
-            # Calculate date range
-            start_date = datetime.now()
-            end_date = start_date + timedelta(days=max(1, days_ahead))
-            
-            # Prepare request parameters
-            params = {
-                'from': self._format_date(start_date),
-                'to': self._format_date(end_date),
-                'countries': 'US,EU,GB,JP,CH,AU,NZ,CA',
-                'limit': 1000
-            }
+        """Fetch calendar events from TradingView with retry mechanism"""
+        max_retries = 3
+        retry_delay = 1  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Calendar fetch attempt {attempt + 1}/{max_retries} from TradingView")
+                logger.info(f"Parameters: days_ahead={days_ahead}, min_impact={min_impact}, currency={currency}")
+                
+                await self._ensure_session()
+                
+                # First check if the API is healthy
+                is_healthy = await self._check_api_health()
+                if not is_healthy:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"API health check failed, retrying in {retry_delay} seconds...")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        continue
+                    else:
+                        logger.error("API health check failed after all attempts, falling back to mock data")
+                        if HAS_CUSTOM_MOCK_DATA:
+                            return generate_mock_calendar_data(days_ahead, min_impact)
+                        return []
+                
+                # Calculate date range
+                start_date = datetime.now()
+                end_date = start_date + timedelta(days=max(1, days_ahead))
+                
+                # Prepare request parameters
+                params = {
+                    'from': self._format_date(start_date),
+                    'to': self._format_date(end_date),
+                    'countries': 'US,EU,GB,JP,CH,AU,NZ,CA',
+                    'limit': 1000
+                }
             
             # Filter by currency if specified
             if currency:
@@ -321,9 +368,20 @@ class TradingViewCalendarService:
             
             # Filter by currencies if specified
             if currencies:
+                logger.info(f"Filtering events by currencies: {currencies}")
                 # Create mapping of currency codes to their respective country codes
                 currency_countries = {currency: CURRENCY_COUNTRY_MAP.get(currency, currency) for currency in currencies}
-                events = [e for e in events if e["country"] in currency_countries.values()]
+                logger.info(f"Currency to country mapping: {currency_countries}")
+                
+                filtered_events = []
+                for event in events:
+                    country = event["country"]
+                    if country in currency_countries.values():
+                        logger.info(f"Including event with country {country}: {event.get('event', '')}")
+                        filtered_events.append(event)
+                    else:
+                        logger.info(f"Excluding event with country {country}: {event.get('event', '')}")
+                events = filtered_events
                 
             return await format_calendar_for_telegram(events)
         except Exception as e:
