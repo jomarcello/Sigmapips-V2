@@ -3138,6 +3138,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             else:
                 keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")])
             
+            # Get technical analysis text
+            technical_analysis = await self.chart_service.get_technical_analysis(instrument, timeframe)
+            
             # Show the chart
             try:
                 logger.info(f"Sending chart image for {instrument} {timeframe}")
@@ -3148,6 +3151,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     caption=f"{instrument} Technical Analysis",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
+                
+                # Send technical analysis text in a separate message
+                if technical_analysis:
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=technical_analysis,
+                        parse_mode=ParseMode.HTML
+                    )
                 
                 # Delete the original message (the one with the loading indicator)
                 logger.info(f"Deleting original message {query.message.message_id}")
