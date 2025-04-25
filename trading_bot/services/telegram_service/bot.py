@@ -3160,6 +3160,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 # If still too long, trim the analysis
                 caption = caption[:997] + "..."
             
+            # Sanitize HTML for Telegram to fix parsing errors
+            caption = self._sanitize_html_for_telegram(caption)
+            
             # Determine which callback to use for back button based on whether we're in signal flow or not
             back_callback = "back_to_signal_analysis" if from_signal else "back_instrument"
             
@@ -3188,6 +3191,27 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
             except Exception as e:
                 logger.error(f"Failed to send chart: {str(e)}")
+                
+                # If there's an HTML parsing error, try again without HTML formatting
+                if "Can't parse entities" in str(e):
+                    try:
+                        logger.info("Trying to send chart with plain text (no HTML)")
+                        plain_text_caption = self._strip_all_html(caption)
+                        
+                        await context.bot.send_photo(
+                            chat_id=update.effective_chat.id,
+                            photo=chart_image,
+                            caption=plain_text_caption,
+                            parse_mode=None,  # No parsing, plain text
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                        
+                        # Delete the original message
+                        await query.delete_message()
+                        return SHOW_RESULT
+                        
+                    except Exception as plain_text_error:
+                        logger.error(f"Failed to send plain text chart: {str(plain_text_error)}")
                 
                 # Fallback error handling
                 try:
@@ -3218,6 +3242,49 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 pass
             
             return MENU
+
+    def _sanitize_html_for_telegram(self, text):
+        """Sanitize HTML to ensure compatibility with Telegram's HTML parser"""
+        if not text:
+            return text
+            
+        # Handle specific HTML issues
+        # Fix any malformed tags (like empty opening/closing tags)
+        text = re.sub(r'<\s*>', '', text)  # Remove empty tags
+        text = re.sub(r'<\s*/\s*>', '', text)  # Remove empty closing tags
+        
+        # Telegram only supports these tags
+        allowed_tags = ['b', 'i', 'u', 'a', 'code', 'pre']
+        
+        # Make sure we only use allowed tags - strip others
+        for tag in allowed_tags:
+            # Make sure tags are properly formatted with no spaces
+            text = re.sub(f'<\s*{tag}\s*>', f'<{tag}>', text) 
+            text = re.sub(f'<\s*/{tag}\s*>', f'</{tag}>', text)
+        
+        # Remove any other HTML tags not in our allowed list
+        def replace_tag(match):
+            tag = match.group(1).strip()
+            if tag.split(' ')[0] not in allowed_tags:
+                return ''
+            return match.group(0)
+            
+        text = re.sub(r'<\s*/?([^>]*)\s*>', replace_tag, text)
+        
+        # Handle any > or < characters that might be in the text but not part of HTML
+        text = re.sub(r'(?<![<])\s*>\s*(?![>])', '&gt;', text)  # Replace > not part of tag
+        text = re.sub(r'(?<![<])<(?![/a-zA-Z])', '&lt;', text)  # Replace < not part of tag
+        
+        # Replace problematic special characters in markdown format
+        text = text.replace('*', '')  # Remove asterisks (often used for bold in markdown)
+        
+        return text
+
+    def _strip_all_html(self, text):
+        """Remove all HTML tags for plain text fallback"""
+        if not text:
+            return text
+        return re.sub(r'<[^>]*>', '', text)
 
     @property
     def sentiment_service(self):
