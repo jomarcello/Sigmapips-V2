@@ -534,7 +534,7 @@ class ChartService:
                     try:
                         logger.info(f"Trying {provider.__class__.__name__} for {instrument} ({market_type})")
                         analysis = await provider.get_market_data(instrument, timeframe)
-                        if analysis:
+                        if analysis is not None and (not isinstance(analysis, pd.DataFrame) or not analysis.empty):
                             # Convert provider format to our standard analysis_data format
                             if hasattr(analysis, 'indicators'):
                                 indicators = analysis.indicators
@@ -569,7 +569,7 @@ class ChartService:
                     logger.warning(f"All providers failed for {instrument}")
                     
                 # If we still don't have data, try TradingView as a last resort
-                if not analysis:
+                if analysis is None or (isinstance(analysis, pd.DataFrame) and analysis.empty):
                     try:
                         # This is a different format than our API providers
                         from tradingview_ta import TA_Handler, Interval
