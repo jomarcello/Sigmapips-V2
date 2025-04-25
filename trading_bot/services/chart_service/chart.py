@@ -25,7 +25,6 @@ from tradingview_ta import TA_Handler, Interval
 # Importeer alleen de base class
 from trading_bot.services.chart_service.base import TradingViewService
 # Import providers
-from trading_bot.services.chart_service.twelvedata_provider import TwelveDataProvider
 from trading_bot.services.chart_service.yfinance_provider import YahooFinanceProvider
 from trading_bot.services.chart_service.binance_provider import BinanceProvider
 
@@ -64,7 +63,6 @@ class ChartService:
             self.chart_providers = [
                 BinanceProvider(),      # Eerst Binance voor crypto's
                 YahooFinanceProvider(), # Dan Yahoo Finance voor andere markten
-                TwelveDataProvider(),   # Voeg TwelveData toe als extra provider
             ]
             
             # Initialiseer de chart links met de specifieke TradingView links
@@ -138,7 +136,7 @@ class ChartService:
             self.analysis_cache = {}
             self.analysis_cache_ttl = 60 * 15  # 15 minutes in seconds
             
-            logging.info("Chart service initialized with providers: Binance, YahooFinance, TwelveData")
+            logging.info("Chart service initialized with providers: Binance, YahooFinance")
             
         except Exception as e:
             logging.error(f"Error initializing chart service: {str(e)}")
@@ -521,7 +519,7 @@ class ChartService:
                     if yahoo_provider:
                         prioritized_providers.append(yahoo_provider)
                 else:
-                    # For non-crypto (forex, indices, commodities), only use Yahoo and TwelveData
+                    # For non-crypto (forex, indices, commodities), only use Yahoo
                     if yahoo_provider:
                         prioritized_providers.append(yahoo_provider)
                     # Don't add Binance for non-crypto markets
