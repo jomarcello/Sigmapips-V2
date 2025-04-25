@@ -1,23 +1,23 @@
 # Core packages
-python-telegram-bot==20.3
-aiohttp==3.8.5
-python-dotenv==1.0.0
+python-telegram-bot>=20.0
+aiohttp>=3.8.4
+python-dotenv>=1.0.0
 httpx==0.24.1
-stripe==7.5.0
+stripe>=5.4.0
 tenacity==8.2.3  # Voor retry mechanisme in API calls
-fastapi==0.105.0  # Added for webhook functionality
-uvicorn==0.24.0  # Added for serving FastAPI applications
+fastapi>=0.95.0
+uvicorn[standard]>=0.21.1
 
 # Database
 supabase==1.1.1
 redis==5.0.1
 
 # Chart generation
-matplotlib==3.8.2
-pandas==2.1.3
-mplfinance==0.12.10b0
-numpy==1.26.2
-tradingview_ta==3.3.0
+matplotlib>=3.7.1
+pandas>=2.0.0
+mplfinance>=0.12.9b0
+numpy>=1.24.2
+tradingview-ta>=3.3.0
 
 # For logging and debugging
 python-json-logger==2.0.7
@@ -45,3 +45,6 @@ requests
 # AI Services
 # Required dependencies for natural language processing and sentiment analysis
 tavily-python==0.2.2  # for web search via Tavily API - REQUIRED for sentiment analysis
+
+# Added from the code block
+twelvedata>=1.2.10
