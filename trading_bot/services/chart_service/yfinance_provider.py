@@ -30,6 +30,17 @@ class YahooFinanceProvider:
         """Get or create a requests session with retry logic"""
         if YahooFinanceProvider._session is None:
             session = requests.Session()
+            
+            # Rotating user agents to avoid blocking
+            user_agents = [
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:90.0) Gecko/20100101 Firefox/90.0',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 11.5; rv:90.0) Gecko/20100101 Firefox/90.0',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36 Edg/92.0.902.55',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_5_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Safari/605.1.15'
+            ]
+            
             retries = Retry(
                 total=5,
                 backoff_factor=1,
@@ -39,9 +50,43 @@ class YahooFinanceProvider:
             adapter = HTTPAdapter(max_retries=retries, pool_maxsize=10)
             session.mount("http://", adapter)
             session.mount("https://", adapter)
+            
+            # Use a random user agent
             session.headers.update({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                'User-Agent': random.choice(user_agents),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache',
             })
+            
+            # For Railway environment: try to use proxies if available
+            if os.environ.get('ENVIRONMENT') == 'production' or os.environ.get('RAILWAY_ENVIRONMENT') is not None:
+                try:
+                    # Check if HTTP_PROXY or HTTPS_PROXY environment variables are set
+                    http_proxy = os.environ.get('HTTP_PROXY')
+                    https_proxy = os.environ.get('HTTPS_PROXY')
+                    
+                    if http_proxy or https_proxy:
+                        proxies = {}
+                        if http_proxy:
+                            proxies['http'] = http_proxy
+                        if https_proxy:
+                            proxies['https'] = https_proxy
+                            
+                        session.proxies.update(proxies)
+                        logger.info(f"Using proxy settings for Yahoo Finance requests: {proxies}")
+                except Exception as e:
+                    logger.error(f"Error setting up proxies: {str(e)}")
+            
             YahooFinanceProvider._session = session
         return YahooFinanceProvider._session
     
@@ -63,30 +108,41 @@ class YahooFinanceProvider:
         wait=wait_exponential(multiplier=2, min=4, max=60),
         reraise=True
     )
-    async def _download_data(symbol: str, start_date: datetime, end_date: datetime, interval: str) -> pd.DataFrame:
+    async def _download_data(symbol: str, start_date: datetime, end_date: datetime, interval: str, timeout: int = 30) -> pd.DataFrame:
         """Download data directly from Yahoo Finance using yfinance"""
         loop = asyncio.get_event_loop()
         
         def download():
             try:
+                # Config for yfinance to use our session with headers
+                session = YahooFinanceProvider._get_session()
+                yf.set_tz_session_for_downloading(session=session)
+                
                 # Method 1: Use direct download which works better for most tickers
                 df = yf.download(
                     symbol, 
                     start=start_date,
                     end=end_date,
                     interval=interval,
-                    progress=False  # Turn off progress output
+                    progress=False,  # Turn off progress output
+                    timeout=timeout       # Increase timeout for Railway
                 )
                 
                 # If direct download failed, try the Ticker method
                 if df is None or df.empty:
                     logger.info(f"Direct download failed for {symbol}, trying Ticker method")
-                    ticker = yf.Ticker(symbol)
+                    ticker = yf.Ticker(symbol, session=session)
                     df = ticker.history(
                         start=start_date,
                         end=end_date,
                         interval=interval
                     )
+                
+                # If yfinance methods all failed, try fallback to TradingView 
+                # (we use TradingView in chart.py, but here we'll indicate failure)
+                if df is None or df.empty:
+                    logger.warning(f"All Yahoo Finance methods failed for {symbol}")
+                    raise Exception(f"No data available for {symbol}")
                 
                 return df
                         
@@ -187,6 +243,27 @@ class YahooFinanceProvider:
                 if current_time - cache_time < YahooFinanceProvider._cache_timeout:
                     return cached_data
 
+            # For Railway deployments: quickly return empty dataframe for forex and cryptos
+            is_railway = os.environ.get('RAILWAY_ENVIRONMENT') is not None
+            
+            # List of symbols that TradingView handles better
+            tradingview_preferred = [
+                # Forex pairs
+                'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD',
+                'EURGBP', 'EURJPY', 'GBPJPY', 'AUDJPY', 'EURAUD', 'CADJPY',
+                # Indices
+                'US30', 'US500', 'US100', 'UK100', 'DE40', 'JP225', 'FR40', 'EU50', 'AUS200',
+                # Commodities
+                'XAUUSD', 'XAGUSD', 'WTIUSD', 'XTIUSD'
+            ]
+            
+            # Skip Yahoo Finance completely for these instruments on Railway (they often fail)
+            if is_railway and (symbol.upper() in tradingview_preferred or 
+                              (len(symbol) == 6 and all(c.isalpha() for c in symbol))):
+                # This is likely a forex pair or an index/commodity that works better with TradingView
+                logger.warning(f"Bypassing Yahoo Finance for {symbol} on Railway - TradingView preferred")
+                return pd.DataFrame()  # Return empty to allow TradingView to handle it
+            
             # Convert timeframe to yfinance interval
             interval_map = {
                 "1m": "1m",
@@ -228,41 +305,68 @@ class YahooFinanceProvider:
             # Wait for rate limit
             await YahooFinanceProvider._wait_for_rate_limit()
             
-            # Download data from Yahoo Finance
-            logger.info(f"Downloading data for {formatted_symbol} from {start_date} to {end_date}")
-            df = await YahooFinanceProvider._download_data(
-                formatted_symbol,
-                start_date,
-                end_date,
-                interval
-            )
-            
-            if df is None or df.empty:
-                logger.error(f"No data returned from Yahoo Finance for {symbol}")
-                return None
-            
-            # Ensure datetime index
-            if not isinstance(df.index, pd.DatetimeIndex):
-                df.index = pd.to_datetime(df.index)
-            
-            # Validate and clean data
-            df = YahooFinanceProvider._validate_and_clean_data(df)
-            
-            if df is None or df.empty:
-                logger.error(f"No valid data after cleaning for {symbol}")
-                return None
+            try:
+                # Download data from Yahoo Finance
+                logger.info(f"Downloading data for {formatted_symbol} from {start_date} to {end_date}")
                 
-            # Sort by date and limit rows
-            df = df.sort_index().tail(limit)
+                # Shorter timeout on Railway
+                timeout = 10 if is_railway else 30
+                
+                df = await YahooFinanceProvider._download_data(
+                    formatted_symbol,
+                    start_date,
+                    end_date,
+                    interval,
+                    timeout=timeout
+                )
+                
+                if df is None or df.empty:
+                    logger.error(f"No data returned from Yahoo Finance for {symbol}")
+                    # Return an empty DataFrame on Railway, to allow TradingView fallback to work
+                    if is_railway:
+                        logger.warning(f"Running on Railway, returning empty DataFrame for {symbol} to allow TradingView fallback")
+                        return pd.DataFrame()
+                    return None
             
-            # Cache the result
-            YahooFinanceProvider._cache[cache_key] = (df, current_time)
-            
-            return df
+                # Ensure datetime index
+                if not isinstance(df.index, pd.DatetimeIndex):
+                    df.index = pd.to_datetime(df.index)
+                
+                # Validate and clean data
+                df = YahooFinanceProvider._validate_and_clean_data(df)
+                
+                if df is None or df.empty:
+                    logger.error(f"No valid data after cleaning for {symbol}")
+                    # Return an empty DataFrame on Railway, to allow TradingView fallback to work
+                    if is_railway:
+                        logger.warning(f"Running on Railway, returning empty DataFrame for {symbol} to allow TradingView fallback")
+                        return pd.DataFrame()
+                    return None
+                    
+                # Sort by date and limit rows
+                df = df.sort_index().tail(limit)
+                
+                # Cache the result
+                YahooFinanceProvider._cache[cache_key] = (df, current_time)
+                
+                return df
+            except Exception as inner_e:
+                logger.error(f"Error downloading market data: {str(inner_e)}")
+                # Return an empty DataFrame on Railway, to allow TradingView fallback to work
+                if is_railway:
+                    logger.warning(f"Error on Railway, returning empty DataFrame for {symbol} to allow TradingView fallback")
+                    return pd.DataFrame()
+                return None
             
         except Exception as e:
             logger.error(f"Error fetching market data for {symbol}: {str(e)}")
             logger.error(traceback.format_exc())
+            
+            # Return an empty DataFrame on Railway, to allow TradingView fallback to work
+            if os.environ.get('RAILWAY_ENVIRONMENT') is not None:
+                logger.warning(f"Exception on Railway, returning empty DataFrame for {symbol} to allow TradingView fallback")
+                return pd.DataFrame()
+            
             return None
 
     @staticmethod
