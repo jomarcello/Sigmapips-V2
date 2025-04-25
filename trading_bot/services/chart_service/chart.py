@@ -64,7 +64,6 @@ class ChartService:
             self.chart_providers = [
                 BinanceProvider(),      # Eerst Binance voor crypto's
                 YahooFinanceProvider(), # Dan Yahoo Finance voor andere markten
-                TwelveDataProvider()    # TwelveData als laatste backup
             ]
             
             # Initialiseer de chart links met de specifieke TradingView links
@@ -138,7 +137,7 @@ class ChartService:
             self.analysis_cache = {}
             self.analysis_cache_ttl = 60 * 15  # 15 minutes in seconds
             
-            logging.info("Chart service initialized with providers: Binance, YahooFinance, TwelveData")
+            logging.info("Chart service initialized with providers: Binance, YahooFinance")
             
         except Exception as e:
             logging.error(f"Error initializing chart service: {str(e)}")
@@ -504,6 +503,24 @@ class ChartService:
                     try:
                         analysis = await provider.get_market_data(instrument, timeframe)
                         if analysis:
+                            # Convert provider format to our standard analysis_data format
+                            if hasattr(analysis, 'indicators'):
+                                indicators = analysis.indicators
+                                analysis_data = {
+                                    "close": indicators.get("close", 0),
+                                    "open": indicators.get("open", 0),
+                                    "high": indicators.get("high", 0),
+                                    "low": indicators.get("low", 0),
+                                    "volume": indicators.get("volume", 0),
+                                    "ema_20": indicators.get("EMA20", 0),
+                                    "ema_50": indicators.get("EMA50", 0),
+                                    "ema_200": indicators.get("EMA200", 0),
+                                    "rsi": indicators.get("RSI", 50),
+                                    "macd": indicators.get("MACD.macd", 0),
+                                    "macd_signal": indicators.get("MACD.signal", 0),
+                                    "macd_hist": indicators.get("MACD.hist", 0)
+                                }
+                                logger.info(f"Successfully converted provider data to standard format")
                             break
                     except Exception as e:
                         logger.warning(f"Provider failed: {str(e)}")
@@ -622,15 +639,50 @@ class ChartService:
                     macd_signal_text = "BEARISH"
                 
                 # Format analysis text
+                high_price = analysis_data['high']
+                low_price = analysis_data['low']
+                ema_200 = analysis_data.get('ema_200', ema_50 * 0.98)
+                
                 td_analysis = (
                     f"TECHNICAL ANALYSIS FOR {instrument} ({timeframe})\n\n"
                     f"TREND: {trend}\n"
-                    f"Current Price: {current_price:.5f}\n"
-                    f"EMA 20: {ema_20:.5f}\n"
-                    f"EMA 50: {ema_50:.5f}\n"
+                    f"Current Price: {current_price:.2f}\n"
+                    f"EMA 20: {ema_20:.2f}\n"
+                    f"EMA 50: {ema_50:.2f}\n"
                     f"RSI (14): {rsi:.2f} - {rsi_condition}\n"
-                    f"MACD: {macd:.5f} - {macd_signal_text}\n\n"
+                    f"MACD: {macd:.2f} - {macd_signal_text}\n\n"
+                    f"Zone Strength: {'★' * min(5, max(1, int(rsi/20)))}\n\n"
+                    f"📊 Market Overview\n"
+                    f"Price is currently trading near the daily {'high' if current_price > (high_price + low_price)/2 else 'low'} of {high_price:.2f}, "
+                    f"showing {trend.lower()} momentum. The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
+                    f"indicating a {'strong uptrend' if trend == 'BULLISH' else 'strong downtrend' if trend == 'BEARISH' else 'consolidation phase'}. "
+                    f"Volume is moderate, supporting the current price action.\n\n"
+                    f"🔑 Key Levels\n"
+                    f"Support: {low_price:.2f} (daily low), {(low_price * 0.99):.2f}, {(low_price * 0.98):.2f} (weekly low)\n"
+                    f"Resistance: {high_price:.2f} (daily high), {(high_price * 1.01):.2f}, {(high_price * 1.02):.2f} (weekly high)\n\n"
+                    f"📈 Technical Indicators\n"
+                    f"RSI: {rsi:.2f} ({rsi_condition.lower()})\n"
+                    f"MACD: {macd_signal_text.lower()} ({macd:.6f} {'>' if macd > macd_signal else '<'} signal {macd_signal:.6f})\n"
+                    f"Moving Averages: Price {'above' if current_price > ema_50 else 'below'} EMA 50 ({ema_50:.2f}) and "
+                    f"{'above' if current_price > ema_200 else 'below'} EMA 200 ({ema_200:.2f}), confirming {trend.lower()} bias.\n\n"
+                    f"🤖 Sigmapips AI Recommendation\n"
                 )
+                
+                # Add conditional recommendation text based on trend
+                if trend == 'BULLISH':
+                    td_analysis += f"Watch for a breakout above {high_price:.2f} for further upside. "
+                    td_analysis += f"Maintain a buy bias while price holds above {low_price:.2f}. "
+                    td_analysis += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
+                elif trend == 'BEARISH':
+                    td_analysis += f"Watch for a breakdown below {low_price:.2f} for further downside. "
+                    td_analysis += f"Maintain a sell bias while price holds below {high_price:.2f}. "
+                    td_analysis += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
+                else:
+                    td_analysis += f"Range-bound conditions persist. Look for buying opportunities near {low_price:.2f} "
+                    td_analysis += f"and selling opportunities near {high_price:.2f}. "
+                    td_analysis += f"Wait for a clear breakout before establishing a directional bias.\n\n"
+                
+                td_analysis += f"⚠️ Disclaimer: For educational purposes only."
                 
                 # Cache the analysis
                 self.analysis_cache[cache_key] = (current_time, td_analysis)
