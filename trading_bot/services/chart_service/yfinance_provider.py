@@ -114,6 +114,8 @@ class YahooFinanceProvider:
                     "group_by": "ticker",
                 }
                 
+                logger.info(f"Download options: {download_options}")
+                
                 # Get historical data from Yahoo Finance
                 df = await loop.run_in_executor(
                     None,
@@ -125,6 +127,9 @@ class YahooFinanceProvider:
                     logger.warning(f"No data returned from Yahoo Finance for {instrument} ({formatted_symbol})")
                     return None
                 
+                logger.info(f"Received data shape: {df.shape}")
+                logger.info(f"Sample data:\n{df.tail()}")
+                
                 # Calculate technical indicators
                 df = YahooFinanceProvider._calculate_indicators(df)
                 
@@ -133,9 +138,13 @@ class YahooFinanceProvider:
                 
                 # Safe conversion to float to handle Series objects
                 def safe_float(val):
-                    if hasattr(val, 'iloc'):
-                        return float(val.iloc[0])
-                    return float(val)
+                    try:
+                        if hasattr(val, 'iloc'):
+                            return float(val.iloc[0])
+                        return float(val)
+                    except Exception as e:
+                        logger.error(f"Error converting value to float: {val}, Error: {str(e)}")
+                        return 0.0
                 
                 # Calculate trend based on EMAs
                 close_price = safe_float(latest['Close'])
@@ -183,16 +192,17 @@ class YahooFinanceProvider:
                 # Cache the result
                 YahooFinanceProvider._cache[cache_key] = (current_time, analysis)
                 
+                logger.info(f"Successfully processed data for {instrument}")
                 return analysis
                 
             except Exception as e:
                 logger.error(f"Error in Yahoo Finance data download: {str(e)}")
-                logger.error(traceback.format_exc())
+                logger.error(f"Full traceback:\n{traceback.format_exc()}")
                 return None
                 
         except Exception as e:
             logger.error(f"Error fetching data from Yahoo Finance: {str(e)}")
-            logger.error(traceback.format_exc())
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
             return None
     
     @staticmethod
