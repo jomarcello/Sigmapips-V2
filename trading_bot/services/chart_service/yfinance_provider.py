@@ -3,312 +3,295 @@ import traceback
 import asyncio
 import os
 from typing import Optional, Dict, Any
-from collections import namedtuple
 import time
-import yfinance as yf
 import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
 import random
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from tenacity import retry, stop_after_attempt, wait_exponential
+import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
 class YahooFinanceProvider:
     """Provider class for Yahoo Finance API integration"""
     
-    # Track API usage
-    _last_api_call = 0
-    _api_call_count = 0
-    _max_calls_per_minute = 15  # Adjust based on Yahoo Finance limits
-    
     # Cache data to minimize API calls
     _cache = {}
     _cache_timeout = 3600  # Cache timeout in seconds (1 hour)
+    _last_api_call = 0
+    _min_delay_between_calls = 2  # Minimum delay between calls in seconds
+    _session = None
+
+    @staticmethod
+    def _get_session():
+        """Get or create a requests session with retry logic"""
+        if YahooFinanceProvider._session is None:
+            session = requests.Session()
+            retries = Retry(
+                total=5,
+                backoff_factor=1,
+                status_forcelist=[429, 500, 502, 503, 504],
+                allowed_methods=["HEAD", "GET", "POST", "OPTIONS"]
+            )
+            adapter = HTTPAdapter(max_retries=retries, pool_maxsize=10)
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            })
+            YahooFinanceProvider._session = session
+        return YahooFinanceProvider._session
     
     @staticmethod
-    def _create_session():
-        """Create a requests session with retry logic"""
-        session = requests.Session()
-        retry_strategy = Retry(
-            total=3,  # number of retries
-            backoff_factor=1,  # wait 1, 2, 4 seconds between retries
-            status_forcelist=[408, 429, 500, 502, 503, 504],
-        )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        return session
-    
+    async def _wait_for_rate_limit():
+        """Wait if we've hit the rate limit"""
+        current_time = time.time()
+        if YahooFinanceProvider._last_api_call > 0:
+            time_since_last_call = current_time - YahooFinanceProvider._last_api_call
+            if time_since_last_call < YahooFinanceProvider._min_delay_between_calls:
+                delay = YahooFinanceProvider._min_delay_between_calls - time_since_last_call + random.uniform(0.1, 0.5)
+                logger.info(f"Rate limiting: Waiting {delay:.2f} seconds before next call")
+                await asyncio.sleep(delay)
+        YahooFinanceProvider._last_api_call = time.time()
+
     @staticmethod
-    async def get_market_data(instrument: str, timeframe: str = "1h") -> Optional[Dict[str, Any]]:
-        """
-        Get market data from Yahoo Finance API for technical analysis.
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2, min=4, max=60),
+        reraise=True
+    )
+    async def _download_data(symbol: str, start_date: datetime, end_date: datetime, interval: str) -> pd.DataFrame:
+        """Download data directly from Yahoo Finance using yfinance"""
+        loop = asyncio.get_event_loop()
         
-        Args:
-            instrument: Trading instrument (e.g., EURUSD, BTCUSD, US500)
-            timeframe: Timeframe for analysis (1h, 4h, 1d)
+        def download():
+            try:
+                # Method 1: Use direct download which works better for most tickers
+                df = yf.download(
+                    symbol, 
+                    start=start_date,
+                    end=end_date,
+                    interval=interval,
+                    progress=False  # Turn off progress output
+                )
+                
+                # If direct download failed, try the Ticker method
+                if df is None or df.empty:
+                    logger.info(f"Direct download failed for {symbol}, trying Ticker method")
+                    ticker = yf.Ticker(symbol)
+                    df = ticker.history(
+                        start=start_date,
+                        end=end_date,
+                        interval=interval
+                    )
+                
+                return df
+                        
+            except Exception as e:
+                logger.error(f"Error downloading data from Yahoo Finance: {str(e)}")
+                raise e
+        
+        return await loop.run_in_executor(None, download)
+    
+    @staticmethod
+    def _validate_and_clean_data(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Validate and clean the market data
+        """
+        if df is None or df.empty:
+            return df
             
-        Returns:
-            Optional[Dict]: Technical analysis data or None if failed
+        try:
+            # Print the original columns for debugging
+            logger.info(f"Original columns: {df.columns}")
+            
+            # Check if we have a multi-index dataframe from yfinance
+            if isinstance(df.columns, pd.MultiIndex):
+                # Convert multi-index format to standard format
+                result = pd.DataFrame()
+                
+                # Extract each price column
+                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                    if (col, df.columns.get_level_values(1)[0]) in df.columns:
+                        result[col] = df[(col, df.columns.get_level_values(1)[0])]
+                    else:
+                        logger.error(f"Column {col} not found in multi-index")
+                        
+                # Replace original dataframe with converted one
+                if not result.empty:
+                    logger.info(f"Successfully converted multi-index to: {result.columns}")
+                    df = result
+                else:
+                    logger.error("Failed to convert multi-index dataframe")
+                    return pd.DataFrame()
+            
+            # Ensure we have the required columns
+            required_columns = ['Open', 'High', 'Low', 'Close']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                logger.error(f"Required columns missing: {missing_columns}")
+                logger.info(f"Available columns: {df.columns}")
+                return pd.DataFrame()
+            
+            # Remove any duplicate indices
+            df = df[~df.index.duplicated(keep='last')]
+            
+            # Forward fill missing values (max 2 periods)
+            df = df.ffill(limit=2)
+            
+            # Remove rows with any remaining NaN values
+            df = df.dropna()
+            
+            # Ensure all numeric columns are float
+            for col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            # Validate price relationships - only keep rows with valid OHLC relationships
+            df = df[
+                (df['High'] >= df['Low']) & 
+                (df['High'] >= df['Open']) & 
+                (df['High'] >= df['Close']) &
+                (df['Low'] <= df['Open']) & 
+                (df['Low'] <= df['Close'])
+            ]
+            
+            # Also validate Volume if it exists
+            if 'Volume' in df.columns:
+                df = df[df['Volume'] >= 0]
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error in data validation: {str(e)}")
+            logger.error(traceback.format_exc())
+            return df
+
+    @staticmethod
+    async def get_market_data(symbol: str, timeframe: str = "1d", limit: int = 100) -> Optional[pd.DataFrame]:
+        """
+        Get market data for a symbol with caching and error handling
         """
         try:
+            # Format the symbol for Yahoo Finance
+            formatted_symbol = YahooFinanceProvider._format_symbol(symbol)
+            
             # Check cache first
-            cache_key = f"{instrument}_{timeframe}"
+            cache_key = f"{formatted_symbol}_{timeframe}_{limit}"
             current_time = time.time()
             
             if cache_key in YahooFinanceProvider._cache:
-                cache_time, cached_data = YahooFinanceProvider._cache[cache_key]
+                cached_data, cache_time = YahooFinanceProvider._cache[cache_key]
                 if current_time - cache_time < YahooFinanceProvider._cache_timeout:
-                    logger.info(f"Using cached data for {instrument} ({timeframe})")
                     return cached_data
-            
-            # Implement basic rate limiting
-            minute_passed = current_time - YahooFinanceProvider._last_api_call >= 60
-            
-            if minute_passed:
-                # Reset counter if a minute has passed
-                YahooFinanceProvider._api_call_count = 0
-                YahooFinanceProvider._last_api_call = current_time
-            elif YahooFinanceProvider._api_call_count >= YahooFinanceProvider._max_calls_per_minute:
-                # If we hit the rate limit, wait until the minute is up
-                logger.warning(f"Yahoo Finance API rate limit reached ({YahooFinanceProvider._api_call_count} calls). Waiting before retry.")
-                # Add some jitter to prevent all threads from retrying simultaneously
-                await asyncio.sleep(5 + random.random() * 2)
-            
-            # Increment the API call counter
-            YahooFinanceProvider._api_call_count += 1
-            
-            # Format symbol for Yahoo Finance API
-            formatted_symbol = YahooFinanceProvider._format_symbol(instrument)
-            
-            logger.info(f"Fetching {formatted_symbol} data from Yahoo Finance. API call #{YahooFinanceProvider._api_call_count} this minute.")
-            
-            # Map timeframe to Yahoo Finance interval
-            yf_interval = {
-                "1m": "1m", 
-                "5m": "5m", 
-                "15m": "15m", 
+
+            # Convert timeframe to yfinance interval
+            interval_map = {
+                "1m": "1m",
+                "5m": "5m",
+                "15m": "15m",
                 "30m": "30m",
-                "1h": "1h", 
-                "2h": "2h", 
-                "4h": "4h", 
+                "1h": "60m", # yfinance uses 60m instead of 1h
                 "1d": "1d",
-                "1w": "1wk",
-                "1M": "1mo"
-            }.get(timeframe, "1h")
+                "1wk": "1wk",
+                "1mo": "1mo"
+            }
             
-            # Determine appropriate period based on the interval
-            if yf_interval in ["1m", "5m", "15m", "30m"]:
-                period = "1d"  # For intraday data, get 1 day
-            elif yf_interval in ["1h", "2h", "4h"]:
-                period = "7d"  # For hourly data, get 7 days
-            elif yf_interval == "1d":
-                period = "3mo"  # For daily data, get 3 months
+            interval = interval_map.get(timeframe, "1d")
+            
+            # Calculate date range based on limit and interval
+            end_date = datetime.now()
+            if interval in ["1m", "5m", "15m", "30m", "60m"]:
+                # For intraday data, yahoo only provides limited history
+                # 1m - 7 days, 5m - 60 days, 15m/30m/60m - 730 days
+                if interval == "1m":
+                    days_back = 7
+                elif interval == "5m":
+                    days_back = 60
+                else:
+                    days_back = 730
+                # Ensure we don't request too much data
+                days_back = min(days_back, limit)
+                start_date = end_date - timedelta(days=days_back)
             else:
-                period = "1y"  # For weekly/monthly data, get 1 year
-                
-            # For intervals like 4h that might need more history for indicators
-            if yf_interval == "4h":
-                period = "60d"  # Get more data for better indicator calculation
-            
-            # Use a thread pool executor to run the blocking yfinance call
-            loop = asyncio.get_event_loop()
-            
-            try:
-                # Create a session with retry logic
-                session = YahooFinanceProvider._create_session()
-                
-                # Set up options for the download to improve reliability
-                download_options = {
-                    "tickers": formatted_symbol,
-                    "period": period,
-                    "interval": yf_interval,
-                    "auto_adjust": True,
-                    "progress": False,
-                    "prepost": False,  # Exclude pre and post market data
-                    "threads": False,  # Don't use threading within yfinance
-                    "group_by": "ticker",
-                    "session": session
+                # For other intervals, calculate based on limit with some buffer
+                days_map = {
+                    "1d": 1,
+                    "1wk": 7,
+                    "1mo": 30
                 }
-                
-                logger.info(f"Download options: {download_options}")
-                
-                # Get historical data from Yahoo Finance with retries
-                for attempt in range(3):  # Try up to 3 times
-                    try:
-                        df = await loop.run_in_executor(
-                            None,
-                            lambda: yf.download(**download_options)
-                        )
-                        if df is not None and not df.empty:
-                            break
-                    except Exception as e:
-                        logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
-                        if attempt < 2:  # Don't sleep on the last attempt
-                            await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                        continue
-                
-                # Check if we got valid data
-                if df is None or df.empty:
-                    logger.warning(f"No data returned from Yahoo Finance for {instrument} ({formatted_symbol})")
-                    return None
-                
-                logger.info(f"Received data shape: {df.shape}")
-                logger.info(f"Sample data:\n{df.tail()}")
-                
-                # Calculate technical indicators
-                df = YahooFinanceProvider._calculate_indicators(df)
-                
-                # Extract the latest data point
-                latest = df.iloc[-1]
-                
-                # Safe conversion to float to handle Series objects
-                def safe_float(val):
-                    try:
-                        if hasattr(val, 'iloc'):
-                            return float(val.iloc[0])
-                        return float(val)
-                    except Exception as e:
-                        logger.error(f"Error converting value to float: {val}, Error: {str(e)}")
-                        return 0.0
-                
-                # Calculate trend based on EMAs
-                close_price = safe_float(latest['Close'])
-                ema50 = safe_float(latest['EMA50'])
-                ema200 = safe_float(latest['EMA200'])
-                
-                trend = "BUY" if close_price > ema50 > ema200 else \
-                       "SELL" if close_price < ema50 < ema200 else \
-                       "NEUTRAL"
-                
-                # Structure for compatibility with existing code
-                AnalysisResult = namedtuple('AnalysisResult', ['summary', 'indicators', 'oscillators', 'moving_averages'])
-                
-                # Create indicators dictionary
-                indicators = {
-                    'close': safe_float(latest['Close']),
-                    'open': safe_float(latest['Open']),
-                    'high': safe_float(latest['High']),
-                    'low': safe_float(latest['Low']),
-                    'RSI': safe_float(latest['RSI']),
-                    'MACD.macd': safe_float(latest['MACD']),
-                    'MACD.signal': safe_float(latest['MACD_signal']),
-                    'MACD.hist': safe_float(latest['MACD_hist']),
-                    'EMA50': safe_float(latest['EMA50']),
-                    'EMA200': safe_float(latest['EMA200']),
-                    'volume': safe_float(latest.get('Volume', 0)),
-                }
-                
-                # Add weekly high/low
-                week_data = df.tail(168 if yf_interval == "1h" else
-                                  42 if yf_interval == "4h" else
-                                  7 if yf_interval == "1d" else df.shape[0])
-                
-                indicators["weekly_high"] = float(week_data['High'].max())
-                indicators["weekly_low"] = float(week_data['Low'].min())
-                
-                # Create result object compatible with existing code
-                analysis = AnalysisResult(
-                    summary={'recommendation': trend},
-                    indicators=indicators,
-                    oscillators={},  # Can be expanded later with additional oscillators
-                    moving_averages={}  # Can be expanded with more moving averages
-                )
-                
-                # Cache the result
-                YahooFinanceProvider._cache[cache_key] = (current_time, analysis)
-                
-                logger.info(f"Successfully processed data for {instrument}")
-                return analysis
-                
-            except Exception as e:
-                logger.error(f"Error in Yahoo Finance data download: {str(e)}")
-                logger.error(f"Full traceback:\n{traceback.format_exc()}")
+                multiplier = days_map.get(interval, 1)
+                start_date = end_date - timedelta(days=limit * multiplier * 2)  # Double the days to ensure we get enough data
+
+            # Wait for rate limit
+            await YahooFinanceProvider._wait_for_rate_limit()
+            
+            # Download data from Yahoo Finance
+            logger.info(f"Downloading data for {formatted_symbol} from {start_date} to {end_date}")
+            df = await YahooFinanceProvider._download_data(
+                formatted_symbol,
+                start_date,
+                end_date,
+                interval
+            )
+            
+            if df is None or df.empty:
+                logger.error(f"No data returned from Yahoo Finance for {symbol}")
+                return None
+            
+            # Ensure datetime index
+            if not isinstance(df.index, pd.DatetimeIndex):
+                df.index = pd.to_datetime(df.index)
+            
+            # Validate and clean data
+            df = YahooFinanceProvider._validate_and_clean_data(df)
+            
+            if df is None or df.empty:
+                logger.error(f"No valid data after cleaning for {symbol}")
                 return None
                 
+            # Sort by date and limit rows
+            df = df.sort_index().tail(limit)
+            
+            # Cache the result
+            YahooFinanceProvider._cache[cache_key] = (df, current_time)
+            
+            return df
+            
         except Exception as e:
-            logger.error(f"Error fetching data from Yahoo Finance: {str(e)}")
-            logger.error(f"Full traceback:\n{traceback.format_exc()}")
+            logger.error(f"Error fetching market data for {symbol}: {str(e)}")
+            logger.error(traceback.format_exc())
             return None
-    
+
     @staticmethod
     async def get_stock_info(symbol: str) -> Optional[Dict]:
         """Get detailed information about a stock"""
         try:
             formatted_symbol = YahooFinanceProvider._format_symbol(symbol)
             
-            # Use a thread pool executor to run the blocking yfinance call
+            # Wait for rate limit
+            await YahooFinanceProvider._wait_for_rate_limit()
+            
             loop = asyncio.get_event_loop()
             
-            # Create ticker object with retry session
-            session = YahooFinanceProvider._create_session()
-            ticker_info = await loop.run_in_executor(
-                None,
-                lambda: yf.Ticker(formatted_symbol, session=session)
-            )
-            
-            # Get basic info with retries
-            for attempt in range(3):
+            # Get stock info with yfinance
+            def get_info():
                 try:
-                    info = await loop.run_in_executor(
-                        None,
-                        lambda: ticker_info.info
-                    )
-                    if info:
-                        return info
+                    ticker = yf.Ticker(formatted_symbol)
+                    info = ticker.info
+                    return info
                 except Exception as e:
-                    logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
-                    if attempt < 2:
-                        await asyncio.sleep(2 ** attempt)
-                    continue
+                    logger.error(f"Error getting stock info: {str(e)}")
+                    raise e
             
-            return None
+            info = await loop.run_in_executor(None, get_info)
+            return info
             
         except Exception as e:
             logger.error(f"Error getting stock info from Yahoo Finance: {str(e)}")
             return None
-    
-    @staticmethod
-    def _calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate technical indicators for the dataframe"""
-        # Reset column names if we have a multi-index
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(-1)
-            
-        # EMA calculations
-        df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
-        df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
-        
-        # RSI calculation
-        delta = df['Close'].diff()
-        gain = delta.where(delta > 0, 0)
-        loss = -delta.where(delta < 0, 0)
-        
-        avg_gain = gain.rolling(window=14).mean()
-        avg_loss = loss.rolling(window=14).mean()
-        
-        # Initialize with SMA for first 14 periods, then use EMA
-        for i in range(14, len(df)):
-            avg_gain.iloc[i] = (avg_gain.iloc[i-1] * 13 + gain.iloc[i]) / 14
-            avg_loss.iloc[i] = (avg_loss.iloc[i-1] * 13 + loss.iloc[i]) / 14
-            
-        rs = avg_gain / avg_loss
-        df['RSI'] = 100 - (100 / (1 + rs))
-        
-        # MACD calculation
-        df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
-        df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
-        df['MACD'] = df['EMA12'] - df['EMA26']
-        df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-        df['MACD_hist'] = df['MACD'] - df['MACD_signal']
-        
-        # Clean NaN values
-        df.fillna(0, inplace=True)
-        
-        return df
     
     @staticmethod
     def _format_symbol(instrument: str) -> str:
@@ -347,5 +330,5 @@ class YahooFinanceProvider:
             }
             return indices_map.get(instrument, instrument)
                 
-        # Default: return as is (for cryptocurrencies we'll use Binance API)
+        # Default: return as is
         return instrument 
