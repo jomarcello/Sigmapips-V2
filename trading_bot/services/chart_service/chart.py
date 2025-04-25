@@ -693,7 +693,7 @@ class ChartService:
                 # Technical indicators section
                 analysis_text += f"📈 <b>Technical Indicators</b>\n"
                 analysis_text += f"RSI: {rsi:.2f} ({rsi_condition.lower()})\n"
-                analysis_text += f"MACD: {macd_signal_text.lower()} ({macd:.6f} {'is above' if macd > macd_signal else 'is below'} signal {macd_signal:.6f})\n"
+                analysis_text += f"MACD: {macd_signal_text.lower()} ({macd:.10f} is {'above' if macd > macd_signal else 'below'} signal {macd_signal:.10f})\n"
                 
                 # Get ema_200 value safely from analysis_data or calculate it
                 ema_200_value = analysis_data.get("ema_200", ema_50 * 0.98)
@@ -804,7 +804,7 @@ class ChartService:
             
             # MACD interpretation
             macd_status = "bullish" if macd_value > macd_signal else "bearish"
-            analysis_text += f"MACD: {macd_status} ({macd_value:.6f} {'is above' if macd_value > macd_signal else 'is below'} signal {macd_signal:.6f})\n"
+            analysis_text += f"MACD: {macd_status} ({macd_value:.10f} is {'above' if macd_value > macd_signal else 'below'} signal {macd_signal:.10f})\n"
             
             # Moving averages
             ma_status = "bullish" if current_price > ema_50 > ema_200 else "bearish" if current_price < ema_50 < ema_200 else "mixed"
@@ -1026,7 +1026,7 @@ class ChartService:
             macd_value = random.uniform(-0.001, 0.001)
             macd_signal = random.uniform(-0.001, 0.001)
             macd_status = "bullish" if macd_value > macd_signal else "bearish"
-            analysis_text += f"MACD: {macd_status} ({macd_value:.6f} {'is above' if macd_value > macd_signal else 'is below'} signal {macd_signal:.6f})\n"
+            analysis_text += f"MACD: {macd_status} ({macd_value:.10f} is {'above' if macd_value > macd_signal else 'below'} signal {macd_signal:.10f})\n"
             
             ma_status = "bullish" if trend == "BUY" else "bearish" if trend == "SELL" else "mixed"
             analysis_text += f"Moving Averages: Price {'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 50 ({ema_50:{price_format}}) and "
