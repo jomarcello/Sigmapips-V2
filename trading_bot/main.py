@@ -18,12 +18,12 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Importeer alleen de essentiële services direct - andere worden lazy-loaded
-from trading_bot.services.database.db import Database
-from trading_bot.services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
+from .services.database.db import Database
+from .services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
 
 # Import directly from the module to avoid circular imports through __init__.py
-from trading_bot.services.telegram_service.bot import TelegramService
-from trading_bot.services.payment_service.stripe_service import StripeService
+from .services.telegram_service.bot import TelegramService
+from .services.payment_service.stripe_service import StripeService
 
 # Initialiseer de FastAPI app
 app = FastAPI()
@@ -337,7 +337,7 @@ async def test_webhook(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("trading_bot.main:app", host="0.0.0.0", port=8080)
+    uvicorn.run("main:app", host="0.0.0.0", port=8080)
 
 # Expliciet de app exporteren
 __all__ = ['app']
