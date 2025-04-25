@@ -9,7 +9,7 @@ import time
 import asyncio
 # Import telegram components only when needed to reduce startup time
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
-from telegram import BotCommand
+from telegram import BotCommand, Update
 from contextlib import asynccontextmanager
 import telegram
 
@@ -84,12 +84,25 @@ async def lifespan(app: FastAPI):
         
         # Check if we should force webhook mode
         force_webhook = os.getenv("FORCE_WEBHOOK", "false").lower() == "true"
-
-        # Check for existing bot instances by trying to get updates first
-        if force_webhook:
-            logger.info("FORCE_WEBHOOK is set to true, skipping polling and running in webhook mode only")
+        
+        # Get webhook URL and path from environment variables
+        webhook_path = os.getenv("WEBHOOK_PATH", "/webhook")
+        
+        # Ensure webhook_url doesn't end with a slash
+        if webhook_url.endswith("/"):
+            webhook_url = webhook_url[:-1]
+        
+        # Set the webhook if we're using webhook mode
+        if force_webhook and webhook_url:
+            logger.info(f"Setting webhook to {webhook_url}{webhook_path}")
+            await telegram_service.bot.set_webhook(
+                url=f"{webhook_url}{webhook_path}",
+                drop_pending_updates=True
+            )
             telegram_service.polling_started = False
-        else:
+            logger.info(f"Webhook set successfully. Bot is running in webhook mode.")
+        # Check for existing bot instances if not forcing webhook mode
+        elif not force_webhook:
             try:
                 logger.info("Checking for existing bot instances...")
                 # Use a small limit and timeout to check if another instance is running
@@ -215,6 +228,34 @@ async def process_tradingview_signal(request: Request):
         return {"status": "error", "message": str(e)}
 
 # Define webhook routes
+
+# Telegram webhook endpoint
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+    """Endpoint for Telegram webhook updates"""
+    try:
+        # Log de binnenkomende request
+        body = await request.body()
+        logger.info(f"Received Telegram webhook update: {body.decode('utf-8')[:100]}...")
+        
+        # Parse de JSON data
+        data = await request.json()
+        
+        # Stuur de update naar de telegram application
+        if telegram_service and telegram_service.application:
+            update = Update.de_json(data=data, bot=telegram_service.bot)
+            await telegram_service.application.update_queue.put(update)
+            return {"status": "success"}
+        else:
+            logger.error("Telegram service or application not initialized")
+            raise HTTPException(status_code=500, detail="Telegram service not initialized")
+    except json.JSONDecodeError:
+        logger.error("Invalid JSON in request body")
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    except Exception as e:
+        logger.error(f"Error processing Telegram webhook: {str(e)}")
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Comment out this route as it conflicts with the telegram webhook
 # @app.get("/webhook")
