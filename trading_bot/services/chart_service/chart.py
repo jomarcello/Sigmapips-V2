@@ -60,6 +60,13 @@ class ChartService:
             # Houd bij wanneer de laatste request naar Yahoo is gedaan
             self.last_yahoo_request = 0
             
+            # Initialiseer de chart providers
+            self.chart_providers = [
+                BinanceProvider(),      # Eerst Binance voor crypto's
+                YahooFinanceProvider(), # Dan Yahoo Finance voor andere markten
+                TwelveDataProvider()    # TwelveData als laatste backup
+            ]
+            
             # Initialiseer de chart links met de specifieke TradingView links
             self.chart_links = {
                 # Commodities
@@ -127,7 +134,11 @@ class ChartService:
             self.tradingview = None
             self.tradingview_selenium = None
             
-            logging.info("Chart service initialized")
+            # Initialiseer de analysis cache
+            self.analysis_cache = {}
+            self.analysis_cache_ttl = 60 * 15  # 15 minutes in seconds
+            
+            logging.info("Chart service initialized with providers: Binance, YahooFinance, TwelveData")
             
         except Exception as e:
             logging.error(f"Error initializing chart service: {str(e)}")
@@ -1218,3 +1229,90 @@ class ChartService:
         except Exception as e:
             logger.error(f"Error fetching index price: {str(e)}")
             return None
+
+    def _parse_instrument_for_tradingview(self, instrument: str) -> Tuple[str, str]:
+        """
+        Parse an instrument string into TradingView exchange and symbol format.
+        
+        Args:
+            instrument: The instrument name (e.g., BTCUSD, EURUSD)
+            
+        Returns:
+            Tuple[str, str]: A tuple of (exchange, symbol)
+        """
+        # Normalize instrument
+        instrument = instrument.upper().replace("/", "")
+        
+        # Detect market type
+        market_type = self._detect_market_type(instrument)
+        
+        # For cryptocurrencies
+        if market_type == "crypto":
+            # Handle BTC and other common crypto symbols
+            if instrument in ["BTCUSD", "BTCUSDT"]:
+                return "BINANCE", "BTCUSDT"
+            elif instrument in ["ETHUSD", "ETHUSDT"]:
+                return "BINANCE", "ETHUSDT"
+            elif instrument in ["XRPUSD", "XRPUSDT"]:
+                return "BINANCE", "XRPUSDT"
+            elif instrument in ["BNBUSD", "BNBUSDT"]:
+                return "BINANCE", "BNBUSDT"
+            elif instrument in ["ADAUSD", "ADAUSDT"]:
+                return "BINANCE", "ADAUSDT"
+            elif instrument in ["SOLUSD", "SOLUSDT"]:
+                return "BINANCE", "SOLUSDT"
+            elif instrument in ["DOTUSD", "DOTUSDT"]:
+                return "BINANCE", "DOTUSDT"
+            elif instrument.endswith("USD") and len(instrument) > 3:
+                # Try to convert to USDT format for Binance
+                symbol = instrument.replace("USD", "USDT")
+                return "BINANCE", symbol
+            elif instrument.endswith("USDT"):
+                return "BINANCE", instrument
+            else:
+                # Default for unknown crypto
+                return "BINANCE", f"{instrument}USDT"
+        
+        # For forex pairs
+        elif market_type == "forex":
+            # Common forex pairs
+            if instrument in ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "NZDUSD"]:
+                return "OANDA", instrument
+            else:
+                return "OANDA", instrument
+        
+        # For indices
+        elif market_type == "index":
+            # Map common indices to their exchange
+            index_map = {
+                "US30": ("OANDA", "US30"),
+                "US500": ("OANDA", "SPX500"),
+                "US100": ("OANDA", "NAS100"),
+                "UK100": ("OANDA", "UK100"),
+                "DE40": ("XETR", "DAX"),
+                "JP225": ("TSE", "NI225"),
+                "AU200": ("ASX", "XJO")
+            }
+            
+            if instrument in index_map:
+                return index_map[instrument]
+            else:
+                return "OANDA", instrument
+        
+        # For commodities
+        elif market_type == "commodity":
+            # Map common commodities to their exchange
+            commodity_map = {
+                "XAUUSD": ("OANDA", "XAUUSD"),
+                "XAGUSD": ("OANDA", "XAGUSD"),
+                "WTIUSD": ("NYMEX", "CL1!"),
+                "XTIUSD": ("NYMEX", "CL1!")
+            }
+            
+            if instrument in commodity_map:
+                return commodity_map[instrument]
+            else:
+                return "OANDA", instrument
+        
+        # Default for unknown instruments
+        return "OANDA", instrument
