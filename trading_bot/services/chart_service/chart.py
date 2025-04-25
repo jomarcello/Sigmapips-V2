@@ -20,7 +20,6 @@ import pickle
 import hashlib
 import traceback
 import re
-from tradingview_ta import TA_Handler, Interval
 
 # Importeer alleen de base class
 from trading_bot.services.chart_service.base import TradingViewService
@@ -128,10 +127,6 @@ class ChartService:
                 "DE40": "https://www.tradingview.com/chart/OWzg0XNw/",
             }
             
-            # Initialiseer de TradingView services
-            self.tradingview = None
-            self.tradingview_selenium = None
-            
             # Initialiseer de analysis cache
             self.analysis_cache = {}
             self.analysis_cache_ttl = 60 * 15  # 15 minutes in seconds
@@ -148,61 +143,17 @@ class ChartService:
             logger.info(f"Getting chart for {instrument} ({timeframe}) fullscreen: {fullscreen}")
             
             # Zorg ervoor dat de services zijn geïnitialiseerd
-            if not hasattr(self, 'tradingview') or not self.tradingview:
+            if not hasattr(self, 'analysis_cache'):
                 logger.info("Services not initialized, initializing now")
                 await self.initialize()
             
             # Normaliseer instrument (verwijder /)
             instrument = instrument.upper().replace("/", "")
             
-            # Gebruik de exacte TradingView link voor dit instrument zonder parameters toe te voegen
-            tradingview_link = self.chart_links.get(instrument)
-            if not tradingview_link:
-                # Als er geen specifieke link is, gebruik een generieke link
-                logger.warning(f"No specific link found for {instrument}, using generic link")
-                tradingview_link = f"https://www.tradingview.com/chart/?symbol={instrument}"
-            
-            # Voeg fullscreen parameters toe aan de URL
-            fullscreen_params = [
-                "fullscreen=true",
-                "hide_side_toolbar=true",
-                "hide_top_toolbar=true",
-                "hide_legend=true",
-                "theme=dark",
-                "toolbar_bg=dark",
-                "scale_position=right",
-                "scale_mode=normal",
-                "studies=[]",
-                "hotlist=false",
-                "calendar=false"
-            ]
-            
-            # Voeg de parameters toe aan de URL
-            if "?" in tradingview_link:
-                tradingview_link += "&" + "&".join(fullscreen_params)
-            else:
-                tradingview_link += "?" + "&".join(fullscreen_params)
-            
-            logger.info(f"Using exact TradingView link: {tradingview_link}")
-            
-            # Try to get from Node.js directly, skipping the multiple fallback attempts
-            # This reduces unnecessary fallback attempts which waste time
-            if hasattr(self, 'tradingview') and self.tradingview and hasattr(self.tradingview, 'take_screenshot_of_url'):
-                try:
-                    chart_image = await self.tradingview.take_screenshot_of_url(tradingview_link, fullscreen=True)
-                    if chart_image:
-                        return chart_image
-                    
-                    # If Node.js fails, immediately fall back to random chart generation
-                    logger.warning(f"Node.js screenshot failed for {instrument}, using fallback")
-                    return await self._generate_random_chart(instrument, timeframe)
-                except Exception as e:
-                    logger.error(f"Error using Node.js for screenshot: {str(e)}")
-            
-            # If we reach here, neither service worked or were available, use fallback
-            logger.warning(f"All screenshot services failed or unavailable, using random chart for {instrument}")
+            # Probeer om een chart te genereren met onze fallback methode (matplotlib)
+            logger.info(f"Generating chart image for {instrument} using matplotlib")
             return await self._generate_random_chart(instrument, timeframe)
-        
+            
         except Exception as e:
             logger.error(f"Error getting chart: {str(e)}")
             logger.error(traceback.format_exc())
@@ -240,15 +191,19 @@ class ChartService:
             # Here we return an empty image since we can't do much more
             return b''
 
+    async def cleanup(self):
+        """Clean up resources"""
+        try:
+            # Er zijn nu geen specifieke resources meer om op te schonen
+            logger.info("Chart service resources cleaned up")
+        except Exception as e:
+            logger.error(f"Error cleaning up chart service: {str(e)}")
+
     async def _fallback_chart(self, instrument, timeframe="1h"):
         """Fallback method to get chart"""
         try:
-            # Hier zou je een eenvoudige fallback kunnen implementeren
-            # Bijvoorbeeld een statische afbeelding of een bericht
-            logging.warning(f"Using fallback chart for {instrument}")
-            
-            # Voor nu retourneren we None, wat betekent dat er geen chart beschikbaar is
-            return None
+            # Genereer een chart met matplotlib
+            return await self._generate_random_chart(instrument, timeframe)
             
         except Exception as e:
             logging.error(f"Error in fallback chart: {str(e)}")
@@ -263,59 +218,11 @@ class ChartService:
         try:
             logger.info("Initializing chart service")
             
-            # Flag to indicate if any service was successfully initialized
-            any_service_initialized = False
-            
-            # Create a task for initializing the TradingView Node.js service with a timeout
-            try:
-                # Check if Node.js is installed first
-                try:
-                    import subprocess
-                    node_version = subprocess.check_output(["node", "--version"]).decode().strip()
-                    logger.info(f"Node.js is available: {node_version}")
-                    node_available = True
-                except (subprocess.SubprocessError, FileNotFoundError) as node_error:
-                    logger.warning(f"Node.js is not available, skipping Node.js screenshot service: {str(node_error)}")
-                    node_available = False
-                
-                if node_available:
-                    # Initialiseer de TradingView Node.js service
-                    from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
-                    self.tradingview = TradingViewNodeService()
-                    
-                    # Run initialization with a shorter timeout
-                    node_init_timeout = 10  # Reduced from 15 to 10 seconds timeout
-                    try:
-                        node_init_task = asyncio.create_task(self.tradingview.initialize())
-                        node_initialized = await asyncio.wait_for(node_init_task, timeout=node_init_timeout)
-                    except asyncio.TimeoutError:
-                        logger.error(f"Node.js service initialization timed out after {node_init_timeout} seconds")
-                        node_initialized = False
-                        
-                    if node_initialized:
-                        logger.info("Node.js service initialized successfully")
-                        any_service_initialized = True
-                    else:
-                        logger.error("Node.js service initialization failed or timed out")
-                        # Set self.tradingview to None to ensure we fall back to matplotlib
-                        self.tradingview = None
-                else:
-                    self.tradingview = None
-            except Exception as e:
-                logger.error(f"Error initializing Node.js service: {str(e)}")
-                logger.error(traceback.format_exc())
-                self.tradingview = None
-            
-            # Sla Selenium initialisatie over vanwege ChromeDriver compatibiliteitsproblemen
-            logger.warning("Skipping Selenium initialization due to ChromeDriver compatibility issues")
-            self.tradingview_selenium = None
-            
-            # Set fallback to matplotlib, even if Node.js service was initialized
-            # This ensures we always have a fallback in case Node.js fails later
-            logger.info("Setting up matplotlib fallback for chart generation")
+            # Initialize matplotlib for fallback chart generation
+            logger.info("Setting up matplotlib for chart generation")
             try:
                 import matplotlib.pyplot as plt
-                logger.info("Matplotlib is available for fallback chart generation")
+                logger.info("Matplotlib is available for chart generation")
             except ImportError:
                 logger.error("Matplotlib is not available, chart service may not function properly")
             
@@ -323,8 +230,8 @@ class ChartService:
             self.analysis_cache = {}
             self.analysis_cache_ttl = 60 * 15  # 15 minutes in seconds
             
-            # Always return True to allow the bot to continue starting regardless of chart service status
-            logger.info("Chart service initialization completed, continuing with or without Node.js service")
+            # Always return True to allow the bot to continue starting
+            logger.info("Chart service initialization completed")
             return True
         except Exception as e:
             logger.error(f"Error initializing chart service: {str(e)}")
@@ -345,19 +252,6 @@ class ChartService:
             logger.error(f"Error in fallback chart: {str(e)}")
             return None
             
-    async def cleanup(self):
-        """Clean up resources"""
-        try:
-            if hasattr(self, 'tradingview_playwright') and self.tradingview_playwright:
-                await self.tradingview_playwright.cleanup()
-            
-            if hasattr(self, 'tradingview_selenium') and self.tradingview_selenium:
-                await self.tradingview_selenium.cleanup()
-            
-            logger.info("Chart service resources cleaned up")
-        except Exception as e:
-            logger.error(f"Error cleaning up chart service: {str(e)}")
-
     async def _calculate_rsi(self, prices, period=14):
         """Calculate RSI indicator"""
         delta = prices.diff()
@@ -493,7 +387,6 @@ class ChartService:
                     logger.info(f"Using cached analysis for {instrument} ({timeframe})")
                     return cached_analysis
             
-            # Use our faster TradingViewTA service first as it's more reliable
             logger.info(f"Generating new technical analysis for {instrument} on {timeframe}")
             try:
                 analysis_data = {}
@@ -530,6 +423,7 @@ class ChartService:
                         prioritized_providers.append(provider)
                 
                 # Try the prioritized providers
+                successful_provider = None
                 for provider in prioritized_providers:
                     try:
                         logger.info(f"Trying {provider.__class__.__name__} for {instrument} ({market_type})")
@@ -546,37 +440,20 @@ class ChartService:
                             else:
                                 logger.info("Yahoo provider missing _format_symbol method")
                         
-                        analysis = await provider.get_market_data(instrument, timeframe)
+                        market_data = await provider.get_market_data(instrument, timeframe)
                         
                         # More detailed logging about the result
-                        if analysis is None:
+                        if market_data is None:
                             logger.warning(f"Provider {provider.__class__.__name__} returned None for {instrument}")
-                        elif isinstance(analysis, pd.DataFrame):
-                            if analysis.empty:
-                                logger.warning(f"Provider {provider.__class__.__name__} returned empty DataFrame for {instrument}")
-                            else:
-                                logger.info(f"Provider {provider.__class__.__name__} returned DataFrame with shape {analysis.shape} for {instrument}")
-                        
-                        if analysis is not None and (not isinstance(analysis, pd.DataFrame) or not analysis.empty):
-                            # Convert provider format to our standard analysis_data format
-                            if hasattr(analysis, 'indicators'):
-                                indicators = analysis.indicators
-                                analysis_data = {
-                                    "close": indicators.get("close", 0),
-                                    "open": indicators.get("open", 0),
-                                    "high": indicators.get("high", 0),
-                                    "low": indicators.get("low", 0),
-                                    "volume": indicators.get("volume", 0),
-                                    "ema_20": indicators.get("EMA20", 0),
-                                    "ema_50": indicators.get("EMA50", 0),
-                                    "ema_200": indicators.get("EMA200", 0),
-                                    "rsi": indicators.get("RSI", 50),
-                                    "macd": indicators.get("MACD.macd", 0),
-                                    "macd_signal": indicators.get("MACD.signal", 0),
-                                    "macd_hist": indicators.get("MACD.hist", 0)
-                                }
-                                logger.info(f"Successfully retrieved data from {provider.__class__.__name__}")
+                            continue
+                        elif isinstance(market_data, pd.DataFrame) and market_data.empty:
+                            logger.warning(f"Provider {provider.__class__.__name__} returned empty DataFrame for {instrument}")
+                            continue
+                        elif isinstance(market_data, pd.DataFrame):
+                            logger.info(f"Provider {provider.__class__.__name__} returned DataFrame with shape {market_data.shape} for {instrument}")
+                            successful_provider = provider
                             break
+                            
                     except Exception as e:
                         # Check for Binance geo-restriction error and handle gracefully
                         error_str = str(e)
@@ -584,7 +461,6 @@ class ChartService:
                         
                         if "Binance" in provider.__class__.__name__ and ("restricted location" in error_str or "eligibility" in error_str.lower()):
                             logger.warning(f"Binance API access is geo-restricted. Skipping Binance and trying alternatives.")
-                            # Skip all remaining Binance endpoints
                             continue
                         
                         # Enhanced error logging
@@ -592,288 +468,197 @@ class ChartService:
                         logger.warning(f"Error type: {error_type}")
                         logger.debug(traceback.format_exc())
                         continue
-                else:
-                    analysis = None
-                    logger.warning(f"All providers failed for {instrument}")
+                        
+                # If we couldn't get data from any provider, use fallback analysis
+                if successful_provider is None:
+                    logger.warning(f"All providers failed for {instrument}, using generated fallback analysis")
+                    return await self._generate_default_analysis(instrument, timeframe)
+                
+                # If we have a DataFrame, calculate indicators from it
+                if isinstance(market_data, pd.DataFrame) and not market_data.empty:
+                    logger.info(f"Calculating technical indicators for {instrument} from market data")
                     
-                # If we still don't have data, try TradingView as a last resort
-                if analysis is None or (isinstance(analysis, pd.DataFrame) and analysis.empty):
                     try:
-                        # This is a different format than our API providers
-                        from tradingview_ta import TA_Handler, Interval
+                        # Calculate common indicators
+                        df = market_data.copy()
                         
-                        # Map our timeframe to TradingView interval
-                        interval_map = {
-                            "1m": Interval.INTERVAL_1_MINUTE,
-                            "5m": Interval.INTERVAL_5_MINUTES,
-                            "15m": Interval.INTERVAL_15_MINUTES, 
-                            "30m": Interval.INTERVAL_30_MINUTES,
-                            "1h": Interval.INTERVAL_1_HOUR,
-                            "2h": Interval.INTERVAL_2_HOURS,
-                            "4h": Interval.INTERVAL_4_HOURS,
-                            "1d": Interval.INTERVAL_1_DAY,
-                            "1w": Interval.INTERVAL_1_WEEK,
-                            "1M": Interval.INTERVAL_1_MONTH
-                        }
+                        # Get the latest values
+                        latest = df.iloc[-1]
+                        current_price = latest['Close']
                         
-                        tv_interval = interval_map.get(timeframe, Interval.INTERVAL_1_HOUR)
+                        # Calculate EMAs
+                        if len(df) >= 200:
+                            df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
+                            df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
+                            df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
+                            latest_ema20 = df['EMA20'].iloc[-1]
+                            latest_ema50 = df['EMA50'].iloc[-1]
+                            latest_ema200 = df['EMA200'].iloc[-1]
+                        else:
+                            # If not enough data for 200 EMA, use what we have
+                            max_span = min(len(df) - 1, 200)
+                            if max_span >= 50:
+                                df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
+                                df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
+                                latest_ema20 = df['EMA20'].iloc[-1]
+                                latest_ema50 = df['EMA50'].iloc[-1]
+                                latest_ema200 = df['Close'].ewm(span=max_span, adjust=False).mean().iloc[-1]
+                            elif max_span >= 20:
+                                df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
+                                latest_ema20 = df['EMA20'].iloc[-1]
+                                latest_ema50 = df['Close'].ewm(span=max_span, adjust=False).mean().iloc[-1]
+                                latest_ema200 = latest_ema50 * 0.98  # Approximate
+                            else:
+                                # Very little data, use approximations
+                                latest_ema20 = current_price * 0.99
+                                latest_ema50 = current_price * 0.98
+                                latest_ema200 = current_price * 0.96
+                                
+                        # Calculate RSI if we have enough data
+                        if len(df) >= 14:
+                            delta = df['Close'].diff()
+                            gain = delta.where(delta > 0, 0)
+                            loss = -delta.where(delta < 0, 0)
+                            avg_gain = gain.rolling(window=14).mean()
+                            avg_loss = loss.rolling(window=14).mean()
+                            rs = avg_gain / avg_loss
+                            df['RSI'] = 100 - (100 / (1 + rs))
+                            latest_rsi = df['RSI'].iloc[-1]
+                        else:
+                            # Not enough data for RSI
+                            latest_rsi = 50  # Neutral
+                            
+                        # Calculate MACD if we have enough data
+                        if len(df) >= 26:
+                            df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
+                            df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
+                            df['MACD'] = df['EMA12'] - df['EMA26']
+                            df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+                            latest_macd = df['MACD'].iloc[-1]
+                            latest_macd_signal = df['MACD_Signal'].iloc[-1]
+                        else:
+                            # Not enough data for MACD
+                            latest_macd = 0
+                            latest_macd_signal = 0
                         
-                        # Determine exchange and symbol
-                        exchange, symbol = self._parse_instrument_for_tradingview(instrument)
-                        
-                        logger.info(f"Trying TradingView API for {instrument} on {exchange}")
-                        logger.info(f"TradingView mapped: symbol={symbol}, exchange={exchange}, interval={tv_interval}")
-                        
-                        handler = TA_Handler(
-                            symbol=symbol,
-                            exchange=exchange,
-                            screener="crypto" if exchange == "BINANCE" else "forex",
-                            interval=tv_interval,
-                            timeout=10
-                        )
-                        
-                        analysis = handler.get_analysis()
-                        
-                        # Convert TradingView format to our analysis data format
-                        indicators = analysis.indicators
-                        
-                        # Log indicator values for debugging
-                        logger.info(f"TradingView indicators for {symbol} on {exchange}: {indicators}")
-                        
-                        # Get key values
-                        current_price = indicators.get("close", 0)
-                        
-                        # Map to our standard field names
+                        # Store the calculated indicators
                         analysis_data = {
                             "close": current_price,
-                            "open": indicators.get("open", 0),
-                            "high": indicators.get("high", 0),
-                            "low": indicators.get("low", 0),
-                            "volume": indicators.get("volume", 0),
-                            "ema_20": indicators.get("EMA20", 0),
-                            "ema_50": indicators.get("EMA50", 0),
-                            "ema_200": indicators.get("EMA200", 0),
-                            "rsi": indicators.get("RSI", 50),
-                            "macd": indicators.get("MACD.macd", 0),
-                            "macd_signal": indicators.get("MACD.signal", 0),
-                            "macd_hist": indicators.get("MACD.hist", 0)
+                            "open": latest['Open'],
+                            "high": latest['High'],
+                            "low": latest['Low'],
+                            "volume": latest.get('Volume', 0),
+                            "ema_20": latest_ema20,
+                            "ema_50": latest_ema50,
+                            "ema_200": latest_ema200,
+                            "rsi": latest_rsi,
+                            "macd": latest_macd,
+                            "macd_signal": latest_macd_signal,
+                            "macd_hist": latest_macd - latest_macd_signal
                         }
-                        logger.info(f"Successfully retrieved data from TradingView")
-                    except Exception as e:
-                        logger.error(f"TradingView API error: {str(e)}")
-                        analysis_data = None
+                        
+                        logger.info(f"Successfully calculated indicators for {instrument}")
+                        
+                    except Exception as calc_e:
+                        logger.error(f"Error calculating indicators: {str(calc_e)}")
+                        logger.error(traceback.format_exc())
+                        # Fall back to default values if indicator calculation fails
+                        return await self._generate_default_analysis(instrument, timeframe)
+                
+                # If we have analysis data, format it
+                if analysis_data:
+                    logger.info(f"Successfully retrieved analysis data for {instrument}")
+                    
+                    # Get values using our expected field names
+                    current_price = analysis_data["close"]
+                    ema_20 = analysis_data["ema_20"]
+                    ema_50 = analysis_data["ema_50"]
+                    rsi = analysis_data["rsi"]
+                    macd = analysis_data["macd"]
+                    macd_signal = analysis_data["macd_signal"]
+                    
+                    # Determine trend based on EMAs
+                    trend = "NEUTRAL"
+                    if ema_20 > ema_50:
+                        trend = "BULLISH"
+                    elif ema_20 < ema_50:
+                        trend = "BEARISH"
+                    
+                    # Determine RSI conditions
+                    rsi_condition = "NEUTRAL"
+                    if rsi >= 70:
+                        rsi_condition = "OVERBOUGHT"
+                    elif rsi <= 30:
+                        rsi_condition = "OVERSOLD"
+                    
+                    # Determine MACD signal
+                    macd_signal_text = "NEUTRAL"
+                    if macd > macd_signal:
+                        macd_signal_text = "BULLISH"
+                    elif macd < macd_signal:
+                        macd_signal_text = "BEARISH"
+                    
+                    # Format the analysis using the same format as the main method
+                    if timeframe == "1d":
+                        # Daily analysis with more data
+                        analysis_text = f"{instrument} - Daily Analysis\n\n"
+                    else:
+                        analysis_text = f"{instrument} - {timeframe}\n\n"
+                    
+                    analysis_text += f"<b>Zone Strength:</b> {'★' * min(5, max(1, int(rsi/20)))}\n\n"
+                    
+                    # Market overview section
+                    analysis_text += f"📊 <b>Market Overview</b>\n"
+                    analysis_text += f"Price is currently trading near current price of {current_price:.2f}, "
+                    analysis_text += f"showing {trend.lower()} momentum. The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
+                    analysis_text += f"indicating a {'strong uptrend' if trend == 'BULLISH' else 'strong downtrend' if trend == 'BEARISH' else 'consolidation phase'}. "
+                    analysis_text += f"Volume is moderate, supporting the current price action.\n\n"
+                    
+                    # Key levels section
+                    analysis_text += f"🔑 <b>Key Levels</b>\n"
+                    analysis_text += f"Support: {analysis_data['low']:.2f} (daily low), {(analysis_data['low'] * 0.99):.2f}, {(analysis_data['low'] * 0.98):.2f} (weekly low)\n"
+                    analysis_text += f"Resistance: {analysis_data['high']:.2f} (daily high), {(analysis_data['high'] * 1.01):.2f}, {(analysis_data['high'] * 1.02):.2f} (weekly high)\n\n"
+                    
+                    # Technical indicators section
+                    analysis_text += f"📈 <b>Technical Indicators</b>\n"
+                    analysis_text += f"RSI: {rsi:.2f} ({rsi_condition.lower()})\n"
+                    analysis_text += f"MACD: {macd_signal_text.lower()} ({macd:.10f} is {'above' if macd > macd_signal else 'below'} signal {macd_signal:.10f})\n"
+                    
+                    # Get ema_200 value safely from analysis_data or calculate it
+                    ema_200_value = analysis_data.get("ema_200", ema_50 * 0.98)
+                    
+                    analysis_text += f"Moving Averages: Price {'above' if current_price > ema_50 else 'below'} EMA 50 ({ema_50:.2f}) and "
+                    analysis_text += f"{'above' if current_price > ema_200_value else 'below'} EMA 200 ({ema_200_value:.2f}), confirming {trend.lower()} bias.\n\n"
+                    
+                    # AI recommendation
+                    analysis_text += f"🤖 <b>Sigmapips AI Recommendation</b>\n"
+                    if trend == 'BULLISH':
+                        analysis_text += f"Watch for a breakout above {analysis_data['high']:.2f} for further upside. "
+                        analysis_text += f"Maintain a buy bias while price holds above {analysis_data['low']:.2f}. "
+                        analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
+                    elif trend == 'BEARISH':
+                        analysis_text += f"Watch for a breakdown below {analysis_data['low']:.2f} for further downside. "
+                        analysis_text += f"Maintain a sell bias while price holds below {analysis_data['high']:.2f}. "
+                        analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
+                    else:
+                        analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {analysis_data['low']:.2f} "
+                        analysis_text += f"and selling opportunities near {analysis_data['high']:.2f}. "
+                        analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
+                    
+                    analysis_text += f"⚠️ <b>Disclaimer:</b> For educational purposes only."
+                    
+                    # Cache the analysis
+                    self.analysis_cache[cache_key] = (current_time, analysis_text)
+                    
+                    return analysis_text
+                else:
+                    # Log detailed information about API failures
+                    logger.warning(f"Failed to generate analysis for {instrument}, falling back to default")
+                    return await self._generate_default_analysis(instrument, timeframe)
             except Exception as e:
                 logger.error(f"Error getting analysis from providers: {str(e)}")
-                analysis_data = None
-            
-            # If we have analysis data from TradingView or other providers, format it
-            if analysis_data:
-                logger.info(f"Successfully retrieved analysis data for {instrument}")
-                
-                # Get values using our expected field names
-                current_price = analysis_data["close"]
-                ema_20 = analysis_data["ema_20"]
-                ema_50 = analysis_data["ema_50"]
-                rsi = analysis_data["rsi"]
-                macd = analysis_data["macd"]
-                macd_signal = analysis_data["macd_signal"]
-                
-                # Determine trend based on EMAs
-                trend = "NEUTRAL"
-                if ema_20 > ema_50:
-                    trend = "BULLISH"
-                elif ema_20 < ema_50:
-                    trend = "BEARISH"
-                
-                # Determine RSI conditions
-                rsi_condition = "NEUTRAL"
-                if rsi >= 70:
-                    rsi_condition = "OVERBOUGHT"
-                elif rsi <= 30:
-                    rsi_condition = "OVERSOLD"
-                
-                # Determine MACD signal
-                macd_signal_text = "NEUTRAL"
-                if macd > macd_signal:
-                    macd_signal_text = "BULLISH"
-                elif macd < macd_signal:
-                    macd_signal_text = "BEARISH"
-                
-                # Format the analysis using the same format as the main method
-                if timeframe == "1d":
-                    # Daily analysis with more data
-                    analysis_text = f"{instrument} - Daily Analysis\n\n"
-                else:
-                    analysis_text = f"{instrument} - {timeframe}\n\n"
-                
-                analysis_text += f"<b>Zone Strength:</b> {'★' * min(5, max(1, int(rsi/20)))}\n\n"
-                
-                # Market overview section
-                analysis_text += f"📊 <b>Market Overview</b>\n"
-                analysis_text += f"Price is currently trading near current price of {current_price:.2f}, "
-                analysis_text += f"showing {trend.lower()} momentum. The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
-                analysis_text += f"indicating a {'strong uptrend' if trend == 'BULLISH' else 'strong downtrend' if trend == 'BEARISH' else 'consolidation phase'}. "
-                analysis_text += f"Volume is moderate, supporting the current price action.\n\n"
-                
-                # Key levels section
-                analysis_text += f"🔑 <b>Key Levels</b>\n"
-                analysis_text += f"Support: {analysis_data['low']:.2f} (daily low), {(analysis_data['low'] * 0.99):.2f}, {(analysis_data['low'] * 0.98):.2f} (weekly low)\n"
-                analysis_text += f"Resistance: {analysis_data['high']:.2f} (daily high), {(analysis_data['high'] * 1.01):.2f}, {(analysis_data['high'] * 1.02):.2f} (weekly high)\n\n"
-                
-                # Technical indicators section
-                analysis_text += f"📈 <b>Technical Indicators</b>\n"
-                analysis_text += f"RSI: {rsi:.2f} ({rsi_condition.lower()})\n"
-                analysis_text += f"MACD: {macd_signal_text.lower()} ({macd:.10f} is {'above' if macd > macd_signal else 'below'} signal {macd_signal:.10f})\n"
-                
-                # Get ema_200 value safely from analysis_data or calculate it
-                ema_200_value = analysis_data.get("ema_200", ema_50 * 0.98)
-                
-                analysis_text += f"Moving Averages: Price {'above' if current_price > ema_50 else 'below'} EMA 50 ({ema_50:.2f}) and "
-                analysis_text += f"{'above' if current_price > ema_200_value else 'below'} EMA 200 ({ema_200_value:.2f}), confirming {trend.lower()} bias.\n\n"
-                
-                # AI recommendation
-                analysis_text += f"🤖 <b>Sigmapips AI Recommendation</b>\n"
-                if trend == 'BULLISH':
-                    analysis_text += f"Watch for a breakout above {analysis_data['high']:.2f} for further upside. "
-                    analysis_text += f"Maintain a buy bias while price holds above {analysis_data['low']:.2f}. "
-                    analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
-                elif trend == 'BEARISH':
-                    analysis_text += f"Watch for a breakdown below {analysis_data['low']:.2f} for further downside. "
-                    analysis_text += f"Maintain a sell bias while price holds below {analysis_data['high']:.2f}. "
-                    analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
-                else:
-                    analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {analysis_data['low']:.2f} "
-                    analysis_text += f"and selling opportunities near {analysis_data['high']:.2f}. "
-                    analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
-                
-                analysis_text += f"⚠️ <b>Disclaimer:</b> For educational purposes only."
-                
-                # Cache the analysis
-                self.analysis_cache[cache_key] = (current_time, analysis_text)
-                
-                return analysis_text
-            else:
-                # Log detailed information about API failures
-                logger.warning(f"All API providers failed for {instrument}, falling back to TradingView API")
-
-            # Extract key indicators
-            indicators = analysis.indicators
-            
-            # Calculate current price 
-            current_price = indicators.get("close", 0)
-            
-            # Get RSI value
-            rsi = indicators.get("RSI", 50)
-            
-            # Get MACD values
-            macd_value = indicators.get("MACD.macd", 0)
-            macd_signal = indicators.get("MACD.signal", 0)
-            
-            # Get moving averages
-            ema_20 = indicators.get("EMA20", current_price * 0.995)
-            ema_50 = indicators.get("EMA50", current_price * 0.99)
-            ema_200 = indicators.get("EMA200", current_price * 0.98)
-            
-            # Determine trend based on EMAs
-            trend = "BUY" if current_price > ema_50 > ema_200 else "SELL" if current_price < ema_50 < ema_200 else "NEUTRAL"
-            
-            # Get daily high/low and weekly high/low
-            daily_high = indicators.get("high", current_price * 1.005)
-            daily_low = indicators.get("low", current_price * 0.995)
-            weekly_high = daily_high * 1.01
-            weekly_low = daily_low * 0.99
-            
-            # Determine zone strength (1-5 stars)
-            zone_strength = 4  # Default 4 out of 5 stars
-            zone_stars = "★" * zone_strength + "☆" * (5 - zone_strength)
-            
-            # Determine the appropriate price formatting based on instrument type
-            if any(crypto in instrument for crypto in ["BTC", "ETH", "XRP", "SOL", "BNB"]):
-                if instrument == "BTCUSD":
-                    # Bitcoin usually shows fewer decimal places
-                    price_format = ",.2f"
-                else:
-                    # Other crypto might need more precision
-                    price_format = ",.4f"
-            elif any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40", "JP225"]):
-                # Indices typically show 1-2 decimal places
-                price_format = ",.2f"
-            elif any(commodity in instrument for commodity in ["XAUUSD", "XAGUSD"]):
-                # Gold and silver typically show 2 decimal places
-                price_format = ",.2f"
-            elif instrument in ["WTIUSD", "XTIUSD"]:
-                # Oil typically shows 2 decimal places
-                price_format = ",.2f"
-            else:
-                # Default format for forex pairs with 5 decimal places
-                price_format = ",.5f"
-            
-            # Market overview section
-            analysis_text = f"{instrument} - {timeframe}\n\n"
-            analysis_text += f"<b>Zone Strength:</b> {zone_stars}\n\n"
-            
-            # Market overview section
-            analysis_text += f"📊 <b>Market Overview</b>\n"
-            analysis_text += f"Price is currently trading near current price of {current_price:.2f}, "
-            analysis_text += f"showing {'bullish' if trend == 'BUY' else 'bearish' if trend == 'SELL' else 'mixed'} momentum. "
-            analysis_text += f"The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
-            analysis_text += f"indicating a {'strong uptrend' if trend == 'BUY' else 'strong downtrend' if trend == 'SELL' else 'consolidation phase'}. "
-            analysis_text += f"Volume is moderate, supporting the current price action.\n\n"
-            
-            # Key levels section
-            analysis_text += f"🔑 <b>Key Levels</b>\n"
-            analysis_text += f"Support: {daily_low:{price_format}} (daily low), {(daily_low * 0.99):{price_format}}, {weekly_low:{price_format}} (weekly low)\n"
-            analysis_text += f"Resistance: {daily_high:{price_format}} (daily high), {(daily_high * 1.01):{price_format}}, {weekly_high:{price_format}} (weekly high)\n\n"
-            
-            # Technical indicators section
-            analysis_text += f"📈 <b>Technical Indicators</b>\n"
-            
-            # RSI interpretation
-            rsi_status = "overbought" if rsi > 70 else "oversold" if rsi < 30 else "neutral"
-            analysis_text += f"RSI: {rsi:.2f} ({rsi_status})\n"
-            
-            # MACD interpretation
-            macd_status = "bullish" if macd_value > macd_signal else "bearish"
-            analysis_text += f"MACD: {macd_status} ({macd_value:.10f} is {'above' if macd_value > macd_signal else 'below'} signal {macd_signal:.10f})\n"
-            
-            # Moving averages
-            ma_status = "bullish" if current_price > ema_50 > ema_200 else "bearish" if current_price < ema_50 < ema_200 else "mixed"
-            analysis_text += f"Moving Averages: Price {'above' if current_price > ema_50 else 'below'} EMA 50 ({ema_50:{price_format}}) and "
-            analysis_text += f"{'above' if current_price > ema_200 else 'below'} EMA 200 ({ema_200:{price_format}}), confirming {ma_status} bias.\n\n"
-            
-            # AI recommendation
-            analysis_text += f"🤖 <b>Sigmapips AI Recommendation</b>\n"
-            if trend == "BUY":
-                analysis_text += f"Watch for a breakout above {daily_high:{price_format}} for further upside. "
-                analysis_text += f"Maintain a buy bias while price holds above {daily_low:{price_format}}. "
-                analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
-            elif trend == "SELL":
-                analysis_text += f"Watch for a breakdown below {daily_low:{price_format}} for further downside. "
-                analysis_text += f"Maintain a sell bias while price holds below {daily_high:{price_format}}. "
-                analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
-            else:
-                analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {daily_low:{price_format}} "
-                analysis_text += f"and selling opportunities near {daily_high:{price_format}}. "
-                analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
-            
-            # Disclaimer
-            analysis_text += f"⚠️ <b>Disclaimer:</b> For educational purposes only."
-            
-            # Cache the result
-            if not hasattr(self, 'analysis_cache'):
-                self.analysis_cache = {}
-                self.analysis_cache_ttl = 300  # 5 minutes cache TTL
-
-            # Use a shorter cache period for volatile instruments like cryptocurrencies
-            if any(crypto in instrument for crypto in ["BTC", "ETH", "XRP", "SOL"]):
-                self.analysis_cache[cache_key] = (current_time, analysis_text)
-                logger.info(f"Cached analysis for volatile instrument {instrument} for 5 minutes")
-            else:
-                self.analysis_cache[cache_key] = (current_time, analysis_text)
-                logger.info(f"Cached analysis for {instrument}")
-
-            logger.info(f"Generated technical analysis for {instrument}")
-            return analysis_text
+                logger.error(traceback.format_exc())
+                return await self._generate_default_analysis(instrument, timeframe)
         
         except Exception as e:
             logger.error(f"Error generating technical analysis: {str(e)}")
@@ -1348,90 +1133,3 @@ class ChartService:
         except Exception as e:
             logger.error(f"Error fetching index price: {str(e)}")
             return None
-
-    def _parse_instrument_for_tradingview(self, instrument: str) -> Tuple[str, str]:
-        """
-        Parse an instrument string into TradingView exchange and symbol format.
-        
-        Args:
-            instrument: The instrument name (e.g., BTCUSD, EURUSD)
-            
-        Returns:
-            Tuple[str, str]: A tuple of (exchange, symbol)
-        """
-        # Normalize instrument
-        instrument = instrument.upper().replace("/", "")
-        
-        # Detect market type
-        market_type = self._detect_market_type(instrument)
-        
-        # For cryptocurrencies
-        if market_type == "crypto":
-            # Handle BTC and other common crypto symbols
-            if instrument in ["BTCUSD", "BTCUSDT"]:
-                return "BINANCE", "BTCUSDT"
-            elif instrument in ["ETHUSD", "ETHUSDT"]:
-                return "BINANCE", "ETHUSDT"
-            elif instrument in ["XRPUSD", "XRPUSDT"]:
-                return "BINANCE", "XRPUSDT"
-            elif instrument in ["BNBUSD", "BNBUSDT"]:
-                return "BINANCE", "BNBUSDT"
-            elif instrument in ["ADAUSD", "ADAUSDT"]:
-                return "BINANCE", "ADAUSDT"
-            elif instrument in ["SOLUSD", "SOLUSDT"]:
-                return "BINANCE", "SOLUSDT"
-            elif instrument in ["DOTUSD", "DOTUSDT"]:
-                return "BINANCE", "DOTUSDT"
-            elif instrument.endswith("USD") and len(instrument) > 3:
-                # Try to convert to USDT format for Binance
-                symbol = instrument.replace("USD", "USDT")
-                return "BINANCE", symbol
-            elif instrument.endswith("USDT"):
-                return "BINANCE", instrument
-            else:
-                # Default for unknown crypto
-                return "BINANCE", f"{instrument}USDT"
-        
-        # For forex pairs
-        elif market_type == "forex":
-            # Common forex pairs
-            if instrument in ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "NZDUSD"]:
-                return "OANDA", instrument
-            else:
-                return "OANDA", instrument
-        
-        # For indices
-        elif market_type == "index":
-            # Map common indices to their exchange
-            index_map = {
-                "US30": ("OANDA", "US30"),
-                "US500": ("OANDA", "SPX500"),
-                "US100": ("OANDA", "NAS100"),
-                "UK100": ("OANDA", "UK100"),
-                "DE40": ("XETR", "DAX"),
-                "JP225": ("TSE", "NI225"),
-                "AU200": ("ASX", "XJO")
-            }
-            
-            if instrument in index_map:
-                return index_map[instrument]
-            else:
-                return "OANDA", instrument
-        
-        # For commodities
-        elif market_type == "commodity":
-            # Map common commodities to their exchange
-            commodity_map = {
-                "XAUUSD": ("OANDA", "XAUUSD"),
-                "XAGUSD": ("OANDA", "XAGUSD"),
-                "WTIUSD": ("NYMEX", "CL1!"),
-                "XTIUSD": ("NYMEX", "CL1!")
-            }
-            
-            if instrument in commodity_map:
-                return commodity_map[instrument]
-            else:
-                return "OANDA", instrument
-        
-        # Default for unknown instruments
-        return "OANDA", instrument
