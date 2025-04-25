@@ -98,7 +98,42 @@ class TwelveDataProvider:
                 
                 if df is None or df.empty:
                     logger.warning(f"No data returned from TwelveData for {instrument} (API key: {TwelveDataProvider.API_KEY[:5]}...)")
-                    return None
+                    # Try alternative format for cryptos if original format fails
+                    if any(crypto in instrument for crypto in ["BTC", "ETH", "XRP", "SOL", "BNB"]):
+                        alt_format = instrument
+                        if instrument.endswith("USD"):
+                            # Try direct format without slash
+                            alt_format = instrument
+                            logger.info(f"Retrying with alternative format: {alt_format}")
+                            
+                            ts_alt = td.time_series(
+                                symbol=alt_format,
+                                interval=td_timeframe,
+                                outputsize=100,
+                                timezone="UTC",
+                                order="desc",
+                            ).with_ema(time_period=50)\
+                             .with_ema(time_period=200)\
+                             .with_rsi()\
+                             .with_macd()
+                            
+                            df = await asyncio.wait_for(
+                                asyncio.get_event_loop().run_in_executor(
+                                    executor, 
+                                    ts_alt.as_pandas
+                                ),
+                                timeout=10.0
+                            )
+                            
+                            if df is None or df.empty:
+                                logger.warning(f"Alternative format also failed for {instrument}")
+                                return None
+                            else:
+                                logger.info(f"Successfully retrieved data with alternative format for {instrument}")
+                        else:
+                            return None
+                    else:
+                        return None
                 
                 logger.info(f"Retrieved data from TwelveData for {instrument}: {len(df)} rows")
                 
@@ -157,8 +192,22 @@ class TwelveDataProvider:
         """Format instrument symbol for TwelveData API"""
         instrument = instrument.upper().replace("/", "")
         
+        # Special case list for direct formats that don't need conversion
+        direct_formats = ["BTCUSD", "ETHUSD", "BTCUSDT", "ETHUSDT"]
+        if instrument in direct_formats:
+            logger.info(f"Using direct format for {instrument}")
+            return instrument
+        
         # For crypto (BTCUSD -> BTC/USD)
         if any(crypto in instrument for crypto in ["BTC", "ETH", "XRP", "SOL", "BNB", "ADA", "LTC", "DOG", "DOT", "XLM", "AVX"]):
+            # First try direct format for major cryptos, as many providers support this
+            logger.info(f"Using crypto format for {instrument}")
+            
+            # For major crypto pairs, some APIs prefer direct format
+            if instrument in ["BTCUSD", "ETHUSD", "XRPUSD", "SOLUSD", "BNBUSD"]:
+                return instrument
+                
+            # Standard conversion for other cryptos
             if instrument.endswith("USD"):
                 symbol = instrument.replace("USD", "")
                 return f"{symbol}/USD"
