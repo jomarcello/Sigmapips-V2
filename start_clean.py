@@ -85,7 +85,9 @@ async def main():
             logger.info("Cleanup successful, starting bot...")
             # Start the main script with proper environmental variables
             os.environ["FORCE_POLLING"] = "true"
-            subprocess.run(["python3", "main.py"], check=True)
+            # Change directory to the root to ensure imports work correctly
+            os.chdir(os.path.dirname(os.path.abspath(__file__)))
+            subprocess.run(["python3", "trading_bot/main.py"], check=True)
         else:
             logger.error("Cleanup failed, not starting bot")
             sys.exit(1)
