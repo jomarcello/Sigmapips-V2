@@ -68,100 +68,21 @@ ENV DISPLAY=:99
 # Werkdirectory instellen
 WORKDIR /app
 
-# Maak een virtuele omgeving en activeer deze
-RUN python -m venv /app/venv
-ENV PATH="/app/venv/bin:$PATH"
-
-# Kopieer requirements.txt en installeer dependencies
+# Kopieer alleen de dependency bestanden
 COPY requirements.txt .
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir webdriver-manager==3.8.6
-# Ensure tavily is explicitly installed and make sure we have the right version
-RUN pip install --no-cache-dir tavily-python==0.2.2
+COPY docker_setup.sh .
 
-# Install Node.js dependencies first - IMPORTANT CHANGE
-COPY package.json tradingview_screenshot.js ./
-RUN npm install playwright
-RUN npx playwright install chromium
-RUN npx playwright install-deps chromium
+# Maak het setup-script uitvoerbaar
+RUN chmod +x docker_setup.sh
 
-# Installeer Playwright browsers voor Python
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
-RUN playwright install chromium
-RUN playwright install-deps
+# Draai het setup-script om alle dependencies te installeren
+RUN ./docker_setup.sh
 
-# Maak directories voor data opslag
-RUN mkdir -p /app/selenium_data
-RUN mkdir -p /app/playwright_data
-RUN mkdir -p /tmp
-RUN chmod -R 777 /app/selenium_data
-RUN chmod -R 777 /app/playwright_data
-RUN chmod -R 777 /tmp
-
-# Kopieer de rest van de code
+# Kopieer de rest van de app
 COPY . .
 
-# Repareer de syntaxfout in bot.py door de zwevende docstring te verwijderen
-RUN grep -n "Create and return a logger instance with the given name" /app/trading_bot/services/telegram_service/bot.py | while read -r line ; do \
-    line_num=$(echo "$line" | cut -d':' -f1); \
-    sed -i "${line_num}d" /app/trading_bot/services/telegram_service/bot.py; \
-done
+# Poort voor FastAPI
+EXPOSE 8000
 
-# BELANGRIJK: Repareer de asyncio.create_task aanroep in sentiment.py
-RUN grep -n "asyncio.create_task(self.load_cache())" /app/trading_bot/services/sentiment_service/sentiment.py | while read -r line ; do \
-    line_num=$(echo "$line" | cut -d':' -f1); \
-    sed -i "${line_num}s/asyncio.create_task(self.load_cache())/# asyncio.create_task call removed to prevent RuntimeWarning/" /app/trading_bot/services/sentiment_service/sentiment.py; \
-done
-
-# Stel environment variables in
-ENV PYTHONPATH=/app
-ENV PORT=8080
-ENV NODE_ENV=production
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
-ENV TIMEOUT_SECONDS=180
-ENV FORCE_POLLING=true
-
-# Stel debug mode in
-ENV TRADINGVIEW_DEBUG=true
-
-# Stel Tesseract pad in (voor OCR)
-ENV TESSERACT_CMD=/usr/bin/tesseract
-
-# Controleer of Tesseract correct is geïnstalleerd
-RUN tesseract --version && echo "Tesseract is correctly installed"
-
-# Test if the Node.js script works with a timeout
-RUN echo "Testing Node.js screenshot script..." && \
-    timeout 15s node /app/tradingview_screenshot.js "https://www.tradingview.com" "/tmp/test_screenshot.png" || echo "Test timed out as expected but should work in runtime"
-
-# Create entrypoint script directly in the Dockerfile
-RUN echo '#!/bin/bash\n\
-set -e\n\
-\n\
-echo "Starting SigmaPips Trading Bot..."\n\
-\n\
-# Start the application\n\
-echo "Starting the application..."\n\
-exec "$@"\n\
-' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
-
-# Create a simple start script for the bot
-RUN echo '#!/bin/bash\n\
-echo "Starting SigmaPips Trading Bot..."\n\
-cd /app\n\
-echo "Starting main application..."\n\
-# Run with the module path directly, no ASGI/uvicorn\n\
-python -m trading_bot.main\n\
-' > /app/start.sh && chmod +x /app/start.sh
-
-# Set entrypoint to use our fix script first
-ENTRYPOINT ["/app/entrypoint.sh"]
-
-# Run the bot application in polling mode
-ENV USE_UVICORN=false
-CMD ["/app/start.sh"]
-
-# Expose the port the app runs on
-EXPOSE 8080
+# Start de applicatie
+CMD ["python", "-m", "trading_bot.main"]
