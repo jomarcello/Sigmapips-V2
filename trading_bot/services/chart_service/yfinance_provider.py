@@ -117,7 +117,17 @@ class YahooFinanceProvider:
                 # Config for yfinance to use our session with headers
                 session = YahooFinanceProvider._get_session()
                 logger.info(f"[Yahoo] Using requests session with headers: User-Agent={session.headers.get('User-Agent', 'Unknown')[:30]}...")
-                yf.set_tz_session_for_downloading(session=session)
+                
+                # Conditioneel de set_tz_session_for_downloading gebruiken als deze beschikbaar is
+                try:
+                    if hasattr(yf, 'set_tz_session_for_downloading'):
+                        yf.set_tz_session_for_downloading(session=session)
+                        logger.info("[Yahoo] Successfully set custom session for yfinance")
+                    else:
+                        logger.warning("[Yahoo] Function set_tz_session_for_downloading not available in this yfinance version")
+                        # Voor oudere versies van yfinance kunnen we proberen de session direct te gebruiken
+                except Exception as e:
+                    logger.warning(f"[Yahoo] Error setting custom session: {str(e)}")
                 
                 # Log the exact download parameters
                 logger.info(f"[Yahoo] Download parameters - Symbol: {symbol}, Start: {start_date}, End: {end_date}, Interval: {interval}, Timeout: {timeout}s")
