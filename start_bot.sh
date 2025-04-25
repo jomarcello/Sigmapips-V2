@@ -45,10 +45,12 @@ source venv/bin/activate
 echo "Dependencies controleren..."
 if ! pip show yfinance &> /dev/null; then
     echo "yfinance niet gevonden. Dependencies worden geïnstalleerd..."
-    pip install yfinance==0.2.36
+    pip install --upgrade yfinance  # Install latest version
     pip install -r requirements.txt
 else
     echo "Dependencies lijken al geïnstalleerd te zijn."
+    # Update yfinance to latest version anyway
+    pip install --upgrade yfinance
 fi
 
 # Controleer of .env bestand bestaat
