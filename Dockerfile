@@ -162,3 +162,6 @@ ENTRYPOINT ["/app/entrypoint.sh"]
 # Run the bot application in polling mode
 ENV USE_UVICORN=false
 CMD ["/app/start.sh"]
+
+# Expose the port the app runs on
+EXPOSE 8080
