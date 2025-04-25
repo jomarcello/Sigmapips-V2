@@ -82,26 +82,33 @@ async def lifespan(app: FastAPI):
         await telegram_service.application.initialize()
         await telegram_service.application.start()
         
+        # Check if we should force webhook mode
+        force_webhook = os.getenv("FORCE_WEBHOOK", "false").lower() == "true"
+
         # Check for existing bot instances by trying to get updates first
-        try:
-            logger.info("Checking for existing bot instances...")
-            # Use a small limit and timeout to check if another instance is running
-            await telegram_service.bot.get_updates(limit=1, timeout=1, offset=-1)
-            logger.info("No other bot instances running, starting polling...")
-            
-            # Start polling since no other instance is running
-            await telegram_service.application.updater.start_polling(drop_pending_updates=True)
-            telegram_service.polling_started = True
-            logger.info("Polling started successfully")
-        except telegram.error.Conflict as e:
-            logger.warning(f"Another bot instance is already running: {str(e)}")
-            logger.warning("This instance will run in webhook mode only and not poll for updates")
-            # Don't start polling, but continue with the application
+        if force_webhook:
+            logger.info("FORCE_WEBHOOK is set to true, skipping polling and running in webhook mode only")
             telegram_service.polling_started = False
-        except Exception as e:
-            logger.error(f"Error starting polling: {str(e)}")
-            # Continue without polling
-            telegram_service.polling_started = False
+        else:
+            try:
+                logger.info("Checking for existing bot instances...")
+                # Use a small limit and timeout to check if another instance is running
+                await telegram_service.bot.get_updates(limit=1, timeout=1, offset=-1)
+                logger.info("No other bot instances running, starting polling...")
+                
+                # Start polling since no other instance is running
+                await telegram_service.application.updater.start_polling(drop_pending_updates=True)
+                telegram_service.polling_started = True
+                logger.info("Polling started successfully")
+            except telegram.error.Conflict as e:
+                logger.warning(f"Another bot instance is already running: {str(e)}")
+                logger.warning("This instance will run in webhook mode only and not poll for updates")
+                # Don't start polling, but continue with the application
+                telegram_service.polling_started = False
+            except Exception as e:
+                logger.error(f"Error starting polling: {str(e)}")
+                # Continue without polling
+                telegram_service.polling_started = False
         
         # Set the commands
         await telegram_service.bot.set_my_commands(commands)
