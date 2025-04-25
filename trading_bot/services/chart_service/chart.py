@@ -26,7 +26,8 @@ from tradingview_ta import TA_Handler, Interval
 from trading_bot.services.chart_service.base import TradingViewService
 # Import providers
 from trading_bot.services.chart_service.twelvedata_provider import TwelveDataProvider
-from trading_bot.services.chart_service.alltick_provider import AllTickProvider
+from trading_bot.services.chart_service.yfinance_provider import YahooFinanceProvider
+from trading_bot.services.chart_service.binance_provider import BinanceProvider
 
 logger = logging.getLogger(__name__)
 
@@ -499,34 +500,53 @@ class ChartService:
                 logger.info(f"USE_MOCK_DATA is enabled, using default analysis for {instrument}")
                 return await self._generate_default_analysis(instrument, timeframe)
             
-            # Try to get data from AllTick first
-            logger.info(f"Trying to fetch data from AllTick for {instrument}")
-            try:
-                analysis = await AllTickProvider.get_market_data(instrument, timeframe)
-                
-                # Add detailed logging to determine why AllTick might be failing
-                if not analysis:
-                    logger.warning(f"AllTick returned empty analysis for {instrument}. Trying TwelveData as fallback.")
-                elif not hasattr(analysis, 'indicators'):
-                    logger.warning(f"AllTick analysis missing 'indicators' attribute for {instrument}: {analysis}")
-                elif not analysis.indicators.get("close"):
-                    logger.warning(f"AllTick analysis missing 'close' value in indicators for {instrument}: {analysis.indicators}")
-            except Exception as e:
-                logger.error(f"Exception during AllTick API call for {instrument}: {str(e)}")
-                logger.error(traceback.format_exc())
-                analysis = None
-                
-            # If AllTick fails, try TwelveData as fallback
-            if not analysis or not hasattr(analysis, 'indicators') or not analysis.indicators.get("close"):
-                logger.info(f"AllTick failed, trying to fetch data from TwelveData for {instrument}")
+            # Detect market type to determine which provider to use
+            market_type = self._detect_market_type(instrument)
+            
+            # For crypto, use Binance provider first, fallback to TwelveData
+            # For forex, indices, commodities use Yahoo Finance
+            analysis = None
+            
+            if market_type == "crypto":
+                # Use Binance for crypto instruments
+                logger.info(f"Using Binance provider for crypto instrument: {instrument}")
                 try:
-                    analysis = await TwelveDataProvider.get_market_data(instrument, timeframe)
+                    analysis = await BinanceProvider.get_market_data(instrument, timeframe)
                 except Exception as e:
-                    logger.error(f"Exception during TwelveData API call for {instrument}: {str(e)}")
+                    logger.error(f"Exception during Binance API call for {instrument}: {str(e)}")
                     logger.error(traceback.format_exc())
                     analysis = None
+                    
+                # Fallback to TwelveData if Binance fails
+                if not analysis or not hasattr(analysis, 'indicators') or not analysis.indicators.get("close"):
+                    logger.info(f"Binance API failed, falling back to TwelveData for crypto: {instrument}")
+                    try:
+                        analysis = await TwelveDataProvider.get_market_data(instrument, timeframe)
+                    except Exception as e:
+                        logger.error(f"Exception during TwelveData API call for {instrument}: {str(e)}")
+                        logger.error(traceback.format_exc())
+                        analysis = None
+            else:
+                # Use Yahoo Finance for forex, indices, commodities
+                logger.info(f"Using Yahoo Finance provider for {market_type} instrument: {instrument}")
+                try:
+                    analysis = await YahooFinanceProvider.get_market_data(instrument, timeframe)
+                except Exception as e:
+                    logger.error(f"Exception during Yahoo Finance API call for {instrument}: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    analysis = None
+                    
+                # If Yahoo Finance fails, try TwelveData as last resort
+                if not analysis or not hasattr(analysis, 'indicators') or not analysis.indicators.get("close"):
+                    logger.info(f"Yahoo Finance failed, trying TwelveData provider for {instrument} as last resort")
+                    try:
+                        analysis = await TwelveDataProvider.get_market_data(instrument, timeframe)
+                    except Exception as e:
+                        logger.error(f"Exception during TwelveData API call for {instrument}: {str(e)}")
+                        logger.error(traceback.format_exc())
+                        analysis = None
             
-            # If either API succeeds, use that data
+            # If any API succeeds, use that data
             if analysis and hasattr(analysis, 'indicators') and analysis.indicators.get("close"):
                 logger.info(f"Successfully retrieved market data for {instrument}")
                 
@@ -603,314 +623,9 @@ class ChartService:
                 
                 return td_analysis
             else:
-                # Log detailed information about the TwelveData failure
-                logger.warning(f"TwelveData API failed for {instrument}, trying TradingView API now")
-                
-                # If TwelveData fails, fall back to TradingView data
-                logger.info(f"TwelveData fetch failed, falling back to TradingView for {instrument}")
-                
-                # Map timeframe to TradingView interval
-                interval_map = {
-                    "1m": Interval.INTERVAL_1_MINUTE,
-                    "5m": Interval.INTERVAL_5_MINUTES,
-                    "15m": Interval.INTERVAL_15_MINUTES,
-                    "30m": Interval.INTERVAL_30_MINUTES,
-                    "1h": Interval.INTERVAL_1_HOUR,
-                    "2h": Interval.INTERVAL_2_HOURS,
-                    "4h": Interval.INTERVAL_4_HOURS,
-                    "1d": Interval.INTERVAL_1_DAY,
-                    "1w": Interval.INTERVAL_1_WEEK,
-                    "1M": Interval.INTERVAL_1_MONTH
-                }
-                
-                tv_interval = interval_map.get(timeframe, Interval.INTERVAL_1_HOUR)
-                
-                # Determine exchange and screener based on instrument
-                exchange = "FX_IDC"  # Default for forex
-                screener = "forex"
+                # Log detailed information about API failures
+                logger.warning(f"All API providers failed for {instrument}, falling back to TradingView API")
 
-                if instrument.endswith("USD") and len(instrument) <= 6 and all(c.isalpha() for c in instrument):
-                    # This is likely a forex pair
-                    exchange = "FX_IDC"
-                    screener = "forex"
-                elif "USD" in instrument and any(crypto in instrument for crypto in ["BTC", "ETH", "XRP", "LTC", "BCH", "ADA", "DOT", "SOL", "BNB", "DOG", "AVX", "XLM", "LNK"]):
-                    # This is a crypto pair - use the most accurate exchange based on the specific crypto
-                    if instrument == "BTCUSD":
-                        exchange = "COINBASE"
-                    elif instrument in ["ETHUSD", "LTCUSD"]:
-                        exchange = "COINBASE"
-                    elif instrument in ["BNBUSD", "SOLUSD", "ADAUSD"]:
-                        exchange = "BINANCE"
-                    else:
-                        exchange = "BINANCE"  # Default crypto exchange
-                    screener = "crypto"
-                elif any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40", "JP225", "AU200", "EU50", "FR40", "HK50"]):
-                    # This is an index
-                    if any(us_index in instrument for us_index in ["US30", "US500", "US100"]):
-                        exchange = "CAPITALCOM" # More reliable for US indices
-                    else:
-                        exchange = "OANDA"
-                    screener = "indices"
-                elif any(commodity in instrument for commodity in ["XAUUSD", "XAGUSD", "WTIUSD", "XTIUSD"]):
-                    # This is a commodity
-                    exchange = "OANDA"
-                    screener = "forex"
-                
-                # Initialize TA handler
-                handler = TA_Handler(
-                    symbol=instrument,
-                    screener=screener,
-                    exchange=exchange,
-                    interval=tv_interval
-                )
-                
-                # Get the analysis with a timeout to prevent hanging
-                logger.info(f"Fetching TradingView analysis for {instrument} from exchange {exchange}")
-
-                try:
-                    # Use asyncio.to_thread to move the blocking call to a thread pool
-                    loop = asyncio.get_event_loop()
-                    
-                    # Set different timeouts for different instrument types
-                    if any(crypto in instrument for crypto in ["BTC", "ETH", "XRP", "SOL", "BNB"]):
-                        api_timeout = 12.0  # Crypto often needs more time
-                    elif any(index in instrument for index in ["US30", "US500", "US100"]):
-                        api_timeout = 10.0  # US indices may need more time
-                    else:
-                        api_timeout = 8.0   # Default timeout
-                    
-                    # First attempt
-                    try:
-                        analysis = await asyncio.wait_for(
-                            loop.run_in_executor(None, handler.get_analysis),
-                            timeout=api_timeout
-                        )
-                    except asyncio.TimeoutError:
-                        logger.warning(f"First attempt for {instrument} timed out after {api_timeout}s, retrying with longer timeout")
-                        # Second attempt with longer timeout
-                        try:
-                            analysis = await asyncio.wait_for(
-                                loop.run_in_executor(None, handler.get_analysis),
-                                timeout=api_timeout * 1.5
-                            )
-                        except asyncio.TimeoutError:
-                            logger.error(f"Second attempt for {instrument} also timed out, using fallbacks")
-                            raise asyncio.TimeoutError("All attempts timed out")
-                    
-                    # Log API response data for diagnostics
-                    if analysis:
-                        logger.info(f"Successfully retrieved {instrument} data from {exchange}")
-                        if not analysis.indicators.get("close"):
-                            logger.warning(f"No 'close' price in indicators for {instrument} from {exchange}. Available indicators: {list(analysis.indicators.keys())}")
-                    else:
-                        logger.warning(f"Empty analysis returned for {instrument} from {exchange}")
-                    
-                    # For certain instruments known to have issues, try alternative exchanges if data seems invalid
-                    should_try_alternatives = (
-                        ("USD" in instrument and any(crypto in instrument for crypto in ["BTC", "ETH", "XRP", "SOL", "BNB"])) or
-                        any(index in instrument for index in ["US30", "US500", "US100", "UK100"]) or
-                        any(commodity in instrument for commodity in ["XAUUSD", "XAGUSD"])
-                    )
-                    
-                    if should_try_alternatives and (not analysis or not analysis.indicators.get("close")):
-                        logger.warning(f"Invalid data received for {instrument} from {exchange}, trying alternate sources")
-                        
-                        # Try alternate exchanges based on instrument type
-                        if "USD" in instrument and any(crypto in instrument for crypto in ["BTC", "ETH", "XRP"]):
-                            alt_exchanges = ["BINANCE", "COINBASE", "BITSTAMP", "KRAKEN"]
-                            
-                            for alt_exchange in alt_exchanges:
-                                if alt_exchange == exchange:
-                                    continue
-                                    
-                                logger.info(f"Trying alternate exchange {alt_exchange} for {instrument}")
-                                alt_handler = TA_Handler(
-                                    symbol=instrument,
-                                    screener="crypto",
-                                    exchange=alt_exchange,
-                                    interval=tv_interval
-                                )
-                                
-                                try:
-                                    alt_analysis = await asyncio.wait_for(
-                                        loop.run_in_executor(None, alt_handler.get_analysis),
-                                        timeout=8.0
-                                    )
-                                    
-                                    # Log alternate exchange response
-                                    if alt_analysis:
-                                        logger.info(f"Retrieved alternate data for {instrument} from {alt_exchange}")
-                                        if alt_analysis.indicators.get("close"):
-                                            logger.info(f"Found valid close price: {alt_analysis.indicators.get('close')} from {alt_exchange}")
-                                        else:
-                                            logger.warning(f"No 'close' price in indicators from {alt_exchange}. Available: {list(alt_analysis.indicators.keys())}")
-                                    
-                                    # If this exchange has valid price data, use it instead
-                                    if alt_analysis.indicators.get("close"):
-                                        analysis = alt_analysis
-                                        logger.info(f"Successfully retrieved data from alternate exchange {alt_exchange}")
-                                        break
-                                except Exception as ex:
-                                    logger.warning(f"Failed to get data from alternate exchange {alt_exchange}: {str(ex)}")
-                        
-                        # For indices, try alternate exchanges
-                        elif any(index in instrument for index in ["US30", "US500", "US100", "UK100"]):
-                            alt_exchanges = ["CAPITALCOM", "OANDA", "FOREXCOM"]
-                            
-                            for alt_exchange in alt_exchanges:
-                                if alt_exchange == exchange:
-                                    continue
-                                
-                                logger.info(f"Trying alternate exchange {alt_exchange} for index {instrument}")
-                                alt_handler = TA_Handler(
-                                    symbol=instrument,
-                                    screener="indices",
-                                    exchange=alt_exchange,
-                                    interval=tv_interval
-                                )
-                                
-                                try:
-                                    alt_analysis = await asyncio.wait_for(
-                                        loop.run_in_executor(None, alt_handler.get_analysis),
-                                        timeout=8.0
-                                    )
-                                    
-                                    # If this exchange has valid price data, use it instead
-                                    if alt_analysis and alt_analysis.indicators.get("close"):
-                                        analysis = alt_analysis
-                                        logger.info(f"Successfully retrieved index data from alternate exchange {alt_exchange}")
-                                        break
-                                except Exception as ex:
-                                    logger.warning(f"Failed to get index data from alternate exchange {alt_exchange}: {str(ex)}")
-                        
-                        # For commodities, try alternate exchanges
-                        elif any(commodity in instrument for commodity in ["XAUUSD", "XAGUSD"]):
-                            alt_exchanges = ["OANDA", "FX_IDC", "CAPITALCOM"]
-                            
-                            for alt_exchange in alt_exchanges:
-                                if alt_exchange == exchange:
-                                    continue
-                                
-                                logger.info(f"Trying alternate exchange {alt_exchange} for commodity {instrument}")
-                                alt_handler = TA_Handler(
-                                    symbol=instrument,
-                                    screener="forex",  # Commodities are typically under forex screener
-                                    exchange=alt_exchange,
-                                    interval=tv_interval
-                                )
-                                
-                                try:
-                                    alt_analysis = await asyncio.wait_for(
-                                        loop.run_in_executor(None, alt_handler.get_analysis),
-                                        timeout=8.0
-                                    )
-                                    
-                                    # If this exchange has valid price data, use it instead
-                                    if alt_analysis and alt_analysis.indicators.get("close"):
-                                        analysis = alt_analysis
-                                        logger.info(f"Successfully retrieved commodity data from alternate exchange {alt_exchange}")
-                                        break
-                                except Exception as ex:
-                                    logger.warning(f"Failed to get commodity data from alternate exchange {alt_exchange}: {str(ex)}")
-                
-                except asyncio.TimeoutError:
-                    logger.error(f"TradingView API request timed out for {instrument}")
-                    return await self._generate_default_analysis(instrument, timeframe)
-                
-                # After all attempts, verify that we have the necessary data
-                # If not, try one last direct API call for the specific instrument type before using default
-                if not analysis or not analysis.indicators.get("close"):
-                    logger.error(f"Failed to get valid data for {instrument} after trying multiple exchanges")
-                    
-                    # For cryptocurrencies, try direct API price fetch
-                    if any(crypto in instrument for crypto in ["BTC", "ETH", "XRP", "SOL", "BNB", "ADA", "LTC", "DOG", "DOT", "LNK", "XLM", "AVX"]):
-                        symbol = instrument.replace("USD", "")
-                        direct_price = await self._fetch_crypto_price(symbol)
-                        
-                        if direct_price:
-                            logger.info(f"Using directly fetched price for {instrument}: {direct_price}")
-                            
-                            # Create a minimal analysis with just the current price
-                            if not analysis:
-                                # Create empty analysis object
-                                from collections import namedtuple
-                                AnalysisResult = namedtuple('AnalysisResult', ['summary', 'indicators', 'oscillators', 'moving_averages'])
-                                analysis = AnalysisResult({}, {}, {}, {})
-                            
-                            # Set the close price
-                            if not hasattr(analysis, 'indicators'):
-                                analysis.indicators = {}
-                            
-                            analysis.indicators["close"] = direct_price
-                            
-                            # Set some reasonable defaults based on the instrument type
-                            analysis.indicators["open"] = direct_price * (1 - random.uniform(0.005, 0.02))
-                            analysis.indicators["high"] = direct_price * (1 + random.uniform(0.005, 0.02))
-                            analysis.indicators["low"] = direct_price * (1 - random.uniform(0.005, 0.02))
-                            analysis.indicators["volume"] = random.uniform(1000, 10000)
-                            analysis.indicators["RSI"] = random.uniform(40, 60)
-                            analysis.indicators["MACD.macd"] = random.uniform(-0.001, 0.001)
-                            analysis.indicators["MACD.signal"] = random.uniform(-0.001, 0.001)
-                            analysis.indicators["EMA50"] = direct_price * (1 - random.uniform(0.01, 0.05))
-                            analysis.indicators["EMA200"] = direct_price * (1 - random.uniform(0.05, 0.15))
-                        else:
-                            # For commodities, try to get gold/silver prices from alternative sources
-                            if instrument in ["XAUUSD", "XAGUSD"]:
-                                metal_price = await self._fetch_commodity_price(instrument)
-                                if metal_price:
-                                    # Similar setup as for crypto
-                                    if not analysis:
-                                        from collections import namedtuple
-                                        AnalysisResult = namedtuple('AnalysisResult', ['summary', 'indicators', 'oscillators', 'moving_averages'])
-                                        analysis = AnalysisResult({}, {}, {}, {})
-                                    
-                                    if not hasattr(analysis, 'indicators'):
-                                        analysis.indicators = {}
-                                    
-                                    analysis.indicators["close"] = metal_price
-                                    # Set other indicators with reasonable defaults
-                                    analysis.indicators["open"] = metal_price * (1 - random.uniform(0.002, 0.008))
-                                    analysis.indicators["high"] = metal_price * (1 + random.uniform(0.002, 0.008))
-                                    analysis.indicators["low"] = metal_price * (1 - random.uniform(0.002, 0.008))
-                                    analysis.indicators["volume"] = random.uniform(5000, 15000)
-                                    analysis.indicators["RSI"] = random.uniform(40, 60)
-                                    analysis.indicators["MACD.macd"] = random.uniform(-0.001, 0.001)
-                                    analysis.indicators["MACD.signal"] = random.uniform(-0.001, 0.001)
-                                    analysis.indicators["EMA50"] = metal_price * (1 - random.uniform(0.005, 0.02))
-                                    analysis.indicators["EMA200"] = metal_price * (1 - random.uniform(0.01, 0.04))
-                                else:
-                                    return await self._generate_default_analysis(instrument, timeframe)
-                            # For indices, try to get index values from alternative sources
-                            elif any(index in instrument for index in ["US30", "US500", "US100", "UK100"]):
-                                index_price = await self._fetch_index_price(instrument)
-                                if index_price:
-                                    # Similar setup as above
-                                    if not analysis:
-                                        from collections import namedtuple
-                                        AnalysisResult = namedtuple('AnalysisResult', ['summary', 'indicators', 'oscillators', 'moving_averages'])
-                                        analysis = AnalysisResult({}, {}, {}, {})
-                                    
-                                    if not hasattr(analysis, 'indicators'):
-                                        analysis.indicators = {}
-                                    
-                                    analysis.indicators["close"] = index_price
-                                    # Set other indicators with reasonable defaults for indices
-                                    analysis.indicators["open"] = index_price * (1 - random.uniform(0.001, 0.005))
-                                    analysis.indicators["high"] = index_price * (1 + random.uniform(0.001, 0.005))
-                                    analysis.indicators["low"] = index_price * (1 - random.uniform(0.001, 0.005))
-                                    analysis.indicators["volume"] = random.uniform(10000, 50000)
-                                    analysis.indicators["RSI"] = random.uniform(40, 60)
-                                    analysis.indicators["MACD.macd"] = random.uniform(-0.001, 0.001)
-                                    analysis.indicators["MACD.signal"] = random.uniform(-0.001, 0.001)
-                                    analysis.indicators["EMA50"] = index_price * (1 - random.uniform(0.005, 0.015))
-                                    analysis.indicators["EMA200"] = index_price * (1 - random.uniform(0.01, 0.03))
-                                else:
-                                    return await self._generate_default_analysis(instrument, timeframe)
-                            else:
-                                return await self._generate_default_analysis(instrument, timeframe)
-                    else:
-                        return await self._generate_default_analysis(instrument, timeframe)
-            
             # Extract key indicators
             indicators = analysis.indicators
             
@@ -1246,28 +961,77 @@ class ChartService:
         return ""
 
     def _detect_market_type(self, instrument: str) -> str:
-        """Detect the market type for an instrument"""
-        instrument = instrument.upper()
+        """
+        Detect the market type of the instrument.
         
-        # Detect forex
-        if len(instrument) == 6 and all(c.isalpha() for c in instrument):
-            return "forex"
+        Args:
+            instrument: The trading instrument
             
-        # Detect crypto
-        if instrument.endswith("USD") and not instrument.startswith("X"):
+        Returns:
+            str: Market type ('forex', 'crypto', 'index', 'commodity')
+        """
+        # Normalize the instrument name
+        instrument = instrument.upper().replace("/", "")
+        
+        # Common cryptocurrency identifiers
+        crypto_symbols = [
+            "BTC", "ETH", "XRP", "LTC", "BCH", "ADA", "DOT", "LINK", 
+            "XLM", "DOGE", "UNI", "AAVE", "SNX", "SUSHI", "YFI", 
+            "COMP", "MKR", "BAT", "ZRX", "REN", "KNC", "BNB", "SOL",
+            "AVAX", "MATIC", "ALGO", "ATOM", "FTM", "NEAR", "ONE",
+            "HBAR", "VET", "THETA", "FIL", "TRX", "EOS", "NEO",
+            "CAKE", "LUNA", "SHIB", "MANA", "SAND", "AXS", "CRV",
+            "ENJ", "CHZ", "GALA", "ROSE", "APE", "FTT", "GRT",
+            "GMT", "EGLD", "XTZ", "FLOW", "ICP", "XMR", "DASH"
+        ]
+        
+        # Check for crypto
+        if any(crypto in instrument for crypto in crypto_symbols) or instrument.endswith(("USDT", "BUSD", "USDC", "BTC", "ETH")):
             return "crypto"
-            
-        # Detect commodities
-        commodities = ["XAUUSD", "XAGUSD", "USOIL", "UKOIL"]
-        if instrument in commodities:
-            return "commodities"
-            
-        # Detect indices
-        indices = ["US30", "US100", "US500", "UK100", "GER40", "JP225", "AUS200"]
-        if instrument in indices:
-            return "indices"
-            
-        # Default to forex
+        
+        # Common forex pairs
+        forex_pairs = [
+            "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", 
+            "NZDUSD", "EURGBP", "EURJPY", "GBPJPY", "AUDNZD", "AUDCAD",
+            "AUDCHF", "AUDJPY", "CADCHF", "CADJPY", "CHFJPY", "EURAUD",
+            "EURCAD", "EURCHF", "EURNZD", "GBPAUD", "GBPCAD", "GBPCHF",
+            "GBPNZD", "NZDCAD", "NZDCHF", "NZDJPY"
+        ]
+        
+        # Check for forex
+        if instrument in forex_pairs or (
+                len(instrument) == 6 and 
+                instrument[:3] in ["EUR", "GBP", "USD", "JPY", "AUD", "NZD", "CAD", "CHF"] and
+                instrument[3:] in ["EUR", "GBP", "USD", "JPY", "AUD", "NZD", "CAD", "CHF"]
+            ):
+            return "forex"
+        
+        # Common indices
+        indices = [
+            "US30", "US500", "US100", "UK100", "DE40", "FR40", "JP225", 
+            "AU200", "ES35", "IT40", "HK50", "DJI", "SPX", "NDX", 
+            "FTSE", "DAX", "CAC", "NIKKEI", "ASX", "IBEX", "MIB", "HSI"
+        ]
+        
+        # Check for indices
+        if any(index in instrument for index in indices) or instrument in indices:
+            return "index"
+        
+        # Common commodities
+        commodities = [
+            "XAUUSD", "XAGUSD", "WTIUSD", "XTIUSD", "XBRUSD", "CLUSD",
+            "XPDUSD", "XPTUSD", "NATGAS", "COPPER", "BRENT"
+        ]
+        
+        # Check for commodities
+        if any(commodity in instrument for commodity in commodities) or instrument in commodities:
+            return "commodity"
+        
+        # Default to crypto for unknown instruments that could be new cryptocurrencies
+        if instrument.endswith(("USD", "USDT", "ETH", "BTC")) and len(instrument) > 3:
+            return "crypto"
+        
+        # Default to forex if all else fails
         return "forex"
 
     async def _fetch_crypto_price(self, symbol: str) -> Optional[float]:
