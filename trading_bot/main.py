@@ -12,6 +12,9 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 from telegram import BotCommand, Update
 from contextlib import asynccontextmanager
 import telegram
+from typing import Dict, Any
+from datetime import datetime, timedelta, timezone
+from fastapi.middleware.cors import CORSMiddleware
 
 # Configureer logging
 logging.basicConfig(level=logging.INFO)
@@ -27,6 +30,7 @@ from .services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
 # Import directly from the module to avoid circular imports through __init__.py
 from .services.telegram_service.bot import TelegramService
 from .services.payment_service.stripe_service import StripeService
+from trading_bot.webhook_handler import webhook_handler
 
 # Initialize global services outside of FastAPI context
 db = Database()
@@ -43,6 +47,10 @@ async def lifespan(app: FastAPI):
     # Startup code
     try:
         logger.info("Initializing services...")
+        
+        # Register webhook routes
+        await webhook_handler.register_routes(app)
+        logger.info("Webhook routes registered")
         
         # Log that database is already initialized
         logger.info("Database initialized")
@@ -91,16 +99,33 @@ async def lifespan(app: FastAPI):
         # Ensure webhook_url doesn't end with a slash
         if webhook_url.endswith("/"):
             webhook_url = webhook_url[:-1]
+            
+        # Ensure webhook_path starts with a slash
+        if not webhook_path.startswith("/"):
+            webhook_path = "/" + webhook_path
         
         # Set the webhook if we're using webhook mode
         if force_webhook and webhook_url:
-            logger.info(f"Setting webhook to {webhook_url}{webhook_path}")
-            await telegram_service.bot.set_webhook(
-                url=f"{webhook_url}{webhook_path}",
-                drop_pending_updates=True
-            )
-            telegram_service.polling_started = False
-            logger.info(f"Webhook set successfully. Bot is running in webhook mode.")
+            full_webhook_url = f"{webhook_url}{webhook_path}"
+            logger.info(f"Setting webhook to {full_webhook_url}")
+            logger.info(f"Bot token: {telegram_service.bot_token[:4]}...{telegram_service.bot_token[-4:]}")
+            
+            # Try to set webhook with more detailed error handling
+            try:
+                await telegram_service.bot.set_webhook(
+                    url=full_webhook_url,
+                    drop_pending_updates=True
+                )
+                
+                # Verify webhook was set correctly
+                webhook_info = await telegram_service.bot.get_webhook_info()
+                logger.info(f"Webhook info after setting: {webhook_info.to_dict()}")
+                
+                telegram_service.polling_started = False
+                logger.info(f"Webhook set successfully. Bot is running in webhook mode.")
+            except Exception as e:
+                logger.error(f"Error setting webhook: {str(e)}")
+                raise
         # Check for existing bot instances if not forcing webhook mode
         elif not force_webhook:
             try:
@@ -256,6 +281,14 @@ async def telegram_webhook(request: Request):
         logger.error(f"Error processing Telegram webhook: {str(e)}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))
+
+# Add endpoint to handle doubled webhook path (/webhook/webhook)
+@app.post("/webhook/webhook")
+async def telegram_webhook_doubled(request: Request):
+    """Endpoint for handling doubled webhook path"""
+    logger.info("Received request on doubled webhook path")
+    # Just return a simple response without trying to parse the Update object
+    return JSONResponse(content={"status": "success", "message": "Webhook received at /webhook/webhook"})
 
 # Comment out this route as it conflicts with the telegram webhook
 # @app.get("/webhook")
