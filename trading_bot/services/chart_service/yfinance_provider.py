@@ -320,7 +320,7 @@ class YahooFinanceProvider:
                     timeout=timeout
                 )
                 
-                if df is None or df.empty:
+                if df is None or (isinstance(df, pd.DataFrame) and df.empty):
                     logger.error(f"No data returned from Yahoo Finance for {symbol}")
                     # Return an empty DataFrame on Railway, to allow TradingView fallback to work
                     if is_railway:
@@ -335,7 +335,7 @@ class YahooFinanceProvider:
                 # Validate and clean data
                 df = YahooFinanceProvider._validate_and_clean_data(df)
                 
-                if df is None or df.empty:
+                if df is None or (isinstance(df, pd.DataFrame) and df.empty):
                     logger.error(f"No valid data after cleaning for {symbol}")
                     # Return an empty DataFrame on Railway, to allow TradingView fallback to work
                     if is_railway:
