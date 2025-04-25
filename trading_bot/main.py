@@ -6,9 +6,11 @@ from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import stripe
 import time
+import asyncio
 # Import telegram components only when needed to reduce startup time
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 from telegram import BotCommand
+from contextlib import asynccontextmanager
 
 # Configureer logging
 logging.basicConfig(level=logging.INFO)
@@ -25,21 +27,86 @@ from .services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
 from .services.telegram_service.bot import TelegramService
 from .services.payment_service.stripe_service import StripeService
 
-# Initialiseer de FastAPI app
-app = FastAPI()
-
-# Initialiseer de database
+# Initialize global services outside of FastAPI context
 db = Database()
-
-# Initialize only the critical services immediately
 stripe_service = StripeService(db)
-
-# Initialize telegram service with lazy loading option
 telegram_service = TelegramService(db, lazy_init=True)
 
 # Connect the services - chart service will be initialized lazily
 telegram_service.stripe_service = stripe_service
 stripe_service.telegram_service = telegram_service
+
+# Define lifespan context manager for modern FastAPI
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup code
+    try:
+        logger.info("Initializing services...")
+        
+        # Log that database is already initialized
+        logger.info("Database initialized")
+        
+        # Initialize chart service through the telegram service's initialize_services method
+        await telegram_service.initialize_services()
+        logger.info("Chart service initialized through telegram service")
+        
+        # Log environment variables
+        webhook_url = os.getenv("WEBHOOK_URL", "")
+        logger.info(f"WEBHOOK_URL from environment: '{webhook_url}'")
+        
+        logger.info("Setting up Telegram bot manually")
+        
+        # Create application instance
+        telegram_service.application = Application.builder().bot(telegram_service.bot).build()
+        
+        # Register command handlers manually
+        telegram_service.application.add_handler(CommandHandler("start", telegram_service.start_command))
+        telegram_service.application.add_handler(CommandHandler("menu", telegram_service.menu_command))
+        telegram_service.application.add_handler(CommandHandler("help", telegram_service.help_command))
+        telegram_service.application.add_handler(CommandHandler("set_subscription", telegram_service.set_subscription_command))
+        telegram_service.application.add_handler(CommandHandler("set_payment_failed", telegram_service.set_payment_failed_command))
+        telegram_service.application.add_handler(CallbackQueryHandler(telegram_service.button_callback))
+        
+        # Load signals - use await with the async method
+        await telegram_service._load_signals()
+        
+        # Set bot commands
+        commands = [
+            BotCommand("start", "Start the bot and get the welcome message"),
+            BotCommand("menu", "Show the main menu"),
+            BotCommand("help", "Show available commands and how to use the bot")
+        ]
+        
+        # Initialize the application and start in polling mode
+        await telegram_service.application.initialize()
+        await telegram_service.application.start()
+        await telegram_service.application.updater.start_polling()
+        telegram_service.polling_started = True
+        
+        # Set the commands
+        await telegram_service.bot.set_my_commands(commands)
+        
+        logger.info("Telegram bot initialized successfully in polling mode")
+        
+    except Exception as e:
+        logger.error(f"Error initializing services: {str(e)}")
+        logger.exception(e)
+        raise
+    
+    yield  # FastAPI is running
+    
+    # Shutdown code - cleanup resources
+    logger.info("Shutting down application...")
+    if telegram_service.application:
+        try:
+            await telegram_service.application.stop()
+            await telegram_service.application.shutdown()
+            logger.info("Telegram application stopped")
+        except Exception as e:
+            logger.error(f"Error stopping Telegram application: {str(e)}")
+
+# Initialiseer de FastAPI app with lifespan
+app = FastAPI(lifespan=lifespan)
 
 # Voeg deze functie toe bovenaan het bestand, na de imports
 def convert_interval_to_timeframe(interval):
@@ -98,89 +165,27 @@ def convert_interval_to_timeframe(interval):
         # Als het geen getal is, geef het terug zoals het is
         return interval_str
 
-@app.on_event("startup")
-async def startup_event():
+# Signal endpoint registration directly on FastAPI
+@app.post("/signal")
+async def process_tradingview_signal(request: Request):
+    """Process TradingView webhook signal"""
     try:
-        # Initialize the services
-        logger.info("Initializing services...")
+        # Get the signal data from the request
+        signal_data = await request.json()
+        logger.info(f"Received TradingView webhook signal: {signal_data}")
         
-        # No need to manually connect the database - it's done automatically in the constructor
-        # The log shows "Successfully connected to Supabase" already
-        logger.info("Database initialized")
+        # Process the signal
+        success = await telegram_service.process_signal(signal_data)
         
-        # Initialize chart service through the telegram service's initialize_services method
-        # This is the only service we need to initialize eagerly
-        await telegram_service.initialize_services()
-        logger.info("Chart service initialized through telegram service")
-        
-        # Log environment variables
-        webhook_url = os.getenv("WEBHOOK_URL", "")
-        logger.info(f"WEBHOOK_URL from environment: '{webhook_url}'")
-        
-        # Don't use the telegram_service.initialize method since it has issues
-        # Instead, set up the bot manually
-        logger.info("Setting up Telegram bot manually")
-        
-        # Create application instance
-        telegram_service.application = Application.builder().bot(telegram_service.bot).build()
-        
-        # Register command handlers manually
-        telegram_service.application.add_handler(CommandHandler("start", telegram_service.start_command))
-        telegram_service.application.add_handler(CommandHandler("menu", telegram_service.menu_command))
-        telegram_service.application.add_handler(CommandHandler("help", telegram_service.help_command))
-        telegram_service.application.add_handler(CommandHandler("set_subscription", telegram_service.set_subscription_command))
-        telegram_service.application.add_handler(CommandHandler("set_payment_failed", telegram_service.set_payment_failed_command))
-        telegram_service.application.add_handler(CallbackQueryHandler(telegram_service.button_callback))
-        
-        # Load signals
-        telegram_service._load_signals()
-        
-        # Set bot commands
-        commands = [
-            BotCommand("start", "Start the bot and get the welcome message"),
-            BotCommand("menu", "Show the main menu"),
-            BotCommand("help", "Show available commands and how to use the bot")
-        ]
-        
-        # Initialize the application and start in polling mode
-        await telegram_service.application.initialize()
-        await telegram_service.application.start()
-        await telegram_service.application.updater.start_polling()
-        telegram_service.polling_started = True
-        
-        # Set the commands
-        await telegram_service.bot.set_my_commands(commands)
-        
-        logger.info("Telegram bot initialized successfully in polling mode")
-        
-        # Manually register signal endpoints
-        @app.post("/signal")
-        async def process_tradingview_signal(request: Request):
-            """Process TradingView webhook signal"""
-            try:
-                # Get the signal data from the request
-                signal_data = await request.json()
-                logger.info(f"Received TradingView webhook signal: {signal_data}")
-                
-                # Process the signal
-                success = await telegram_service.process_signal(signal_data)
-                
-                if success:
-                    return {"status": "success", "message": "Signal processed successfully"}
-                else:
-                    return {"status": "error", "message": "Failed to process signal"}
-                    
-            except Exception as e:
-                logger.error(f"Error processing TradingView webhook signal: {str(e)}")
-                logger.exception(e)
-                return {"status": "error", "message": str(e)}
-        
-        logger.info("Signal endpoints registered directly on FastAPI app")
-        
+        if success:
+            return {"status": "success", "message": "Signal processed successfully"}
+        else:
+            return {"status": "error", "message": "Failed to process signal"}
+            
     except Exception as e:
-        logger.error(f"Error initializing services: {str(e)}")
+        logger.error(f"Error processing TradingView webhook signal: {str(e)}")
         logger.exception(e)
-        raise
+        return {"status": "error", "message": str(e)}
 
 # Define webhook routes
 
