@@ -498,9 +498,43 @@ class ChartService:
             logger.info(f"Generating new technical analysis for {instrument} on {timeframe}")
             try:
                 analysis_data = {}
-                # Try to use our chart data API
+                
+                # Detect market type to determine which provider to use first
+                market_type = self._detect_market_type(instrument)
+                yahoo_provider = None
+                binance_provider = None
+                
+                # Find our providers
                 for provider in self.chart_providers:
+                    if 'yahoo' in provider.__class__.__name__.lower():
+                        yahoo_provider = provider
+                    elif 'binance' in provider.__class__.__name__.lower():
+                        binance_provider = provider
+                
+                # Choose providers based on market type
+                prioritized_providers = []
+                if market_type == "crypto":
+                    # For crypto, try Binance first, then Yahoo
+                    if binance_provider:
+                        prioritized_providers.append(binance_provider)
+                    if yahoo_provider:
+                        prioritized_providers.append(yahoo_provider)
+                else:
+                    # For non-crypto (forex, indices, commodities), try Yahoo first, then Binance
+                    if yahoo_provider:
+                        prioritized_providers.append(yahoo_provider)
+                    if binance_provider:
+                        prioritized_providers.append(binance_provider)
+                    
+                # Add any other providers
+                for provider in self.chart_providers:
+                    if provider not in prioritized_providers:
+                        prioritized_providers.append(provider)
+                
+                # Try the prioritized providers
+                for provider in prioritized_providers:
                     try:
+                        logger.info(f"Trying {provider.__class__.__name__} for {instrument} ({market_type})")
                         analysis = await provider.get_market_data(instrument, timeframe)
                         if analysis:
                             # Convert provider format to our standard analysis_data format
@@ -520,26 +554,15 @@ class ChartService:
                                     "macd_signal": indicators.get("MACD.signal", 0),
                                     "macd_hist": indicators.get("MACD.hist", 0)
                                 }
-                                logger.info(f"Successfully converted provider data to standard format")
+                                logger.info(f"Successfully retrieved data from {provider.__class__.__name__}")
                             break
                     except Exception as e:
-                        logger.warning(f"Provider failed: {str(e)}")
+                        logger.warning(f"Provider {provider.__class__.__name__} failed: {str(e)}")
                         continue
                 else:
                     analysis = None
+                    logger.warning(f"All providers failed for {instrument}")
                     
-                # If we didn't get data from any provider, try to use the Yahoo Finance provider
-                if not analysis and 'yahoo' in [p.__class__.__name__.lower() for p in self.chart_providers]:
-                    for provider in self.chart_providers:
-                        if 'yahoo' in provider.__class__.__name__.lower():
-                            try:
-                                analysis = await provider.get_market_data(instrument, timeframe)
-                                if analysis:
-                                    logger.info(f"Using Yahoo Finance data for {instrument}")
-                                    break
-                            except Exception as e:
-                                logger.warning(f"Yahoo provider failed: {str(e)}")
-                                
                 # If we still don't have data, try TradingView as a last resort
                 if not analysis:
                     try:
@@ -598,6 +621,7 @@ class ChartService:
                             "macd_signal": indicators.get("MACD.signal", 0),
                             "macd_hist": indicators.get("MACD.hist", 0)
                         }
+                        logger.info(f"Successfully retrieved data from TradingView")
                     except Exception as e:
                         logger.error(f"TradingView API error: {str(e)}")
                         analysis_data = None
