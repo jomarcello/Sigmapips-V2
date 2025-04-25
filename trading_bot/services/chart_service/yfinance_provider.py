@@ -10,6 +10,9 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import random
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,20 @@ class YahooFinanceProvider:
     # Cache data to minimize API calls
     _cache = {}
     _cache_timeout = 3600  # Cache timeout in seconds (1 hour)
+    
+    @staticmethod
+    def _create_session():
+        """Create a requests session with retry logic"""
+        session = requests.Session()
+        retry_strategy = Retry(
+            total=3,  # number of retries
+            backoff_factor=1,  # wait 1, 2, 4 seconds between retries
+            status_forcelist=[408, 429, 500, 502, 503, 504],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        return session
     
     @staticmethod
     async def get_market_data(instrument: str, timeframe: str = "1h") -> Optional[Dict[str, Any]]:
@@ -101,8 +118,10 @@ class YahooFinanceProvider:
             loop = asyncio.get_event_loop()
             
             try:
+                # Create a session with retry logic
+                session = YahooFinanceProvider._create_session()
+                
                 # Set up options for the download to improve reliability
-                # Using market hours filter and auto_adjust to improve data quality
                 download_options = {
                     "tickers": formatted_symbol,
                     "period": period,
@@ -112,15 +131,25 @@ class YahooFinanceProvider:
                     "prepost": False,  # Exclude pre and post market data
                     "threads": False,  # Don't use threading within yfinance
                     "group_by": "ticker",
+                    "session": session
                 }
                 
                 logger.info(f"Download options: {download_options}")
                 
-                # Get historical data from Yahoo Finance
-                df = await loop.run_in_executor(
-                    None,
-                    lambda: yf.download(**download_options)
-                )
+                # Get historical data from Yahoo Finance with retries
+                for attempt in range(3):  # Try up to 3 times
+                    try:
+                        df = await loop.run_in_executor(
+                            None,
+                            lambda: yf.download(**download_options)
+                        )
+                        if df is not None and not df.empty:
+                            break
+                    except Exception as e:
+                        logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
+                        if attempt < 2:  # Don't sleep on the last attempt
+                            await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                        continue
                 
                 # Check if we got valid data
                 if df is None or df.empty:
@@ -214,19 +243,30 @@ class YahooFinanceProvider:
             # Use a thread pool executor to run the blocking yfinance call
             loop = asyncio.get_event_loop()
             
-            # Create ticker object
+            # Create ticker object with retry session
+            session = YahooFinanceProvider._create_session()
             ticker_info = await loop.run_in_executor(
                 None,
-                lambda: yf.Ticker(formatted_symbol)
+                lambda: yf.Ticker(formatted_symbol, session=session)
             )
             
-            # Get basic info
-            info = await loop.run_in_executor(
-                None,
-                lambda: ticker_info.info
-            )
+            # Get basic info with retries
+            for attempt in range(3):
+                try:
+                    info = await loop.run_in_executor(
+                        None,
+                        lambda: ticker_info.info
+                    )
+                    if info:
+                        return info
+                except Exception as e:
+                    logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
+                    if attempt < 2:
+                        await asyncio.sleep(2 ** attempt)
+                    continue
             
-            return info
+            return None
+            
         except Exception as e:
             logger.error(f"Error getting stock info from Yahoo Finance: {str(e)}")
             return None
