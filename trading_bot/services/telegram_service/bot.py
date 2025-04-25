@@ -697,8 +697,8 @@ class TelegramService:
             # Register the handlers
             self._register_handlers(self.application)
             
-            # Load stored signals
-            self._load_signals()
+            # Initialize signals dictionary but don't load them yet (will be done in initialize_services)
+            self.user_signals = {}
         
             logger.info("Telegram service initialized")
             
@@ -715,6 +715,10 @@ class TelegramService:
             # Initialize chart service
             await self.chart_service.initialize()
             logger.info("Chart service initialized")
+            
+            # Load stored signals
+            await self._load_signals()
+            logger.info("Signals loaded")
         except Exception as e:
             logger.error(f"Error initializing services: {str(e)}")
             raise
@@ -1242,8 +1246,8 @@ class TelegramService:
             # Catch-all handler for any other callbacks
             application.add_handler(CallbackQueryHandler(self.button_callback))
             
-            # Load signals
-            self._load_signals()
+            # Don't load signals here - it will be done in initialize_services
+            # self._load_signals()
             
             logger.info("Bot setup completed successfully")
             
