@@ -436,6 +436,15 @@ class YahooFinanceProvider:
             
             # Calculate date range based on limit and interval
             end_date = datetime.now()
+            
+            # Ensure we're using correct dates by checking if the end_date year is correct
+            current_year = datetime.now().year
+            if end_date.year > current_year:
+                logger.warning(f"Detected incorrect future year: {end_date.year}, correcting to current year: {current_year}")
+                # Correct the end_date to use the current year
+                end_date = datetime(current_year, end_date.month, end_date.day, 
+                                     end_date.hour, end_date.minute, end_date.second)
+            
             if interval in ["1m", "5m", "15m", "30m", "60m"]:
                 # For intraday data, yahoo only provides limited history
                 # 1m - 7 days, 5m - 60 days, 15m/30m/60m - 730 days
@@ -444,7 +453,7 @@ class YahooFinanceProvider:
                 elif interval == "5m":
                     days_back = 60
                 else:
-                    days_back = 730
+                    days_back = 100  # Limit to 100 days for 15m/30m/60m to be safe
                 # Ensure we don't request too much data
                 days_back = min(days_back, limit)
                 start_date = end_date - timedelta(days=days_back)
@@ -457,8 +466,20 @@ class YahooFinanceProvider:
                     "1mo": 30
                 }
                 multiplier = days_map.get(interval, 1)
-                start_date = end_date - timedelta(days=limit * multiplier * 2)  # Double the days to ensure we get enough data
-                logger.info(f"Using standard timeframe {interval}, requesting {limit * multiplier * 2} days of history")
+                start_date = end_date - timedelta(days=limit * multiplier)  # Use a more conservative approach
+                logger.info(f"Using standard timeframe {interval}, requesting {limit * multiplier} days of history")
+
+            # Double check that start and end dates are valid (not in the future)
+            current_datetime = datetime.now()
+            if start_date > current_datetime:
+                logger.warning(f"Start date {start_date} is in the future, correcting to current time minus 100 days")
+                start_date = current_datetime - timedelta(days=100)
+            
+            if end_date > current_datetime:
+                logger.warning(f"End date {end_date} is in the future, correcting to current time")
+                end_date = current_datetime
+
+            logger.info(f"Final date range: from {start_date} to {end_date}")
 
             # Wait for rate limit
             await YahooFinanceProvider._wait_for_rate_limit()
