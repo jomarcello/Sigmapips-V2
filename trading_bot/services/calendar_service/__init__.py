@@ -46,7 +46,7 @@ if os.environ.get("SCRAPINGANT_API_KEY") is None:
     logger.info("Setting default ScrapingAnt API key")
 
 # Check of er iets expliciets in de omgeving is ingesteld voor fallback
-USE_FALLBACK = os.environ.get("USE_CALENDAR_FALLBACK", "").lower() in ("true", "1", "yes")
+USE_FALLBACK = True  # Forcing fallback due to syntax error in tradingview_calendar.py
 
 # Ingebouwde fallback EconomicCalendarService voor het geval de echte niet werkt
 class InternalFallbackCalendarService:
