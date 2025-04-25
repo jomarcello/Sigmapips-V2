@@ -463,120 +463,123 @@ class ChartService:
 
     async def get_technical_analysis(self, instrument: str, timeframe: str = "1h") -> str:
         """
-        Generate technical analysis text for an instrument.
+        Generate technical analysis for a specific instrument.
         
         Args:
-            instrument: The trading instrument (e.g., EURUSD, BTCUSD)
-            timeframe: The timeframe for analysis (1h, 4h, 1d)
+            instrument (str): The trading instrument (e.g., EURUSD, BTCUSD)
+            timeframe (str): Timeframe for the analysis (e.g., 1h, 4h, 1d)
             
         Returns:
             str: Formatted technical analysis text
         """
         try:
-            logger.info(f"Generating technical analysis for {instrument} on {timeframe} timeframe")
-            
-            # Normalize instrument name
-            instrument = instrument.upper().replace("/", "")
-            
-            # Initialize cache if it doesn't exist
-            if not hasattr(self, 'analysis_cache'):
-                self.analysis_cache = {}
-                self.analysis_cache_ttl = 300  # 5 minutes cache TTL default
-            
             # Check cache first
-            cache_key = f"{instrument}_{timeframe}"
+            cache_key = f"{instrument}_{timeframe}_analysis"
             current_time = time.time()
             
-            if cache_key in self.analysis_cache:
+            if hasattr(self, 'analysis_cache') and cache_key in self.analysis_cache:
                 cached_time, cached_analysis = self.analysis_cache[cache_key]
-                # If cache is still valid (less than cache TTL seconds old)
+                # Use cache if less than cache_ttl seconds old
                 if current_time - cached_time < self.analysis_cache_ttl:
-                    logger.info(f"Using cached technical analysis for {instrument}")
+                    logger.info(f"Using cached analysis for {instrument} ({timeframe})")
                     return cached_analysis
             
-            # Check if USE_MOCK_DATA is enabled in environment variables
-            use_mock_data = os.getenv("USE_MOCK_DATA", "false").lower() == "true"
-            if use_mock_data:
-                logger.info(f"USE_MOCK_DATA is enabled, using default analysis for {instrument}")
-                return await self._generate_default_analysis(instrument, timeframe)
-            
-            # Detect market type to determine which provider to use
-            market_type = self._detect_market_type(instrument)
-            
-            # For crypto, use Binance provider first, fallback to TwelveData
-            # For forex, indices, commodities use Yahoo Finance
-            analysis = None
-            
-            if market_type == "crypto":
-                # Use Binance for crypto instruments
-                logger.info(f"Using Binance provider for crypto instrument: {instrument}")
-                try:
-                    analysis = await BinanceProvider.get_market_data(instrument, timeframe)
-                except Exception as e:
-                    logger.error(f"Exception during Binance API call for {instrument}: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    analysis = None
-                    
-                # Fallback to TwelveData if Binance fails
-                if not analysis or not hasattr(analysis, 'indicators') or not analysis.indicators.get("close"):
-                    logger.info(f"Binance API failed, falling back to TwelveData for crypto: {instrument}")
-                    try:
-                        analysis = await TwelveDataProvider.get_market_data(instrument, timeframe)
-                    except Exception as e:
-                        logger.error(f"Exception during TwelveData API call for {instrument}: {str(e)}")
-                        logger.error(traceback.format_exc())
-                        analysis = None
-            else:
-                # Use Yahoo Finance for forex, indices, commodities
-                logger.info(f"Using Yahoo Finance provider for {market_type} instrument: {instrument}")
-                try:
-                    analysis = await YahooFinanceProvider.get_market_data(instrument, timeframe)
-                except Exception as e:
-                    logger.error(f"Exception during Yahoo Finance API call for {instrument}: {str(e)}")
-                    logger.error(traceback.format_exc())
-                    analysis = None
-                    
-                # If Yahoo Finance fails, try TwelveData as last resort
-                if not analysis or not hasattr(analysis, 'indicators') or not analysis.indicators.get("close"):
-                    logger.info(f"Yahoo Finance failed, trying TwelveData provider for {instrument} as last resort")
-                    try:
-                        analysis = await TwelveDataProvider.get_market_data(instrument, timeframe)
-                    except Exception as e:
-                        logger.error(f"Exception during TwelveData API call for {instrument}: {str(e)}")
-                        logger.error(traceback.format_exc())
-                        analysis = None
-            
-            # If any API succeeds, use that data
-            if analysis and hasattr(analysis, 'indicators') and analysis.indicators.get("close"):
-                logger.info(f"Successfully retrieved market data for {instrument}")
-                
-                # Process API results
-                td_analysis = ""
-                
-                # Create mapping between field names and our expected names
-                field_mapping = {
-                    "close": "close",
-                    "EMA50": "ema_20",    # EMA50 is used as our EMA20
-                    "EMA200": "ema_50",   # EMA200 is used as our EMA50
-                    "RSI": "rsi",
-                    "MACD.macd": "macd",
-                    "MACD.signal": "macd_signal",
-                    "MACD.hist": "macd_hist",
-                    "open": "open",
-                    "high": "high",
-                    "low": "low",
-                    "volume": "volume",
-                    "weekly_high": "weekly_high",
-                    "weekly_low": "weekly_low"
-                }
-                
-                # Extract indicators from API response using the mapping
-                indicators = analysis.indicators
-                
-                # Create a dictionary with our expected field names
+            # Use our faster TradingViewTA service first as it's more reliable
+            logger.info(f"Generating new technical analysis for {instrument} on {timeframe}")
+            try:
                 analysis_data = {}
-                for td_field, expected_field in field_mapping.items():
-                    analysis_data[expected_field] = indicators.get(td_field, 0)
+                # Try to use our chart data API
+                for provider in self.chart_providers:
+                    try:
+                        analysis = await provider.get_market_data(instrument, timeframe)
+                        if analysis:
+                            break
+                    except Exception as e:
+                        logger.warning(f"Provider failed: {str(e)}")
+                        continue
+                else:
+                    analysis = None
+                    
+                # If we didn't get data from any provider, try to use the Yahoo Finance provider
+                if not analysis and 'yahoo' in [p.__class__.__name__.lower() for p in self.chart_providers]:
+                    for provider in self.chart_providers:
+                        if 'yahoo' in provider.__class__.__name__.lower():
+                            try:
+                                analysis = await provider.get_market_data(instrument, timeframe)
+                                if analysis:
+                                    logger.info(f"Using Yahoo Finance data for {instrument}")
+                                    break
+                            except Exception as e:
+                                logger.warning(f"Yahoo provider failed: {str(e)}")
+                                
+                # If we still don't have data, try TradingView as a last resort
+                if not analysis:
+                    try:
+                        # This is a different format than our API providers
+                        from tradingview_ta import TA_Handler, Interval
+                        
+                        # Map our timeframe to TradingView interval
+                        interval_map = {
+                            "1m": Interval.INTERVAL_1_MINUTE,
+                            "5m": Interval.INTERVAL_5_MINUTES,
+                            "15m": Interval.INTERVAL_15_MINUTES, 
+                            "30m": Interval.INTERVAL_30_MINUTES,
+                            "1h": Interval.INTERVAL_1_HOUR,
+                            "2h": Interval.INTERVAL_2_HOURS,
+                            "4h": Interval.INTERVAL_4_HOURS,
+                            "1d": Interval.INTERVAL_1_DAY,
+                            "1w": Interval.INTERVAL_1_WEEK,
+                            "1M": Interval.INTERVAL_1_MONTH
+                        }
+                        
+                        tv_interval = interval_map.get(timeframe, Interval.INTERVAL_1_HOUR)
+                        
+                        # Determine exchange and symbol
+                        exchange, symbol = self._parse_instrument_for_tradingview(instrument)
+                        
+                        logger.info(f"Trying TradingView API for {instrument} on {exchange}")
+                        
+                        handler = TA_Handler(
+                            symbol=symbol,
+                            exchange=exchange,
+                            screener="crypto" if exchange == "BINANCE" else "forex",
+                            interval=tv_interval,
+                            timeout=10
+                        )
+                        
+                        analysis = handler.get_analysis()
+                        
+                        # Convert TradingView format to our analysis data format
+                        indicators = analysis.indicators
+                        
+                        # Get key values
+                        current_price = indicators.get("close", 0)
+                        
+                        # Map to our standard field names
+                        analysis_data = {
+                            "close": current_price,
+                            "open": indicators.get("open", 0),
+                            "high": indicators.get("high", 0),
+                            "low": indicators.get("low", 0),
+                            "volume": indicators.get("volume", 0),
+                            "ema_20": indicators.get("EMA20", 0),
+                            "ema_50": indicators.get("EMA50", 0),
+                            "ema_200": indicators.get("EMA200", 0),
+                            "rsi": indicators.get("RSI", 50),
+                            "macd": indicators.get("MACD.macd", 0),
+                            "macd_signal": indicators.get("MACD.signal", 0),
+                            "macd_hist": indicators.get("MACD.hist", 0)
+                        }
+                    except Exception as e:
+                        logger.error(f"TradingView API error: {str(e)}")
+                        analysis_data = None
+            except Exception as e:
+                logger.error(f"Error getting analysis from providers: {str(e)}")
+                analysis_data = None
+            
+            # If we have analysis data from TradingView or other providers, format it
+            if analysis_data:
+                logger.info(f"Successfully retrieved analysis data for {instrument}")
                 
                 # Get values using our expected field names
                 current_price = analysis_data["close"]
@@ -640,6 +643,7 @@ class ChartService:
             macd_signal = indicators.get("MACD.signal", 0)
             
             # Get moving averages
+            ema_20 = indicators.get("EMA20", current_price * 0.995)
             ema_50 = indicators.get("EMA50", current_price * 0.99)
             ema_200 = indicators.get("EMA200", current_price * 0.98)
             
@@ -1036,7 +1040,7 @@ class ChartService:
 
     async def _fetch_crypto_price(self, symbol: str) -> Optional[float]:
         """
-        Fetch crypto price from multiple APIs as a fallback.
+        Fetch crypto price from Binance API with fallback to other providers.
         
         Args:
             symbol: The crypto symbol without USD (e.g., BTC)
@@ -1045,17 +1049,23 @@ class ChartService:
             float: Current price or None if failed
         """
         try:
-            logger.info(f"Fetching {symbol} price from external APIs")
+            logger.info(f"Fetching {symbol} price from Binance API")
             symbol = symbol.replace("USD", "")
             
-            # Try multiple APIs for redundancy
+            # First, try our optimized BinanceProvider
+            from trading_bot.services.chart_service.binance_provider import BinanceProvider
+            price = await BinanceProvider.get_ticker_price(f"{symbol}USDT")
+            if price:
+                logger.info(f"Got {symbol} price from BinanceProvider: {price}")
+                return price
+                
+            # If BinanceProvider fails, try direct API calls to multiple exchanges as backup
+            logger.warning(f"BinanceProvider failed for {symbol}, trying direct API calls")
             apis = [
                 f"https://api.coingecko.com/api/v3/simple/price?ids={symbol.lower()}&vs_currencies=usd",
-                f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}USDT",
                 f"https://api.coinbase.com/v2/prices/{symbol}-USD/spot"
             ]
             
-            price = None
             success = False
             
             async with aiohttp.ClientSession() as session:
@@ -1071,12 +1081,6 @@ class ChartService:
                                         price = float(data[symbol.lower()]["usd"])
                                         success = True
                                         logger.info(f"Got {symbol} price from CoinGecko: {price}")
-                                        break
-                                elif "binance" in api_url:
-                                    if data and "price" in data:
-                                        price = float(data["price"])
-                                        success = True
-                                        logger.info(f"Got {symbol} price from Binance: {price}")
                                         break
                                 elif "coinbase" in api_url:
                                     if data and "data" in data and "amount" in data["data"]:
