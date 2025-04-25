@@ -116,38 +116,82 @@ class YahooFinanceProvider:
             try:
                 # Config for yfinance to use our session with headers
                 session = YahooFinanceProvider._get_session()
+                logger.info(f"[Yahoo] Using requests session with headers: User-Agent={session.headers.get('User-Agent', 'Unknown')[:30]}...")
                 yf.set_tz_session_for_downloading(session=session)
                 
+                # Log the exact download parameters
+                logger.info(f"[Yahoo] Download parameters - Symbol: {symbol}, Start: {start_date}, End: {end_date}, Interval: {interval}, Timeout: {timeout}s")
+                
                 # Method 1: Use direct download which works better for most tickers
-                df = yf.download(
-                    symbol, 
-                    start=start_date,
-                    end=end_date,
-                    interval=interval,
-                    progress=False,  # Turn off progress output
-                    timeout=timeout       # Increase timeout for Railway
-                )
+                logger.info(f"[Yahoo] Attempting direct download method with yf.download for {symbol}")
+                try:
+                    df = yf.download(
+                        symbol, 
+                        start=start_date,
+                        end=end_date,
+                        interval=interval,
+                        progress=False,  # Turn off progress output
+                        timeout=timeout  # Increase timeout for Railway
+                    )
+                    
+                    if df is None:
+                        logger.warning(f"[Yahoo] Direct download returned None for {symbol}")
+                    elif df.empty:
+                        logger.warning(f"[Yahoo] Direct download returned empty DataFrame for {symbol}")
+                    else:
+                        logger.info(f"[Yahoo] Direct download successful for {symbol}, got {len(df)} rows")
+                        logger.info(f"[Yahoo] DataFrame columns: {df.columns.tolist()}")
+                    
+                except Exception as direct_e:
+                    logger.error(f"[Yahoo] Direct download exception: {str(direct_e)}")
+                    logger.error(f"[Yahoo] Error type: {type(direct_e).__name__}")
+                    df = None
                 
                 # If direct download failed, try the Ticker method
                 if df is None or df.empty:
-                    logger.info(f"Direct download failed for {symbol}, trying Ticker method")
-                    ticker = yf.Ticker(symbol, session=session)
-                    df = ticker.history(
-                        start=start_date,
-                        end=end_date,
-                        interval=interval
-                    )
+                    logger.info(f"[Yahoo] Direct download failed for {symbol}, trying Ticker method")
+                    try:
+                        ticker = yf.Ticker(symbol, session=session)
+                        logger.info(f"[Yahoo] Created Ticker object for {symbol}")
+                        
+                        # Try to get some ticker info to check if it's valid
+                        try:
+                            info_keys = list(ticker.info.keys())[:5] if hasattr(ticker, 'info') and ticker.info else []
+                            logger.info(f"[Yahoo] Ticker info available: {len(info_keys)} keys")
+                        except Exception as info_e:
+                            logger.warning(f"[Yahoo] Could not retrieve ticker info: {str(info_e)}")
+                        
+                        # Get history
+                        logger.info(f"[Yahoo] Getting history for {symbol} with Ticker method")
+                        df = ticker.history(
+                            start=start_date,
+                            end=end_date,
+                            interval=interval
+                        )
+                        
+                        if df is None:
+                            logger.warning(f"[Yahoo] Ticker method returned None for {symbol}")
+                        elif df.empty:
+                            logger.warning(f"[Yahoo] Ticker method returned empty DataFrame for {symbol}")
+                        else:
+                            logger.info(f"[Yahoo] Ticker method successful for {symbol}, got {len(df)} rows")
+                            logger.info(f"[Yahoo] DataFrame columns: {df.columns.tolist()}")
+                            
+                    except Exception as ticker_e:
+                        logger.error(f"[Yahoo] Ticker method exception: {str(ticker_e)}")
+                        logger.error(f"[Yahoo] Error type: {type(ticker_e).__name__}")
+                        df = None
                 
                 # If yfinance methods all failed, try fallback to TradingView 
                 # (we use TradingView in chart.py, but here we'll indicate failure)
                 if df is None or df.empty:
-                    logger.warning(f"All Yahoo Finance methods failed for {symbol}")
-                    raise Exception(f"No data available for {symbol}")
+                    logger.warning(f"[Yahoo] All Yahoo Finance methods failed for {symbol}")
+                    raise Exception(f"No data available for {symbol} from Yahoo Finance API after trying multiple methods")
                 
                 return df
                         
             except Exception as e:
-                logger.error(f"Error downloading data from Yahoo Finance: {str(e)}")
+                logger.error(f"[Yahoo] Error downloading data from Yahoo Finance: {str(e)}")
                 raise e
         
         return await loop.run_in_executor(None, download)
@@ -158,14 +202,27 @@ class YahooFinanceProvider:
         Validate and clean the market data
         """
         if df is None or df.empty:
+            logger.warning("[Validation] Input DataFrame is None or empty, no validation possible")
             return df
             
         try:
-            # Print the original columns for debugging
-            logger.info(f"Original columns: {df.columns}")
+            # Initial diagnostics
+            logger.info(f"[Validation] Starting data validation with shape: {df.shape}")
+            logger.info(f"[Validation] Original columns: {df.columns}")
+            logger.info(f"[Validation] Index type: {type(df.index).__name__}")
+            logger.info(f"[Validation] Index range: {df.index[0]} to {df.index[-1]}" if len(df) > 0 else "[Validation] Empty index")
+            
+            # Check for NaN values in the original data
+            nan_counts = df.isna().sum()
+            if nan_counts.sum() > 0:
+                logger.warning(f"[Validation] Found NaN values in original data: {nan_counts.to_dict()}")
             
             # Check if we have a multi-index dataframe from yfinance
             if isinstance(df.columns, pd.MultiIndex):
+                logger.info(f"[Validation] Detected MultiIndex columns with levels: {[name for name in df.columns.names]}")
+                logger.info(f"[Validation] First level values: {df.columns.get_level_values(0).unique().tolist()}")
+                logger.info(f"[Validation] Second level values: {df.columns.get_level_values(1).unique().tolist()}")
+                
                 # Convert multi-index format to standard format
                 result = pd.DataFrame()
                 
@@ -173,55 +230,151 @@ class YahooFinanceProvider:
                 for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
                     if (col, df.columns.get_level_values(1)[0]) in df.columns:
                         result[col] = df[(col, df.columns.get_level_values(1)[0])]
+                        logger.info(f"[Validation] Extracted {col} from MultiIndex")
                     else:
-                        logger.error(f"Column {col} not found in multi-index")
+                        logger.error(f"[Validation] Column {col} not found in multi-index")
                         
                 # Replace original dataframe with converted one
                 if not result.empty:
-                    logger.info(f"Successfully converted multi-index to: {result.columns}")
+                    logger.info(f"[Validation] Successfully converted multi-index to: {result.columns}")
                     df = result
                 else:
-                    logger.error("Failed to convert multi-index dataframe")
+                    logger.error("[Validation] Failed to convert multi-index dataframe, returning empty DataFrame")
                     return pd.DataFrame()
             
             # Ensure we have the required columns
             required_columns = ['Open', 'High', 'Low', 'Close']
             missing_columns = [col for col in required_columns if col not in df.columns]
             if missing_columns:
-                logger.error(f"Required columns missing: {missing_columns}")
-                logger.info(f"Available columns: {df.columns}")
+                logger.error(f"[Validation] Required columns missing: {missing_columns}")
+                logger.info(f"[Validation] Available columns: {df.columns}")
                 return pd.DataFrame()
             
+            # Report initial data statistics
+            logger.info(f"[Validation] Data statistics before cleaning:")
+            for col in required_columns:
+                try:
+                    stats = {
+                        'min': df[col].min(),
+                        'max': df[col].max(),
+                        'mean': df[col].mean(),
+                        'null_count': df[col].isnull().sum()
+                    }
+                    logger.info(f"[Validation] {col}: {stats}")
+                except Exception as stats_e:
+                    logger.error(f"[Validation] Error calculating stats for {col}: {str(stats_e)}")
+            
             # Remove any duplicate indices
-            df = df[~df.index.duplicated(keep='last')]
+            dupes_count = df.index.duplicated().sum()
+            if dupes_count > 0:
+                logger.warning(f"[Validation] Found {dupes_count} duplicate indices, removing duplicates")
+                df = df[~df.index.duplicated(keep='last')]
+            else:
+                logger.info("[Validation] No duplicate indices found")
             
             # Forward fill missing values (max 2 periods)
+            null_before = df.isnull().sum().sum()
             df = df.ffill(limit=2)
+            null_after = df.isnull().sum().sum()
+            if null_before > 0:
+                logger.info(f"[Validation] Forward-filled {null_before - null_after} NaN values (limit=2)")
             
             # Remove rows with any remaining NaN values
+            row_count_before = len(df)
             df = df.dropna()
+            row_count_after = len(df)
+            if row_count_after < row_count_before:
+                logger.warning(f"[Validation] Dropped {row_count_before - row_count_after} rows with NaN values")
             
             # Ensure all numeric columns are float
             for col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
+                try:
+                    with pd.option_context('mode.chained_assignment', None):
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                    nan_after_conversion = df[col].isna().sum()
+                    if nan_after_conversion > 0:
+                        logger.warning(f"[Validation] Converting {col} to numeric created {nan_after_conversion} NaN values")
+                except Exception as conv_e:
+                    logger.error(f"[Validation] Error converting {col} to numeric: {str(conv_e)}")
+            
+            # Check for remaining NaN values after numeric conversion
+            if df.isna().sum().sum() > 0:
+                logger.warning(f"[Validation] Still have NaN values after numeric conversion: {df.isna().sum().to_dict()}")
+                # Drop rows with NaN values again
+                row_count_before = len(df)
+                df = df.dropna()
+                row_count_after = len(df)
+                logger.warning(f"[Validation] Dropped additional {row_count_before - row_count_after} rows with NaN values")
             
             # Validate price relationships - only keep rows with valid OHLC relationships
-            df = df[
+            row_count_before = len(df)
+            valid_rows = (
                 (df['High'] >= df['Low']) & 
                 (df['High'] >= df['Open']) & 
                 (df['High'] >= df['Close']) &
                 (df['Low'] <= df['Open']) & 
                 (df['Low'] <= df['Close'])
-            ]
+            )
+            
+            # Log invalid row counts by condition
+            if not valid_rows.all():
+                invalid_count = (~valid_rows).sum()
+                logger.warning(f"[Validation] Found {invalid_count} rows with invalid OHLC relationships")
+                
+                # Detailed diagnostics of invalid rows
+                condition_results = {
+                    'High < Low': (df['High'] < df['Low']).sum(),
+                    'High < Open': (df['High'] < df['Open']).sum(),
+                    'High < Close': (df['High'] < df['Close']).sum(),
+                    'Low > Open': (df['Low'] > df['Open']).sum(),
+                    'Low > Close': (df['Low'] > df['Close']).sum()
+                }
+                logger.warning(f"[Validation] Invalid relationship details: {condition_results}")
+                
+                # Show an example of an invalid row
+                if invalid_count > 0:
+                    try:
+                        invalid_idx = (~valid_rows).idxmax()
+                        logger.warning(f"[Validation] Example invalid row at {invalid_idx}: {df.loc[invalid_idx, ['Open', 'High', 'Low', 'Close']].to_dict()}")
+                    except Exception as e:
+                        logger.error(f"[Validation] Error showing invalid row example: {str(e)}")
+            
+            df = df[valid_rows]
+            row_count_after = len(df)
+            if row_count_after < row_count_before:
+                logger.warning(f"[Validation] Removed {row_count_before - row_count_after} rows with invalid OHLC relationships")
             
             # Also validate Volume if it exists
             if 'Volume' in df.columns:
+                row_count_before = len(df)
                 df = df[df['Volume'] >= 0]
+                row_count_after = len(df)
+                if row_count_after < row_count_before:
+                    logger.warning(f"[Validation] Removed {row_count_before - row_count_after} rows with negative Volume")
+            
+            # Final data statistics
+            logger.info(f"[Validation] Final validated DataFrame shape: {df.shape}")
+            if len(df) > 0:
+                logger.info(f"[Validation] Date range: {df.index[0]} to {df.index[-1]}")
+                
+                # Log final statistics for key columns
+                for col in required_columns:
+                    if col in df.columns:
+                        try:
+                            stats = {
+                                'min': df[col].min(),
+                                'max': df[col].max(),
+                                'mean': df[col].mean(),
+                            }
+                            logger.info(f"[Validation] Final {col} statistics: {stats}")
+                        except Exception as stats_e:
+                            logger.error(f"[Validation] Error calculating final stats for {col}: {str(stats_e)}")
             
             return df
             
         except Exception as e:
-            logger.error(f"Error in data validation: {str(e)}")
+            logger.error(f"[Validation] Error in data validation: {str(e)}")
+            logger.error(f"[Validation] Error type: {type(e).__name__}")
             logger.error(traceback.format_exc())
             return df
 
@@ -241,6 +394,7 @@ class YahooFinanceProvider:
             if cache_key in YahooFinanceProvider._cache:
                 cached_data, cache_time = YahooFinanceProvider._cache[cache_key]
                 if current_time - cache_time < YahooFinanceProvider._cache_timeout:
+                    logger.info(f"Using cached data for {symbol} (formatted as {formatted_symbol})")
                     return cached_data
 
             # For Railway deployments: quickly return empty dataframe for forex and cryptos
@@ -258,11 +412,19 @@ class YahooFinanceProvider:
             ]
             
             # Skip Yahoo Finance completely for these instruments on Railway (they often fail)
-            if is_railway and (symbol.upper() in tradingview_preferred or 
-                              (len(symbol) == 6 and all(c.isalpha() for c in symbol))):
-                # This is likely a forex pair or an index/commodity that works better with TradingView
-                logger.warning(f"Bypassing Yahoo Finance for {symbol} on Railway - TradingView preferred")
-                return pd.DataFrame()  # Return empty to allow TradingView to handle it
+            if is_railway:
+                if symbol.upper() in tradingview_preferred:
+                    logger.warning(f"Bypassing Yahoo Finance for {symbol} on Railway - This symbol is in the TradingView preferred list")
+                    logger.info(f"Formatted symbol for Yahoo would be: {formatted_symbol}")
+                    logger.info(f"This symbol ({symbol}) works better with TradingView API to avoid Yahoo Finance rate limits on Railway")
+                    return pd.DataFrame()  # Return empty to allow TradingView to handle it
+                elif len(symbol) == 6 and all(c.isalpha() for c in symbol):
+                    logger.warning(f"Bypassing Yahoo Finance for {symbol} on Railway - Detected as forex pair (6 alpha characters)")
+                    logger.info(f"Formatted symbol for Yahoo would be: {formatted_symbol}")
+                    logger.info(f"Yahoo Finance forex data is often inconsistent or limited on Railway, using TradingView API instead")
+                    return pd.DataFrame()  # Return empty to allow TradingView to handle it
+                else:
+                    logger.info(f"Using Yahoo Finance for {symbol} on Railway - Not in preferred TradingView list")
             
             # Convert timeframe to yfinance interval
             interval_map = {
@@ -277,6 +439,8 @@ class YahooFinanceProvider:
             }
             
             interval = interval_map.get(timeframe, "1d")
+            if timeframe != interval:
+                logger.info(f"Mapped timeframe {timeframe} to Yahoo Finance interval {interval}")
             
             # Calculate date range based on limit and interval
             end_date = datetime.now()
@@ -292,6 +456,7 @@ class YahooFinanceProvider:
                 # Ensure we don't request too much data
                 days_back = min(days_back, limit)
                 start_date = end_date - timedelta(days=days_back)
+                logger.info(f"Using intraday timeframe {interval}, limited to {days_back} days of history")
             else:
                 # For other intervals, calculate based on limit with some buffer
                 days_map = {
@@ -301,27 +466,43 @@ class YahooFinanceProvider:
                 }
                 multiplier = days_map.get(interval, 1)
                 start_date = end_date - timedelta(days=limit * multiplier * 2)  # Double the days to ensure we get enough data
+                logger.info(f"Using standard timeframe {interval}, requesting {limit * multiplier * 2} days of history")
 
             # Wait for rate limit
             await YahooFinanceProvider._wait_for_rate_limit()
             
             try:
                 # Download data from Yahoo Finance
-                logger.info(f"Downloading data for {formatted_symbol} from {start_date} to {end_date}")
+                logger.info(f"Downloading data for {formatted_symbol} from {start_date} to {end_date} with interval {interval}")
                 
                 # Shorter timeout on Railway
                 timeout = 10 if is_railway else 30
+                logger.info(f"Using timeout of {timeout}s for Yahoo Finance request (Railway: {is_railway})")
                 
-                df = await YahooFinanceProvider._download_data(
-                    formatted_symbol,
-                    start_date,
-                    end_date,
-                    interval,
-                    timeout=timeout
-                )
+                try:
+                    df = await YahooFinanceProvider._download_data(
+                        formatted_symbol,
+                        start_date,
+                        end_date,
+                        interval,
+                        timeout=timeout
+                    )
+                except Exception as download_e:
+                    logger.error(f"Yahoo Finance download error for {formatted_symbol}: {str(download_e)}")
+                    logger.error(f"Error type: {type(download_e).__name__}")
+                    if hasattr(download_e, '__traceback__'):
+                        logger.error(traceback.format_exc())
+                    if is_railway:
+                        logger.warning(f"Railway environment detected, returning empty DataFrame to allow TradingView fallback")
+                        return pd.DataFrame()
+                    raise download_e
                 
                 if df is None or (isinstance(df, pd.DataFrame) and df.empty):
-                    logger.error(f"No data returned from Yahoo Finance for {symbol}")
+                    logger.error(f"No data returned from Yahoo Finance for {symbol} (formatted as {formatted_symbol})")
+                    if df is None:
+                        logger.error("Yahoo Finance returned None instead of DataFrame")
+                    else:
+                        logger.error("Yahoo Finance returned empty DataFrame")
                     # Return an empty DataFrame on Railway, to allow TradingView fallback to work
                     if is_railway:
                         logger.warning(f"Running on Railway, returning empty DataFrame for {symbol} to allow TradingView fallback")
@@ -330,28 +511,38 @@ class YahooFinanceProvider:
             
                 # Ensure datetime index
                 if not isinstance(df.index, pd.DatetimeIndex):
+                    logger.info(f"Converting index to DatetimeIndex for {formatted_symbol}")
                     df.index = pd.to_datetime(df.index)
                 
                 # Validate and clean data
+                logger.info(f"Validating and cleaning data for {formatted_symbol}, initial shape: {df.shape}")
                 df = YahooFinanceProvider._validate_and_clean_data(df)
                 
                 if df is None or (isinstance(df, pd.DataFrame) and df.empty):
-                    logger.error(f"No valid data after cleaning for {symbol}")
+                    logger.error(f"No valid data after cleaning for {symbol} (formatted as {formatted_symbol})")
                     # Return an empty DataFrame on Railway, to allow TradingView fallback to work
                     if is_railway:
                         logger.warning(f"Running on Railway, returning empty DataFrame for {symbol} to allow TradingView fallback")
                         return pd.DataFrame()
                     return None
-                    
+                
+                logger.info(f"Successfully cleaned data for {formatted_symbol}, final shape: {df.shape}")
+                
                 # Sort by date and limit rows
                 df = df.sort_index().tail(limit)
+                logger.info(f"Limited to last {limit} rows, final shape: {df.shape}")
                 
                 # Cache the result
                 YahooFinanceProvider._cache[cache_key] = (df, current_time)
+                logger.info(f"Cached data for {formatted_symbol} with key {cache_key}")
                 
                 return df
             except Exception as inner_e:
-                logger.error(f"Error downloading market data: {str(inner_e)}")
+                logger.error(f"Error downloading market data for {formatted_symbol}: {str(inner_e)}")
+                logger.error(f"Error type: {type(inner_e).__name__}")
+                # Detailed logging for the error
+                if hasattr(inner_e, '__traceback__'):
+                    logger.error(traceback.format_exc())
                 # Return an empty DataFrame on Railway, to allow TradingView fallback to work
                 if is_railway:
                     logger.warning(f"Error on Railway, returning empty DataFrame for {symbol} to allow TradingView fallback")
@@ -360,6 +551,7 @@ class YahooFinanceProvider:
             
         except Exception as e:
             logger.error(f"Error fetching market data for {symbol}: {str(e)}")
+            logger.error(f"Error type: {type(e).__name__}")
             logger.error(traceback.format_exc())
             
             # Return an empty DataFrame on Railway, to allow TradingView fallback to work
