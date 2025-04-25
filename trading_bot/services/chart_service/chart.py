@@ -533,7 +533,30 @@ class ChartService:
                 for provider in prioritized_providers:
                     try:
                         logger.info(f"Trying {provider.__class__.__name__} for {instrument} ({market_type})")
+                        if 'yahoo' in provider.__class__.__name__.lower():
+                            logger.info(f"Using Yahoo Finance provider for {instrument}, timeframe: {timeframe}")
+                            # Extra diagnostics for Yahoo provider
+                            formatted_symbol = None
+                            if hasattr(provider, '_format_symbol'):
+                                try:
+                                    formatted_symbol = provider._format_symbol(instrument)
+                                    logger.info(f"Yahoo Finance formatted symbol: {formatted_symbol}")
+                                except Exception as format_e:
+                                    logger.error(f"Error formatting symbol: {str(format_e)}")
+                            else:
+                                logger.info("Yahoo provider missing _format_symbol method")
+                        
                         analysis = await provider.get_market_data(instrument, timeframe)
+                        
+                        # More detailed logging about the result
+                        if analysis is None:
+                            logger.warning(f"Provider {provider.__class__.__name__} returned None for {instrument}")
+                        elif isinstance(analysis, pd.DataFrame):
+                            if analysis.empty:
+                                logger.warning(f"Provider {provider.__class__.__name__} returned empty DataFrame for {instrument}")
+                            else:
+                                logger.info(f"Provider {provider.__class__.__name__} returned DataFrame with shape {analysis.shape} for {instrument}")
+                        
                         if analysis is not None and (not isinstance(analysis, pd.DataFrame) or not analysis.empty):
                             # Convert provider format to our standard analysis_data format
                             if hasattr(analysis, 'indicators'):
@@ -557,12 +580,17 @@ class ChartService:
                     except Exception as e:
                         # Check for Binance geo-restriction error and handle gracefully
                         error_str = str(e)
+                        error_type = type(e).__name__
+                        
                         if "Binance" in provider.__class__.__name__ and ("restricted location" in error_str or "eligibility" in error_str.lower()):
                             logger.warning(f"Binance API access is geo-restricted. Skipping Binance and trying alternatives.")
                             # Skip all remaining Binance endpoints
                             continue
                         
+                        # Enhanced error logging
                         logger.warning(f"Provider {provider.__class__.__name__} failed: {str(e)}")
+                        logger.warning(f"Error type: {error_type}")
+                        logger.debug(traceback.format_exc())
                         continue
                 else:
                     analysis = None
@@ -594,6 +622,7 @@ class ChartService:
                         exchange, symbol = self._parse_instrument_for_tradingview(instrument)
                         
                         logger.info(f"Trying TradingView API for {instrument} on {exchange}")
+                        logger.info(f"TradingView mapped: symbol={symbol}, exchange={exchange}, interval={tv_interval}")
                         
                         handler = TA_Handler(
                             symbol=symbol,
@@ -607,6 +636,9 @@ class ChartService:
                         
                         # Convert TradingView format to our analysis data format
                         indicators = analysis.indicators
+                        
+                        # Log indicator values for debugging
+                        logger.info(f"TradingView indicators for {symbol} on {exchange}: {indicators}")
                         
                         # Get key values
                         current_price = indicators.get("close", 0)
