@@ -6,6 +6,8 @@ import traceback
 import os
 import sys
 import socket
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
 logger.info("Initializing calendar service module...")
@@ -46,13 +48,42 @@ if os.environ.get("SCRAPINGANT_API_KEY") is None:
 # Check of er iets expliciets in de omgeving is ingesteld voor fallback
 USE_FALLBACK = os.environ.get("USE_CALENDAR_FALLBACK", "").lower() in ("true", "1", "yes")
 
+# Ingebouwde fallback EconomicCalendarService voor het geval de echte niet werkt
+class InternalFallbackCalendarService:
+    """Interne fallback implementatie van EconomicCalendarService"""
+    def __init__(self, *args, **kwargs):
+        self.logger = logging.getLogger(__name__)
+        self.logger.warning("Internal fallback EconomicCalendarService is being used!")
+        print("⚠️ INTERNAL FALLBACK CALENDAR SERVICE IS ACTIVE ⚠️")
+        
+    async def get_calendar(self, days_ahead: int = 0, min_impact: str = "Low", currency: str = None) -> List[Dict]:
+        """Return empty calendar data"""
+        self.logger.info(f"Internal fallback get_calendar called")
+        return []
+    
+    async def get_economic_calendar(self, currencies: List[str] = None, days_ahead: int = 0, min_impact: str = "Low") -> str:
+        """Return empty economic calendar message"""
+        return "<b>📅 Economic Calendar</b>\n\nNo economic events available (using internal fallback)."
+        
+    async def get_events_for_instrument(self, instrument: str, *args, **kwargs) -> Dict[str, Any]:
+        """Return empty events for an instrument"""
+        return {
+            "events": [], 
+            "explanation": f"No calendar events available (using internal fallback)"
+        }
+        
+    async def get_instrument_calendar(self, instrument: str, *args, **kwargs) -> str:
+        """Return empty calendar for an instrument"""
+        return "<b>📅 Economic Calendar</b>\n\nNo calendar events available (using internal fallback)."
+
 # Log duidelijk naar de console of we fallback gebruiken of niet
 if USE_FALLBACK:
     logger.info("⚠️ USE_CALENDAR_FALLBACK is set to True, using fallback implementation")
     print("⚠️ Calendar fallback mode is ENABLED via environment variable")
     print(f"⚠️ Check environment value: '{os.environ.get('USE_CALENDAR_FALLBACK', '')}'")
-    from trading_bot.services.calendar_service.calendar_fix import EconomicCalendarService
-    logger.info("Successfully imported fallback EconomicCalendarService from calendar_fix.py")
+    # Gebruik interne fallback
+    EconomicCalendarService = InternalFallbackCalendarService
+    logger.info("Successfully initialized internal fallback EconomicCalendarService")
 else:
     # Probeer eerst de volledige implementatie
     logger.info("✅ USE_CALENDAR_FALLBACK is set to False, will use real implementation")
@@ -84,17 +115,17 @@ else:
             print("⚠️ TradingView calendar service could not be imported")
 
     except Exception as e:
-        # Als de import faalt, gebruiken we onze fallback implementatie
+        # Als de import faalt, gebruiken we onze interne fallback implementatie
         logger.error(f"Could not import EconomicCalendarService from calendar.py: {str(e)}")
         logger.debug(traceback.format_exc())
-        logger.warning("Using fallback implementation from calendar_fix.py")
-        print("⚠️ Could not import real calendar service, using fallback")
+        logger.warning("Using internal fallback implementation")
+        print("⚠️ Could not import real calendar service, using internal fallback")
         
-        # Importeer de fallback implementatie
-        from trading_bot.services.calendar_service.calendar_fix import EconomicCalendarService
+        # Gebruik interne fallback
+        EconomicCalendarService = InternalFallbackCalendarService
         
         # Log dat we de fallback gebruiken
-        logger.info("Successfully imported fallback EconomicCalendarService from calendar_fix.py")
+        logger.info("Successfully initialized internal fallback EconomicCalendarService")
 
 # Exporteer TradingView debug functie als die beschikbaar is
 try:
