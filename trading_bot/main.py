@@ -342,7 +342,22 @@ async def test_webhook(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8080)
+    import sys
+    import os
+    
+    # Geef hier aan dat we het moderne app.py starten
+    print("Starting SigmaPips Trading Bot...")
+    print("Starting the application...")
+    
+    # Fix voor de "could not import module main" error
+    # Gebruik het juiste module pad voor de huidige file
+    current_module = __name__.rsplit('.', 1)[0] if '.' in __name__ else "trading_bot.main"
+    
+    # Log wat we gaan starten
+    print(f"Starting app using module: {current_module}")
+    
+    # Start de app met het juiste module pad
+    uvicorn.run(f"{current_module}:app", host="0.0.0.0", port=int(os.getenv("PORT", "8080")))
 
 # Expliciet de app exporteren
 __all__ = ['app']
