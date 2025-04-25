@@ -647,7 +647,7 @@ class ChartService:
                     f"{instrument} - {timeframe}\n\n"
                     f"Zone Strength: {'★' * min(5, max(1, int(rsi/20)))}\n\n"
                     f"📊 Market Overview\n"
-                    f"Price is currently trading near the daily {'high' if current_price > (high_price + low_price)/2 else 'low'} of {high_price:.2f}, "
+                    f"Price is currently trading near current price of {current_price:.2f}, "
                     f"showing {trend.lower()} momentum. The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
                     f"indicating a {'strong uptrend' if trend == 'BULLISH' else 'strong downtrend' if trend == 'BEARISH' else 'consolidation phase'}. "
                     f"Volume is moderate, supporting the current price action.\n\n"
@@ -744,8 +744,8 @@ class ChartService:
             
             # Market overview section
             analysis_text += f"📊 <b>Market Overview</b>\n"
-            analysis_text += f"Price is currently trading near the daily {'high' if current_price > (daily_high + daily_low)/2 else 'low'} of "
-            analysis_text += f"{daily_high:{price_format}}, showing {'bullish' if trend == 'BUY' else 'bearish' if trend == 'SELL' else 'mixed'} momentum. "
+            analysis_text += f"Price is currently trading near current price of {current_price:.2f}, "
+            analysis_text += f"showing {'bullish' if trend == 'BUY' else 'bearish' if trend == 'SELL' else 'mixed'} momentum. "
             analysis_text += f"The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
             analysis_text += f"indicating a {'strong uptrend' if trend == 'BUY' else 'strong downtrend' if trend == 'SELL' else 'consolidation phase'}. "
             analysis_text += f"Volume is moderate, supporting the current price action.\n\n"
@@ -964,9 +964,9 @@ class ChartService:
             
             # Market overview section
             analysis_text += f"📊 <b>Market Overview</b>\n"
-            analysis_text += f"Price is currently trading near the daily {'high' if random.random() > 0.5 else 'low'} of "
-            analysis_text += f"{daily_high:{price_format}}, showing {'bullish' if trend == 'BUY' else 'bearish' if trend == 'SELL' else 'mixed'} momentum. "
-            analysis_text += f"The pair remains {'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} key EMAs, "
+            analysis_text += f"Price is currently trading near current price of {current_price:.2f}, "
+            analysis_text += f"showing {'bullish' if trend == 'BUY' else 'bearish' if trend == 'SELL' else 'mixed'} momentum. "
+            analysis_text += f"The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
             analysis_text += f"indicating a {'strong uptrend' if trend == 'BUY' else 'strong downtrend' if trend == 'SELL' else 'consolidation phase'}. "
             analysis_text += f"Volume is moderate, supporting the current price action.\n\n"
             
