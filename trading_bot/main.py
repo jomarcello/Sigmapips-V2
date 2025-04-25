@@ -30,12 +30,61 @@ from .services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
 # Import directly from the module to avoid circular imports through __init__.py
 from .services.telegram_service.bot import TelegramService
 from .services.payment_service.stripe_service import StripeService
-from trading_bot.webhook_handler import webhook_handler
 
 # Initialize global services outside of FastAPI context
 db = Database()
 stripe_service = StripeService(db)
 telegram_service = TelegramService(db, lazy_init=True)
+
+# Create a simple webhook handler class
+class WebhookHandler:
+    """Handler for Telegram webhooks"""
+    
+    def __init__(self):
+        """Initialize the webhook handler"""
+        self.logger = logging.getLogger(__name__)
+    
+    async def handle_webhook(self, request: Request):
+        """Handle a webhook request"""
+        try:
+            # Log the incoming request
+            body = await request.body()
+            self.logger.info(f"Received webhook payload: {body.decode('utf-8')[:100]}...")
+            
+            # Parse JSON data
+            try:
+                data = await request.json()
+            except json.JSONDecodeError:
+                self.logger.error("Invalid JSON in request body")
+                return JSONResponse(content={"status": "error", "message": "Invalid JSON"}, status_code=400)
+            
+            # Log the parsed data
+            self.logger.info(f"Webhook data: {data}")
+            
+            # Return success
+            return JSONResponse(content={"status": "success", "message": "Webhook received"})
+        except Exception as e:
+            self.logger.error(f"Error processing webhook: {str(e)}")
+            return JSONResponse(content={"status": "error", "message": str(e)}, status_code=500)
+            
+    async def register_routes(self, app: FastAPI):
+        """Register webhook routes to the FastAPI app"""
+        
+        @app.post("/webhook")
+        async def webhook(request: Request):
+            """Main webhook endpoint"""
+            return await self.handle_webhook(request)
+            
+        @app.post("/webhook/webhook")
+        async def webhook_doubled(request: Request):
+            """Handle doubled webhook path"""
+            self.logger.info("Received request on doubled webhook path")
+            return await self.handle_webhook(request)
+            
+        self.logger.info("Webhook routes registered")
+
+# Create a singleton instance of the webhook handler
+webhook_handler = WebhookHandler()
 
 # Connect the services - chart service will be initialized lazily
 telegram_service.stripe_service = stripe_service
@@ -286,9 +335,8 @@ async def telegram_webhook(request: Request):
 @app.post("/webhook/webhook")
 async def telegram_webhook_doubled(request: Request):
     """Endpoint for handling doubled webhook path"""
-    logger.info("Received request on doubled webhook path")
-    # Just return a simple response without trying to parse the Update object
-    return JSONResponse(content={"status": "success", "message": "Webhook received at /webhook/webhook"})
+    logger.info("Received request on doubled webhook path, redirecting to main webhook handler")
+    return await telegram_webhook(request)
 
 # Comment out this route as it conflicts with the telegram webhook
 # @app.get("/webhook")
