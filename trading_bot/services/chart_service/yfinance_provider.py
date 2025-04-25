@@ -234,6 +234,10 @@ class YahooFinanceProvider:
     @staticmethod
     def _calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
         """Calculate technical indicators for the dataframe"""
+        # Reset column names if we have a multi-index
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(-1)
+            
         # EMA calculations
         df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
         df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
@@ -304,9 +308,4 @@ class YahooFinanceProvider:
             return indices_map.get(instrument, instrument)
                 
         # Default: return as is (for cryptocurrencies we'll use Binance API)
-        return instrument
-
-    # Instance method wrapper for backward compatibility
-    def get_market_data(self, instrument, timeframe="1h"):
-        """Instance method wrapper around the static method for backward compatibility"""
-        return asyncio.run(YahooFinanceProvider.get_market_data(instrument, timeframe)) 
+        return instrument 
