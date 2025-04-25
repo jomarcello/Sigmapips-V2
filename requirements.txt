@@ -4,7 +4,7 @@ aiohttp>=3.8.4
 python-dotenv>=1.0.0
 httpx==0.24.1
 stripe>=5.4.0
-tenacity==8.2.3  # Voor retry mechanisme in API calls
+tenacity>=8.2.3  # For robust retry mechanisms
 fastapi>=0.95.0
 uvicorn[standard]>=0.21.1
 
@@ -18,7 +18,9 @@ pandas>=2.0.0
 mplfinance>=0.12.9b0
 numpy>=1.24.2
 tradingview-ta>=3.3.0
-yfinance>=0.2.36
+yahoo_fin>=0.8.9  # Yahoo Finance data provider
+requests_html>=0.10.0  # Required by yahoo_fin
+yfinance==0.2.56  # Specific version to ensure compatibility (proven to work locally)
 
 # API integrations
 # python-binance>=1.0.17  # Optionele Binance API client (uncomment indien nodig)
