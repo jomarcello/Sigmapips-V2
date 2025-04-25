@@ -182,8 +182,7 @@ class YahooFinanceProvider:
                         logger.error(f"[Yahoo] Error type: {type(ticker_e).__name__}")
                         df = None
                 
-                # If yfinance methods all failed, try fallback to TradingView 
-                # (we use TradingView in chart.py, but here we'll indicate failure)
+                # If yfinance methods all failed, throw an exception
                 if df is None or df.empty:
                     logger.warning(f"[Yahoo] All Yahoo Finance methods failed for {symbol}")
                     raise Exception(f"No data available for {symbol} from Yahoo Finance API after trying multiple methods")
@@ -400,31 +399,14 @@ class YahooFinanceProvider:
             # For Railway deployments: quickly return empty dataframe for forex and cryptos
             is_railway = os.environ.get('RAILWAY_ENVIRONMENT') is not None
             
-            # List of symbols that TradingView handles better
-            tradingview_preferred = [
-                # Forex pairs
-                'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD',
-                'EURGBP', 'EURJPY', 'GBPJPY', 'AUDJPY', 'EURAUD', 'CADJPY',
-                # Indices
-                'US30', 'US500', 'US100', 'UK100', 'DE40', 'JP225', 'FR40', 'EU50', 'AUS200',
-                # Commodities
-                'XAUUSD', 'XAGUSD', 'WTIUSD', 'XTIUSD'
-            ]
+            # Bepaal of dit een forex symbool is
+            is_forex = len(symbol) == 6 and all(c.isalpha() for c in symbol)
             
-            # Skip Yahoo Finance completely for these instruments on Railway (they often fail)
+            # Log de omgeving maar sla geen instrumenten meer over
             if is_railway:
-                if symbol.upper() in tradingview_preferred:
-                    logger.warning(f"Bypassing Yahoo Finance for {symbol} on Railway - This symbol is in the TradingView preferred list")
-                    logger.info(f"Formatted symbol for Yahoo would be: {formatted_symbol}")
-                    logger.info(f"This symbol ({symbol}) works better with TradingView API to avoid Yahoo Finance rate limits on Railway")
-                    return pd.DataFrame()  # Return empty to allow TradingView to handle it
-                elif len(symbol) == 6 and all(c.isalpha() for c in symbol):
-                    logger.warning(f"Bypassing Yahoo Finance for {symbol} on Railway - Detected as forex pair (6 alpha characters)")
-                    logger.info(f"Formatted symbol for Yahoo would be: {formatted_symbol}")
-                    logger.info(f"Yahoo Finance forex data is often inconsistent or limited on Railway, using TradingView API instead")
-                    return pd.DataFrame()  # Return empty to allow TradingView to handle it
-                else:
-                    logger.info(f"Using Yahoo Finance for {symbol} on Railway - Not in preferred TradingView list")
+                logger.info(f"Running on Railway environment, will attempt Yahoo Finance for {symbol}")
+                if is_forex:
+                    logger.info(f"Forex pair detected: {symbol}, continuing with Yahoo Finance")
             
             # Convert timeframe to yfinance interval
             interval_map = {
@@ -492,9 +474,7 @@ class YahooFinanceProvider:
                     logger.error(f"Error type: {type(download_e).__name__}")
                     if hasattr(download_e, '__traceback__'):
                         logger.error(traceback.format_exc())
-                    if is_railway:
-                        logger.warning(f"Railway environment detected, returning empty DataFrame to allow TradingView fallback")
-                        return pd.DataFrame()
+                    # Gooi de error opnieuw op in plaats van een lege DataFrame terug te geven
                     raise download_e
                 
                 if df is None or (isinstance(df, pd.DataFrame) and df.empty):
@@ -503,10 +483,7 @@ class YahooFinanceProvider:
                         logger.error("Yahoo Finance returned None instead of DataFrame")
                     else:
                         logger.error("Yahoo Finance returned empty DataFrame")
-                    # Return an empty DataFrame on Railway, to allow TradingView fallback to work
-                    if is_railway:
-                        logger.warning(f"Running on Railway, returning empty DataFrame for {symbol} to allow TradingView fallback")
-                        return pd.DataFrame()
+                    # Geef None terug in plaats van een lege DataFrame
                     return None
             
                 # Ensure datetime index
@@ -520,10 +497,7 @@ class YahooFinanceProvider:
                 
                 if df is None or (isinstance(df, pd.DataFrame) and df.empty):
                     logger.error(f"No valid data after cleaning for {symbol} (formatted as {formatted_symbol})")
-                    # Return an empty DataFrame on Railway, to allow TradingView fallback to work
-                    if is_railway:
-                        logger.warning(f"Running on Railway, returning empty DataFrame for {symbol} to allow TradingView fallback")
-                        return pd.DataFrame()
+                    # Geef None terug in plaats van een lege DataFrame
                     return None
                 
                 logger.info(f"Successfully cleaned data for {formatted_symbol}, final shape: {df.shape}")
@@ -543,10 +517,7 @@ class YahooFinanceProvider:
                 # Detailed logging for the error
                 if hasattr(inner_e, '__traceback__'):
                     logger.error(traceback.format_exc())
-                # Return an empty DataFrame on Railway, to allow TradingView fallback to work
-                if is_railway:
-                    logger.warning(f"Error on Railway, returning empty DataFrame for {symbol} to allow TradingView fallback")
-                    return pd.DataFrame()
+                # Geef None terug in plaats van een lege DataFrame
                 return None
             
         except Exception as e:
@@ -554,11 +525,7 @@ class YahooFinanceProvider:
             logger.error(f"Error type: {type(e).__name__}")
             logger.error(traceback.format_exc())
             
-            # Return an empty DataFrame on Railway, to allow TradingView fallback to work
-            if os.environ.get('RAILWAY_ENVIRONMENT') is not None:
-                logger.warning(f"Exception on Railway, returning empty DataFrame for {symbol} to allow TradingView fallback")
-                return pd.DataFrame()
-            
+            # Return None on Railway or any other environment
             return None
 
     @staticmethod
