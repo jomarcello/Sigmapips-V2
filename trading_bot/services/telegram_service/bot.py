@@ -3162,8 +3162,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Sanitize HTML for Telegram to fix parsing errors
             logger.debug(f"Original caption before sanitizing: {caption[:100]}...")
-            caption = self._sanitize_html_for_telegram(caption)
-            logger.debug(f"Sanitized caption: {caption[:100]}...")
+            logger.debug(f"Sending caption: {caption[:100]}...")
             
             # Determine which callback to use for back button based on whether we're in signal flow or not
             back_callback = "back_to_signal_analysis" if from_signal else "back_instrument"
@@ -3265,72 +3264,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 pass
             
             return MENU
-
-    def _sanitize_html_for_telegram(self, text):
-        """Sanitize HTML to ensure compatibility with Telegram's HTML parser"""
-        if not text:
-            return text
-        
-        # Step 1: Extract all text and valid HTML tags
-        chunks = []
-        current_pos = 0
-        
-        # Only include supported HTML tags by Telegram
-        supported_tags = ['b', 'i', 'u', 'code', 'pre', 'a']
-        tag_pattern = re.compile(r'<(/?)([a-zA-Z0-9]+)(?:\s+[^>]*)?>')
-        
-        for match in tag_pattern.finditer(text):
-            # Get text before tag
-            if match.start() > current_pos:
-                chunks.append(text[current_pos:match.start()])
-            
-            closing = match.group(1) == '/'
-            tag_name = match.group(2).lower()
-            
-            # Only include supported tags
-            if tag_name in supported_tags:
-                if closing:
-                    chunks.append(f"</{tag_name}>")
-                else:
-                    chunks.append(f"<{tag_name}>")
-            
-            current_pos = match.end()
-        
-        # Get remaining text
-        if current_pos < len(text):
-            chunks.append(text[current_pos:])
-        
-        # Step 2: Rebuild text with only valid tags
-        sanitized = ''.join(chunks)
-        
-        # Step 3: Escape < and > characters that are not part of tags 
-        # (for example, in comparisons like "macd > signal")
-        result = []
-        current_pos = 0
-        
-        for match in re.finditer(r'</?[a-z]+>', sanitized):
-            # Text before this tag
-            if match.start() > current_pos:
-                # Replace < and > with entities in the text portions
-                text_part = sanitized[current_pos:match.start()]
-                text_part = text_part.replace('<', '&lt;').replace('>', '&gt;')
-                result.append(text_part)
-            
-            # Keep the tag as-is
-            result.append(match.group(0))
-            current_pos = match.end()
-        
-        # Handle any remaining text
-        if current_pos < len(sanitized):
-            text_part = sanitized[current_pos:]
-            text_part = text_part.replace('<', '&lt;').replace('>', '&gt;')
-            result.append(text_part)
-        
-        # Add line breaks after section titles if needed
-        final_text = ''.join(result)
-        final_text = re.sub(r'(</b>)([^<\n])', r'\1\n\2', final_text)
-        
-        return final_text
 
     def _strip_all_html(self, text):
         """Remove all HTML tags for plain text fallback"""
