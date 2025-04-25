@@ -492,9 +492,28 @@ class ChartService:
                     logger.info(f"Using cached technical analysis for {instrument}")
                     return cached_analysis
             
+            # Check if USE_MOCK_DATA is enabled in environment variables
+            use_mock_data = os.getenv("USE_MOCK_DATA", "false").lower() == "true"
+            if use_mock_data:
+                logger.info(f"USE_MOCK_DATA is enabled, using default analysis for {instrument}")
+                return await self._generate_default_analysis(instrument, timeframe)
+            
             # Try to get data from TwelveData first
             logger.info(f"Trying to fetch data from TwelveData for {instrument}")
-            analysis = await TwelveDataProvider.get_market_data(instrument, timeframe)
+            try:
+                analysis = await TwelveDataProvider.get_market_data(instrument, timeframe)
+                
+                # Add detailed logging to determine why TwelveData might be failing
+                if not analysis:
+                    logger.warning(f"TwelveData returned empty analysis for {instrument}. Falling back to default analysis.")
+                elif not hasattr(analysis, 'indicators'):
+                    logger.warning(f"TwelveData analysis missing 'indicators' attribute for {instrument}: {analysis}")
+                elif not analysis.indicators.get("close"):
+                    logger.warning(f"TwelveData analysis missing 'close' value in indicators for {instrument}: {analysis.indicators}")
+            except Exception as e:
+                logger.error(f"Exception during TwelveData API call for {instrument}: {str(e)}")
+                logger.error(traceback.format_exc())
+                analysis = None
             
             # If TwelveData succeeds, use that data
             if analysis and hasattr(analysis, 'indicators') and analysis.indicators.get("close"):
@@ -573,6 +592,9 @@ class ChartService:
                 
                 return td_analysis
             else:
+                # Log detailed information about the TwelveData failure
+                logger.warning(f"TwelveData API failed for {instrument}, trying TradingView API now")
+                
                 # If TwelveData fails, fall back to TradingView data
                 logger.info(f"TwelveData fetch failed, falling back to TradingView for {instrument}")
                 
