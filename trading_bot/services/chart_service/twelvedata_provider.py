@@ -1,18 +1,26 @@
 import logging
 import traceback
 import asyncio
+import os
 from typing import Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
 from twelvedata import TDClient
 from collections import namedtuple
+import time
 
 logger = logging.getLogger(__name__)
 
 class TwelveDataProvider:
     """Provider class for TwelveData API integration"""
     
-    # API key
-    API_KEY = "2d14e67c389f4ee09cb5d377139f6297"
+    # Get API key from environment or use fallback key
+    # This allows for easier updating without code changes
+    API_KEY = os.getenv("TWELVEDATA_API_KEY", "2d14e67c389f4ee09cb5d377139f6297")
+    
+    # Track API usage and rate limits
+    _last_api_call = 0
+    _api_call_count = 0
+    _max_calls_per_minute = 8  # TwelveData free tier limit
     
     @staticmethod
     async def get_market_data(instrument: str, timeframe: str = "1h") -> Optional[Dict[str, Any]]:
@@ -27,10 +35,26 @@ class TwelveDataProvider:
             Optional[Dict]: Technical analysis data or None if failed
         """
         try:
+            # Implement basic rate limiting
+            current_time = time.time()
+            minute_passed = current_time - TwelveDataProvider._last_api_call >= 60
+            
+            if minute_passed:
+                # Reset counter if a minute has passed
+                TwelveDataProvider._api_call_count = 0
+                TwelveDataProvider._last_api_call = current_time
+            elif TwelveDataProvider._api_call_count >= TwelveDataProvider._max_calls_per_minute:
+                # If we hit the rate limit, wait until the minute is up
+                logger.warning(f"TwelveData API rate limit reached ({TwelveDataProvider._api_call_count} calls). Waiting before retry.")
+                return None
+            
+            # Increment the API call counter
+            TwelveDataProvider._api_call_count += 1
+            
             # Format symbol for TwelveData API
             formatted_symbol = TwelveDataProvider._format_symbol(instrument)
             
-            logger.info(f"Fetching {formatted_symbol} data from TwelveData")
+            logger.info(f"Fetching {formatted_symbol} data from TwelveData. API call #{TwelveDataProvider._api_call_count} this minute.")
             
             # Map timeframe to TwelveData format
             td_timeframe = {
@@ -73,7 +97,7 @@ class TwelveDataProvider:
                 df = await asyncio.wait_for(df_future, timeout=10.0)
                 
                 if df is None or df.empty:
-                    logger.warning(f"No data returned from TwelveData for {instrument}")
+                    logger.warning(f"No data returned from TwelveData for {instrument} (API key: {TwelveDataProvider.API_KEY[:5]}...)")
                     return None
                 
                 logger.info(f"Retrieved data from TwelveData for {instrument}: {len(df)} rows")
@@ -167,126 +191,7 @@ class TwelveDataProvider:
         # Default: return as is
         return instrument
 
+    # The instance method is kept for backward compatibility
     def get_market_data(self, instrument, timeframe="15min", limit=288, indicators=None):
-        """
-        Get market data from TwelveData API for technical analysis.
-        
-        Args:
-            instrument (str): The trading instrument symbol (e.g., "EURUSD")
-            timeframe (str, optional): The timeframe for the data. Defaults to "15min".
-            limit (int, optional): The number of data points to retrieve. Defaults to 288.
-            indicators (list, optional): List of indicators to include. Defaults to None.
-            
-        Returns:
-            dict: Market data with standardized field names
-        """
-        try:
-            logger.info(f"Getting market data for {instrument} on {timeframe} timeframe")
-            
-            # Format symbol for TwelveData API
-            formatted_symbol = self._format_symbol(instrument)
-            
-            # Initialize TwelveData client
-            td = TDClient(apikey=self.API_KEY)
-            
-            # Define which indicators to request
-            indicator_params = {
-                "ema": {"time_period": [50, 200]},
-                "rsi": {"time_period": 14},
-                "macd": {"fast_period": 12, "slow_period": 26, "signal_period": 9}
-            }
-            
-            # Create time series object
-            ts = td.time_series(
-                symbol=formatted_symbol,
-                interval=timeframe,
-                outputsize=limit,
-                timezone="UTC",
-                order="desc",
-            )
-            
-            # Add requested indicators
-            time_series = ts.with_ema(time_period=50).with_ema(time_period=200).with_rsi().with_macd()
-            
-            # Get data as pandas DataFrame
-            with ThreadPoolExecutor() as executor:
-                df_future = asyncio.get_event_loop().run_in_executor(
-                    executor, time_series.as_pandas
-                )
-                
-                df = asyncio.run(asyncio.wait_for(df_future, timeout=10.0))
-            
-            if df is None or df.empty:
-                logger.warning(f"No data returned from TwelveData for {instrument}")
-                return {"success": False, "error": "No data available", "data": None}
-            
-            # Extract market data points
-            market_data = []
-            for index, row in df.iterrows():
-                market_data.append({
-                    "datetime": index.isoformat(),
-                    "open": float(row["open"]),
-                    "high": float(row["high"]),
-                    "low": float(row["low"]),
-                    "close": float(row["close"]),
-                    "volume": float(row.get("volume", 0))
-                })
-            
-            # Extract latest indicators
-            latest = df.iloc[0]  # First row due to 'desc' order
-            
-            # Create field mapping between TwelveData field names and our expected field names
-            field_mapping = {
-                "close": "close",
-                "open": "open",
-                "high": "high",
-                "low": "low",
-                "volume": "volume",
-                "ema1": "EMA50",  # TwelveData names the first EMA as ema1
-                "ema2": "EMA200", # TwelveData names the second EMA as ema2
-                "rsi": "RSI",
-                "macd": "MACD.macd",
-                "macd_signal": "MACD.signal",
-                "macd_hist": "MACD.hist"
-            }
-            
-            # Calculate weekly high/low
-            weekly_high = df["high"].max()
-            weekly_low = df["low"].min()
-            
-            # Extract indicators using the field mapping
-            indicators_data = {}
-            for td_field, expected_field in field_mapping.items():
-                if td_field in latest:
-                    indicators_data[expected_field] = float(latest.get(td_field, 0))
-            
-            # Add weekly high/low
-            indicators_data["weekly_high"] = float(weekly_high)
-            indicators_data["weekly_low"] = float(weekly_low)
-            
-            # Calculate trend
-            trend = "BUY" if latest["close"] > latest["ema1"] > latest["ema2"] else \
-                   "SELL" if latest["close"] < latest["ema1"] < latest["ema2"] else \
-                   "NEUTRAL"
-            
-            # Build the response structure
-            response = {
-                "success": True,
-                "data": {
-                    "market_data": market_data,
-                    "indicators": indicators_data,
-                    "analysis": trend
-                },
-                "error": None
-            }
-            
-            return response
-            
-        except Exception as e:
-            logger.error(f"Error in get_market_data: {str(e)}")
-            logger.error(traceback.format_exc())
-            return {
-                "success": False,
-                "data": None,
-                "error": str(e)
-            } 
+        """Instance method wrapper around the static method for backward compatibility"""
+        return asyncio.run(self.get_market_data(instrument, timeframe)) 
