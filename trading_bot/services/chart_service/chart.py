@@ -521,15 +521,14 @@ class ChartService:
                     if yahoo_provider:
                         prioritized_providers.append(yahoo_provider)
                 else:
-                    # For non-crypto (forex, indices, commodities), try Yahoo first, then Binance
+                    # For non-crypto (forex, indices, commodities), only use Yahoo and TwelveData
                     if yahoo_provider:
                         prioritized_providers.append(yahoo_provider)
-                    if binance_provider:
-                        prioritized_providers.append(binance_provider)
+                    # Don't add Binance for non-crypto markets
                     
-                # Add any other providers
+                # Add any other providers that aren't Binance (for non-crypto markets)
                 for provider in self.chart_providers:
-                    if provider not in prioritized_providers:
+                    if provider not in prioritized_providers and (market_type == "crypto" or not isinstance(provider, BinanceProvider)):
                         prioritized_providers.append(provider)
                 
                 # Try the prioritized providers
