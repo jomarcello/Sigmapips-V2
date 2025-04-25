@@ -644,13 +644,7 @@ class ChartService:
                 ema_200 = analysis_data.get('ema_200', ema_50 * 0.98)
                 
                 td_analysis = (
-                    f"TECHNICAL ANALYSIS FOR {instrument} ({timeframe})\n\n"
-                    f"TREND: {trend}\n"
-                    f"Current Price: {current_price:.2f}\n"
-                    f"EMA 20: {ema_20:.2f}\n"
-                    f"EMA 50: {ema_50:.2f}\n"
-                    f"RSI (14): {rsi:.2f} - {rsi_condition}\n"
-                    f"MACD: {macd:.2f} - {macd_signal_text}\n\n"
+                    f"{instrument} - {timeframe}\n\n"
                     f"Zone Strength: {'★' * min(5, max(1, int(rsi/20)))}\n\n"
                     f"📊 Market Overview\n"
                     f"Price is currently trading near the daily {'high' if current_price > (high_price + low_price)/2 else 'low'} of {high_price:.2f}, "
