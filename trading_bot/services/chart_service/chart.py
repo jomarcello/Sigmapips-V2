@@ -638,50 +638,55 @@ class ChartService:
                 elif macd < macd_signal:
                     macd_signal_text = "BEARISH"
                 
-                # Format analysis text
-                high_price = analysis_data['high']
-                low_price = analysis_data['low']
-                ema_200 = analysis_data.get('ema_200', ema_50 * 0.98)
-                
-                td_analysis = (
-                    f"{instrument} - {timeframe}\n\n"
-                    f"Zone Strength: {'★' * min(5, max(1, int(rsi/20)))}\n\n"
-                    f"📊 Market Overview\n"
-                    f"Price is currently trading near current price of {current_price:.2f}, "
-                    f"showing {trend.lower()} momentum. The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
-                    f"indicating a {'strong uptrend' if trend == 'BULLISH' else 'strong downtrend' if trend == 'BEARISH' else 'consolidation phase'}. "
-                    f"Volume is moderate, supporting the current price action.\n\n"
-                    f"🔑 Key Levels\n"
-                    f"Support: {low_price:.2f} (daily low), {(low_price * 0.99):.2f}, {(low_price * 0.98):.2f} (weekly low)\n"
-                    f"Resistance: {high_price:.2f} (daily high), {(high_price * 1.01):.2f}, {(high_price * 1.02):.2f} (weekly high)\n\n"
-                    f"📈 Technical Indicators\n"
-                    f"RSI: {rsi:.2f} ({rsi_condition.lower()})\n"
-                    f"MACD: {macd_signal_text.lower()} ({macd:.6f} {'>' if macd > macd_signal else '<'} signal {macd_signal:.6f})\n"
-                    f"Moving Averages: Price {'above' if current_price > ema_50 else 'below'} EMA 50 ({ema_50:.2f}) and "
-                    f"{'above' if current_price > ema_200 else 'below'} EMA 200 ({ema_200:.2f}), confirming {trend.lower()} bias.\n\n"
-                    f"🤖 Sigmapips AI Recommendation\n"
-                )
-                
-                # Add conditional recommendation text based on trend
-                if trend == 'BULLISH':
-                    td_analysis += f"Watch for a breakout above {high_price:.2f} for further upside. "
-                    td_analysis += f"Maintain a buy bias while price holds above {low_price:.2f}. "
-                    td_analysis += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
-                elif trend == 'BEARISH':
-                    td_analysis += f"Watch for a breakdown below {low_price:.2f} for further downside. "
-                    td_analysis += f"Maintain a sell bias while price holds below {high_price:.2f}. "
-                    td_analysis += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
+                # Format the analysis using the same format as the main method
+                if timeframe == "1d":
+                    # Daily analysis with more data
+                    analysis_text = f"<b>{instrument} - Daily Analysis</b>\n\n"
                 else:
-                    td_analysis += f"Range-bound conditions persist. Look for buying opportunities near {low_price:.2f} "
-                    td_analysis += f"and selling opportunities near {high_price:.2f}. "
-                    td_analysis += f"Wait for a clear breakout before establishing a directional bias.\n\n"
+                    analysis_text = f"<b>{instrument} - {timeframe}</b>\n\n"
                 
-                td_analysis += f"⚠️ Disclaimer: For educational purposes only."
+                analysis_text += f"<b>Zone Strength:</b> {'★' * min(5, max(1, int(rsi/20)))}\n\n"
+                
+                # Market overview section
+                analysis_text += f"📊 <b>Market Overview</b>\n"
+                analysis_text += f"Price is currently trading near current price of {current_price:.2f}, "
+                analysis_text += f"showing {trend.lower()} momentum. The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
+                analysis_text += f"indicating a {'strong uptrend' if trend == 'BULLISH' else 'strong downtrend' if trend == 'BEARISH' else 'consolidation phase'}. "
+                analysis_text += f"Volume is moderate, supporting the current price action.\n\n"
+                
+                # Key levels section
+                analysis_text += f"🔑 <b>Key Levels</b>\n"
+                analysis_text += f"Support: {analysis_data['low']:.2f} (daily low), {(analysis_data['low'] * 0.99):.2f}, {(analysis_data['low'] * 0.98):.2f} (weekly low)\n"
+                analysis_text += f"Resistance: {analysis_data['high']:.2f} (daily high), {(analysis_data['high'] * 1.01):.2f}, {(analysis_data['high'] * 1.02):.2f} (weekly high)\n\n"
+                
+                # Technical indicators section
+                analysis_text += f"📈 <b>Technical Indicators</b>\n"
+                analysis_text += f"RSI: {rsi:.2f} ({rsi_condition.lower()})\n"
+                analysis_text += f"MACD: {macd_signal_text.lower()} ({macd:.6f} {'>' if macd > macd_signal else '<'} signal {macd_signal:.6f})\n"
+                analysis_text += f"Moving Averages: Price {'above' if current_price > ema_50 else 'below'} EMA 50 ({ema_50:.2f}) and "
+                analysis_text += f"{'above' if current_price > ema_200 else 'below'} EMA 200 ({analysis_data['ema_200']:.2f}), confirming {trend.lower()} bias.\n\n"
+                
+                # AI recommendation
+                analysis_text += f"🤖 <b>Sigmapips AI Recommendation</b>\n"
+                if trend == 'BULLISH':
+                    analysis_text += f"Watch for a breakout above {analysis_data['high']:.2f} for further upside. "
+                    analysis_text += f"Maintain a buy bias while price holds above {analysis_data['low']:.2f}. "
+                    analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
+                elif trend == 'BEARISH':
+                    analysis_text += f"Watch for a breakdown below {analysis_data['low']:.2f} for further downside. "
+                    analysis_text += f"Maintain a sell bias while price holds below {analysis_data['high']:.2f}. "
+                    analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
+                else:
+                    analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {analysis_data['low']:.2f} "
+                    analysis_text += f"and selling opportunities near {analysis_data['high']:.2f}. "
+                    analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
+                
+                analysis_text += f"⚠️ <b>Disclaimer:</b> For educational purposes only."
                 
                 # Cache the analysis
-                self.analysis_cache[cache_key] = (current_time, td_analysis)
+                self.analysis_cache[cache_key] = (current_time, analysis_text)
                 
-                return td_analysis
+                return analysis_text
             else:
                 # Log detailed information about API failures
                 logger.warning(f"All API providers failed for {instrument}, falling back to TradingView API")
@@ -787,8 +792,7 @@ class ChartService:
                 analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
             
             # Disclaimer
-            analysis_text += f"⚠️ <b>Disclaimer</b>: Please note that the information/analysis provided is strictly for study and educational purposes only. "
-            analysis_text += "It should not be constructed as financial advice and always do your own analysis."
+            analysis_text += f"⚠️ <b>Disclaimer:</b> For educational purposes only."
             
             # Cache the result
             if not hasattr(self, 'analysis_cache'):
@@ -959,7 +963,12 @@ class ChartService:
                 ema_200 = current_price * (1 + random.uniform(-0.02, 0.02))
             
             # Format the analysis using the same format as the main method
-            analysis_text = f"<b>{instrument} - {timeframe}</b>\n\n"
+            if timeframe == "1d":
+                # Daily analysis with more data
+                analysis_text = f"<b>{instrument} - Daily Analysis</b>\n\n"
+            else:
+                analysis_text = f"<b>{instrument} - {timeframe}</b>\n\n"
+            
             analysis_text += f"<b>Zone Strength:</b> {zone_stars}\n\n"
             
             # Market overview section
@@ -982,7 +991,7 @@ class ChartService:
             macd_value = random.uniform(-0.001, 0.001)
             macd_signal = random.uniform(-0.001, 0.001)
             macd_status = "bullish" if macd_value > macd_signal else "bearish"
-            analysis_text += f"MACD: {macd_status} ({macd_value:.6f} > signal {macd_signal:.6f})\n"
+            analysis_text += f"MACD: {macd_status} ({macd_value:.6f} {'>' if macd_value > macd_signal else '<'} signal {macd_signal:.6f})\n"
             
             ma_status = "bullish" if trend == "BUY" else "bearish" if trend == "SELL" else "mixed"
             analysis_text += f"Moving Averages: Price {'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 50 ({ema_50:{price_format}}) and "
@@ -1004,8 +1013,7 @@ class ChartService:
                 analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
             
             # Disclaimer
-            analysis_text += f"⚠️ <b>Disclaimer</b>: Please note that the information/analysis provided is strictly for study and educational purposes only. "
-            analysis_text += "It should not be constructed as financial advice and always do your own analysis."
+            analysis_text += f"⚠️ <b>Disclaimer:</b> For educational purposes only."
             
             return analysis_text
         
