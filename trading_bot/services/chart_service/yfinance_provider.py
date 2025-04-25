@@ -9,6 +9,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,10 @@ class YahooFinanceProvider:
     _last_api_call = 0
     _api_call_count = 0
     _max_calls_per_minute = 15  # Adjust based on Yahoo Finance limits
+    
+    # Cache data to minimize API calls
+    _cache = {}
+    _cache_timeout = 3600  # Cache timeout in seconds (1 hour)
     
     @staticmethod
     async def get_market_data(instrument: str, timeframe: str = "1h") -> Optional[Dict[str, Any]]:
@@ -33,8 +38,17 @@ class YahooFinanceProvider:
             Optional[Dict]: Technical analysis data or None if failed
         """
         try:
-            # Implement basic rate limiting
+            # Check cache first
+            cache_key = f"{instrument}_{timeframe}"
             current_time = time.time()
+            
+            if cache_key in YahooFinanceProvider._cache:
+                cache_time, cached_data = YahooFinanceProvider._cache[cache_key]
+                if current_time - cache_time < YahooFinanceProvider._cache_timeout:
+                    logger.info(f"Using cached data for {instrument} ({timeframe})")
+                    return cached_data
+            
+            # Implement basic rate limiting
             minute_passed = current_time - YahooFinanceProvider._last_api_call >= 60
             
             if minute_passed:
@@ -44,7 +58,8 @@ class YahooFinanceProvider:
             elif YahooFinanceProvider._api_call_count >= YahooFinanceProvider._max_calls_per_minute:
                 # If we hit the rate limit, wait until the minute is up
                 logger.warning(f"Yahoo Finance API rate limit reached ({YahooFinanceProvider._api_call_count} calls). Waiting before retry.")
-                await asyncio.sleep(5)  # Wait a bit before retrying
+                # Add some jitter to prevent all threads from retrying simultaneously
+                await asyncio.sleep(5 + random.random() * 2)
             
             # Increment the API call counter
             YahooFinanceProvider._api_call_count += 1
@@ -86,16 +101,23 @@ class YahooFinanceProvider:
             loop = asyncio.get_event_loop()
             
             try:
+                # Set up options for the download to improve reliability
+                # Using market hours filter and auto_adjust to improve data quality
+                download_options = {
+                    "tickers": formatted_symbol,
+                    "period": period,
+                    "interval": yf_interval,
+                    "auto_adjust": True,
+                    "progress": False,
+                    "prepost": False,  # Exclude pre and post market data
+                    "threads": False,  # Don't use threading within yfinance
+                    "group_by": "ticker",
+                }
+                
                 # Get historical data from Yahoo Finance
                 df = await loop.run_in_executor(
                     None,
-                    lambda: yf.download(
-                        formatted_symbol,
-                        period=period,
-                        interval=yf_interval,
-                        auto_adjust=True,
-                        progress=False
-                    )
+                    lambda: yf.download(**download_options)
                 )
                 
                 # Check if we got valid data
@@ -140,9 +162,15 @@ class YahooFinanceProvider:
                     'EMA50': safe_float(latest['EMA50']),
                     'EMA200': safe_float(latest['EMA200']),
                     'volume': safe_float(latest.get('Volume', 0)),
-                    'weekly_high': float(df['High'].max()),
-                    'weekly_low': float(df['Low'].min())
                 }
+                
+                # Add weekly high/low
+                week_data = df.tail(168 if yf_interval == "1h" else
+                                  42 if yf_interval == "4h" else
+                                  7 if yf_interval == "1d" else df.shape[0])
+                
+                indicators["weekly_high"] = float(week_data['High'].max())
+                indicators["weekly_low"] = float(week_data['Low'].min())
                 
                 # Create result object compatible with existing code
                 analysis = AnalysisResult(
@@ -151,6 +179,9 @@ class YahooFinanceProvider:
                     oscillators={},  # Can be expanded later with additional oscillators
                     moving_averages={}  # Can be expanded with more moving averages
                 )
+                
+                # Cache the result
+                YahooFinanceProvider._cache[cache_key] = (current_time, analysis)
                 
                 return analysis
                 
@@ -162,6 +193,32 @@ class YahooFinanceProvider:
         except Exception as e:
             logger.error(f"Error fetching data from Yahoo Finance: {str(e)}")
             logger.error(traceback.format_exc())
+            return None
+    
+    @staticmethod
+    async def get_stock_info(symbol: str) -> Optional[Dict]:
+        """Get detailed information about a stock"""
+        try:
+            formatted_symbol = YahooFinanceProvider._format_symbol(symbol)
+            
+            # Use a thread pool executor to run the blocking yfinance call
+            loop = asyncio.get_event_loop()
+            
+            # Create ticker object
+            ticker_info = await loop.run_in_executor(
+                None,
+                lambda: yf.Ticker(formatted_symbol)
+            )
+            
+            # Get basic info
+            info = await loop.run_in_executor(
+                None,
+                lambda: ticker_info.info
+            )
+            
+            return info
+        except Exception as e:
+            logger.error(f"Error getting stock info from Yahoo Finance: {str(e)}")
             return None
     
     @staticmethod
@@ -242,4 +299,4 @@ class YahooFinanceProvider:
     # Instance method wrapper for backward compatibility
     def get_market_data(self, instrument, timeframe="1h"):
         """Instance method wrapper around the static method for backward compatibility"""
-        return asyncio.run(self.get_market_data(instrument, timeframe)) 
+        return asyncio.run(YahooFinanceProvider.get_market_data(instrument, timeframe)) 
