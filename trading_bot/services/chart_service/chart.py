@@ -24,8 +24,9 @@ from tradingview_ta import TA_Handler, Interval
 
 # Importeer alleen de base class
 from trading_bot.services.chart_service.base import TradingViewService
-# Import TwelveData provider
+# Import providers
 from trading_bot.services.chart_service.twelvedata_provider import TwelveDataProvider
+from trading_bot.services.chart_service.alltick_provider import AllTickProvider
 
 logger = logging.getLogger(__name__)
 
@@ -498,35 +499,45 @@ class ChartService:
                 logger.info(f"USE_MOCK_DATA is enabled, using default analysis for {instrument}")
                 return await self._generate_default_analysis(instrument, timeframe)
             
-            # Try to get data from TwelveData first
-            logger.info(f"Trying to fetch data from TwelveData for {instrument}")
+            # Try to get data from AllTick first
+            logger.info(f"Trying to fetch data from AllTick for {instrument}")
             try:
-                analysis = await TwelveDataProvider.get_market_data(instrument, timeframe)
+                analysis = await AllTickProvider.get_market_data(instrument, timeframe)
                 
-                # Add detailed logging to determine why TwelveData might be failing
+                # Add detailed logging to determine why AllTick might be failing
                 if not analysis:
-                    logger.warning(f"TwelveData returned empty analysis for {instrument}. Falling back to default analysis.")
+                    logger.warning(f"AllTick returned empty analysis for {instrument}. Trying TwelveData as fallback.")
                 elif not hasattr(analysis, 'indicators'):
-                    logger.warning(f"TwelveData analysis missing 'indicators' attribute for {instrument}: {analysis}")
+                    logger.warning(f"AllTick analysis missing 'indicators' attribute for {instrument}: {analysis}")
                 elif not analysis.indicators.get("close"):
-                    logger.warning(f"TwelveData analysis missing 'close' value in indicators for {instrument}: {analysis.indicators}")
+                    logger.warning(f"AllTick analysis missing 'close' value in indicators for {instrument}: {analysis.indicators}")
             except Exception as e:
-                logger.error(f"Exception during TwelveData API call for {instrument}: {str(e)}")
+                logger.error(f"Exception during AllTick API call for {instrument}: {str(e)}")
                 logger.error(traceback.format_exc())
                 analysis = None
-            
-            # If TwelveData succeeds, use that data
-            if analysis and hasattr(analysis, 'indicators') and analysis.indicators.get("close"):
-                logger.info(f"Successfully retrieved data from TwelveData for {instrument}")
                 
-                # Process TwelveData results
+            # If AllTick fails, try TwelveData as fallback
+            if not analysis or not hasattr(analysis, 'indicators') or not analysis.indicators.get("close"):
+                logger.info(f"AllTick failed, trying to fetch data from TwelveData for {instrument}")
+                try:
+                    analysis = await TwelveDataProvider.get_market_data(instrument, timeframe)
+                except Exception as e:
+                    logger.error(f"Exception during TwelveData API call for {instrument}: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    analysis = None
+            
+            # If either API succeeds, use that data
+            if analysis and hasattr(analysis, 'indicators') and analysis.indicators.get("close"):
+                logger.info(f"Successfully retrieved market data for {instrument}")
+                
+                # Process API results
                 td_analysis = ""
                 
-                # Create mapping between TwelveData field names and our expected names
+                # Create mapping between field names and our expected names
                 field_mapping = {
                     "close": "close",
-                    "EMA50": "ema_20",    # TwelveData's EMA50 is used as our EMA20
-                    "EMA200": "ema_50",   # TwelveData's EMA200 is used as our EMA50
+                    "EMA50": "ema_20",    # EMA50 is used as our EMA20
+                    "EMA200": "ema_50",   # EMA200 is used as our EMA50
                     "RSI": "rsi",
                     "MACD.macd": "macd",
                     "MACD.signal": "macd_signal",
@@ -539,7 +550,7 @@ class ChartService:
                     "weekly_low": "weekly_low"
                 }
                 
-                # Extract indicators from TwelveData response using the mapping
+                # Extract indicators from API response using the mapping
                 indicators = analysis.indicators
                 
                 # Create a dictionary with our expected field names
