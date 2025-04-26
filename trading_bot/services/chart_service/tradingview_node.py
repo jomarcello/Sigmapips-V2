@@ -1,307 +1,428 @@
 import os
 import logging
 import asyncio
-import json
-import base64
-import subprocess
-import time
-from typing import Optional, Dict, List, Any, Union
+import json # Needed for localStorage init script
+from typing import Optional, Dict
 from io import BytesIO
-from datetime import datetime
 from trading_bot.services.chart_service.tradingview import TradingViewService
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
 
 logger = logging.getLogger(__name__)
 
+# CSS selector to hide common popups and dialogs on TradingView
+HIDE_DIALOGS_CSS = """
+    [role="dialog"], 
+    .tv-dialog, 
+    .js-dialog,
+    .tv-dialog-container,
+    .tv-dialog__modal,
+    .tv-dialog__modal-container,
+    div[data-dialog-name*="chart-new-features"],
+    div[data-dialog-name*="notice"],
+    div[data-name*="dialog"],
+    .tv-dialog--popup,
+    .tv-alert-dialog,
+    .tv-notification,
+    .feature-no-touch .tv-dialog--popup,
+    .tv-dialog--alert,
+    div[class*="dialog"],
+    div:has(button.close-B02UUUN3),
+    div:has(button[data-name="close"]) {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        z-index: -9999 !important;
+        position: absolute !important;
+        top: -9999px !important;
+        left: -9999px !important;
+        width: 0 !important;
+        height: 0 !important;
+        overflow: hidden !important;
+    }
+"""
+
+# localStorage items to set to minimize popups
+TV_LOCAL_STORAGE = {
+    'tv_release_channel': 'stable',
+    'tv_alert': 'dont_show',
+    'feature_hint_shown': 'true',
+    'screener_new_feature_notification': 'shown',
+    'screener_deprecated': 'true',
+    'tv_notification': 'dont_show',
+    'screener_new_feature_already_shown': 'true',
+    'stock_screener_banner_closed': 'true',
+    'tv_screener_notification': 'dont_show',
+    'hints_are_disabled': 'true',
+    'tv.alerts-tour': 'true',
+    'feature-hint-dialog-shown': 'true',
+    'feature-hint-alerts-shown': 'true',
+    'feature-hint-screener-shown': 'true',
+    'feature-hint-shown': 'true',
+    'popup.popup-handling-popups-shown': 'true',
+    'tv.greeting-dialog-shown': 'true',
+    'tv_notice_shown': 'true',
+    'tv_chart_beta_notice': 'shown',
+    'tv_chart_notice': 'shown',
+    'tv_screener_notice': 'shown',
+    'tv_watch_list_notice': 'shown',
+    'tv_new_feature_notification': 'shown',
+    'tv_notification_popup': 'dont_show',
+    'notification_shown': 'true'
+}
+
+
 class TradingViewNodeService(TradingViewService):
     def __init__(self, session_id=None):
-        """Initialize the TradingView Node.js service"""
+        """Initialize the TradingView service using Playwright for Python."""
         super().__init__()
         self.session_id = session_id or os.getenv("TRADINGVIEW_SESSION_ID", "z90l85p2anlgdwfppsrdnnfantz48z1o")
-        self.username = os.getenv("TRADINGVIEW_USERNAME", "")
-        self.password = os.getenv("TRADINGVIEW_PASSWORD", "")
+        # Remove username/password as session ID is primary login method here
         self.is_initialized = False
-        self.is_logged_in = False
-        self.base_url = "https://www.tradingview.com"
-        self.chart_url = "https://www.tradingview.com/chart"
-        
-        # Get the project root directory and set the correct script path
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        self.script_path = os.path.join(project_root, "tradingview_screenshot.js")
-        
-        # Caching van playfound playwright check
-        self.playwright_installed = None
-        self.playwright_browsers_installed = None
-        
-        # Mapping van timeframes naar TradingView interval waarden
+        self.playwright = None
+        self.browser = None
+        self.context = None
+
+        # Mapping van timeframes naar TradingView interval waarden remains the same
         self.interval_map = {
-            "1m": "1",
-            "3m": "3",
-            "5m": "5",
-            "15m": "15",
-            "30m": "30",
-            "1h": "60",
-            "2h": "120",
-            "4h": "240",
-            "1d": "D",
-            "1w": "W",
-            "1M": "M"
+            "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30",
+            "1h": "60", "2h": "120", "4h": "240",
+            "1d": "D", "1w": "W", "1M": "M"
         }
-        
-        # Chart links voor verschillende symbolen
+
+        # Chart links voor verschillende symbolen remains the same
         self.chart_links = {
-            "EURUSD": "https://www.tradingview.com/chart/?symbol=EURUSD",
-            "GBPUSD": "https://www.tradingview.com/chart/?symbol=GBPUSD",
-            "BTCUSD": "https://www.tradingview.com/chart/?symbol=BTCUSD",
-            "ETHUSD": "https://www.tradingview.com/chart/?symbol=ETHUSD"
+             # Commodities
+            "XAUUSD": "https://www.tradingview.com/chart/bylCuCgc/",
+            "XTIUSD": "https://www.tradingview.com/chart/jxU29rbq/",
+            
+            # Currencies
+            "EURUSD": "https://www.tradingview.com/chart/xknpxpcr/",
+            "EURGBP": "https://www.tradingview.com/chart/xt6LdUUi/",
+            "EURCHF": "https://www.tradingview.com/chart/4Jr8hVba/",
+            "EURJPY": "https://www.tradingview.com/chart/ume7H7lm/",
+            "EURCAD": "https://www.tradingview.com/chart/gbtrKFPk/",
+            "EURAUD": "https://www.tradingview.com/chart/WweOZl7z/",
+            "EURNZD": "https://www.tradingview.com/chart/bcrCHPsz/",
+            "GBPUSD": "https://www.tradingview.com/chart/jKph5b1W/",
+            "GBPCHF": "https://www.tradingview.com/chart/1qMsl4FS/",
+            "GBPJPY": "https://www.tradingview.com/chart/Zcmh5M2k/",
+            "GBPCAD": "https://www.tradingview.com/chart/CvwpPBpF/",
+            "GBPAUD": "https://www.tradingview.com/chart/neo3Fc3j/",
+            "GBPNZD": "https://www.tradingview.com/chart/egeCqr65/",
+            "CHFJPY": "https://www.tradingview.com/chart/g7qBPaqM/",
+            "USDJPY": "https://www.tradingview.com/chart/mcWuRDQv/",
+            "USDCHF": "https://www.tradingview.com/chart/e7xDgRyM/",
+            "USDCAD": "https://www.tradingview.com/chart/jjTOeBNM/",
+            "CADJPY": "https://www.tradingview.com/chart/KNsPbDME/",
+            "CADCHF": "https://www.tradingview.com/chart/XnHRKk5I/",
+            "AUDUSD": "https://www.tradingview.com/chart/h7CHetVW/",
+            "AUDCHF": "https://www.tradingview.com/chart/oooBW6HP/",
+            "AUDJPY": "https://www.tradingview.com/chart/sYiGgj7B/",
+            "AUDNZD": "https://www.tradingview.com/chart/AByyHLB4/",
+            "AUDCAD": "https://www.tradingview.com/chart/L4992qKp/",
+            "NDZUSD": "https://www.tradingview.com/chart/yab05IFU/",
+            "NZDCHF": "https://www.tradingview.com/chart/7epTugqA/",
+            "NZDJPY": "https://www.tradingview.com/chart/fdtQ7rx7/",
+            "NZDCAD": "https://www.tradingview.com/chart/mRVtXs19/",
+            
+            # Cryptocurrencies
+            "BTCUSD": "https://www.tradingview.com/chart/NWT8AI4a/",
+            "ETHUSD": "https://www.tradingview.com/chart/rVh10RLj/",
+            "XRPUSD": "https://www.tradingview.com/chart/tQu9Ca4E/",
+            "SOLUSD": "https://www.tradingview.com/chart/oTTmSjzQ/",
+            "BNBUSD": "https://www.tradingview.com/chart/wNBWNh23/",
+            "ADAUSD": "https://www.tradingview.com/chart/WcBNFrdb/",
+            "LTCUSD": "https://www.tradingview.com/chart/AoDblBMt/",
+            "DOGUSD": "https://www.tradingview.com/chart/F6SPb52v/",
+            "DOTUSD": "https://www.tradingview.com/chart/nT9dwAx2/",
+            "LNKUSD": "https://www.tradingview.com/chart/FzOrtgYw/",
+            "XLMUSD": "https://www.tradingview.com/chart/SnvxOhDh/",
+            "AVXUSD": "https://www.tradingview.com/chart/LfTlCrdQ/",
+            
+            # Indices
+            "AU200": "https://www.tradingview.com/chart/U5CKagMM/",
+            "EU50": "https://www.tradingview.com/chart/tt5QejVd/",
+            "FR40": "https://www.tradingview.com/chart/RoPe3S1Q/",
+            "HK50": "https://www.tradingview.com/chart/Rllftdyl/",
+            "JP225": "https://www.tradingview.com/chart/i562Fk6X/",
+            "UK100": "https://www.tradingview.com/chart/0I4gguQa/",
+            "US100": "https://www.tradingview.com/chart/5d36Cany/",
+            "US500": "https://www.tradingview.com/chart/VsfYHrwP/",
+            "US30": "https://www.tradingview.com/chart/heV5Zitn/",
+            "DE40": "https://www.tradingview.com/chart/OWzg0XNw/",
         }
-        
-        # Screenshot cache removed
-        
-        logger.info(f"TradingView Node.js service initialized")
-    
+        logger.info("TradingView Python Playwright service initialized structure.")
+
     async def initialize(self):
-        """Initialize the Node.js service"""
-        try:
-            logger.info("Initializing TradingView Node.js service")
-            
-            # Controleer of Node.js is geïnstalleerd (alleen indien nodig)
-            try:
-                node_version = subprocess.check_output(["node", "--version"]).decode().strip()
-                logger.info(f"Node.js version: {node_version}")
-            except Exception as node_error:
-                logger.error(f"Error checking Node.js version: {str(node_error)}")
-                return False
-            
-            # Check if the screenshot.js file exists in different potential locations
-            potential_paths = [
-                self.script_path,  # Original path
-                os.path.join(os.getcwd(), "tradingview_screenshot.js"),  # Project root
-                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "tradingview_screenshot.js")  # Root directory
-            ]
-            
-            script_found = False
-            for path in potential_paths:
-                if os.path.exists(path):
-                    self.script_path = path
-                    script_found = True
-                    logger.info(f"screenshot.js found at {self.script_path}")
-                    break
-            
-            if not script_found:
-                logger.error(f"screenshot.js not found in any of the potential paths")
-                return False
-            
-            # Playwright check verbeteren
-            if self.playwright_installed is None:
-                try:
-                    # Test if Playwright is installed
-                    subprocess.run(["node", "-e", "require('playwright')"], 
-                                  check=True, 
-                                  stdout=subprocess.PIPE, 
-                                  stderr=subprocess.PIPE,
-                                  timeout=3)
-                    logger.info("Playwright is available")
-                    
-                    # Check if browsers are installed
-                    try:
-                        # Korte test of de browser bestaat
-                        browser_check = subprocess.run(
-                            ["node", "-e", "const { chromium } = require('playwright'); (async () => { try { const browser = await chromium.launch(); await browser.close(); console.log('true'); } catch(e) { console.log('false'); } })()"],
-                            check=True,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            timeout=5
-                        )
-                        browsers_installed = "true" in browser_check.stdout.decode()
-                        
-                        # Als browsers niet beschikbaar zijn, installeer ze
-                        if not browsers_installed:
-                            logger.info("Playwright browsers installeren...")
-                            subprocess.run(
-                                ["npx", "playwright", "install", "chromium"],
-                                check=True,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                timeout=120  # Tijdslimiet van 2 minuten voor installatie
-                            )
-                            logger.info("Playwright browsers geïnstalleerd")
-                        
-                        self.playwright_installed = True
-                        self.playwright_browsers_installed = True
-                    except Exception as browser_error:
-                        logger.error(f"Browser check/install fout: {str(browser_error)}")
-                        self.playwright_installed = True
-                        self.playwright_browsers_installed = False
-                except Exception:
-                    logger.warning("Playwright niet beschikbaar")
-                    self.playwright_installed = False
-            
-            # Set initialized flag
-            self.is_initialized = True
-            logger.info("TradingView Node.js service initialized")
+        """Initialize the Playwright instance and browser."""
+        if self.is_initialized:
             return True
+        try:
+            logger.info("Initializing Playwright for Python...")
+            self.playwright = await async_playwright().start()
+            
+            # Check if Chromium browser is available, attempt install if not (might need user intervention)
+            try:
+                self.browser = await self.playwright.chromium.launch(headless=True)
+                logger.info("Chromium browser launched successfully.")
+            except PlaywrightError as e:
+                logger.error(f"Failed to launch Chromium: {e}. Attempting to install...")
+                # Try running the install command - this might fail depending on permissions
+                try:
+                    import sys
+                    process = await asyncio.create_subprocess_exec(
+                        sys.executable, '-m', 'playwright', 'install', 'chromium',
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                    stdout, stderr = await process.communicate()
+                    if process.returncode == 0:
+                        logger.info("Playwright Chromium installed successfully.")
+                        self.browser = await self.playwright.chromium.launch(headless=True)
+                    else:
+                        logger.error(f"Failed to automatically install Chromium. Stdout: {stdout.decode()}, Stderr: {stderr.decode()}")
+                        raise RuntimeError("Chromium installation failed.") from e
+                except Exception as install_e:
+                     logger.error(f"Could not install Chromium automatically: {install_e}. Please run 'python -m playwright install chromium' manually.")
+                     return False
+
+            # Create a persistent context to reuse cookies/localStorage
+            await self._create_browser_context()
+
+            self.is_initialized = True
+            logger.info("Playwright service initialized successfully.")
+            return True
+        except Exception as e:
+            logger.error(f"Error initializing Playwright service: {e}", exc_info=True)
+            await self.cleanup() # Attempt cleanup on failure
+            return False
+
+    async def _create_browser_context(self):
+        """Creates a browser context with necessary settings and cookies."""
+        if not self.browser:
+             logger.error("Browser not available to create context.")
+             return
+             
+        try:
+            # Close existing context if any
+            if self.context:
+                await self.context.close()
+                
+            self.context = await self.browser.new_context(
+                locale='en-US',
+                timezone_id='Europe/Amsterdam',
+                viewport={'width': 1920, 'height': 1080},
+                bypass_csp=True,
+                # user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+            )
+            
+            # Add session cookie if provided
+            if self.session_id:
+                logger.info(f"Adding TradingView session cookie (ID: {self.session_id[:5]}...).")
+                await self.context.add_cookies([
+                    {
+                        'name': 'sessionid', 'value': self.session_id,
+                        'domain': '.tradingview.com', 'path': '/',
+                        'httpOnly': True, 'secure': True, 'sameSite': 'Lax'
+                    },
+                     {
+                        'name': 'language', 'value': 'en',
+                         'domain': '.tradingview.com', 'path': '/'
+                    }
+                ])
+                
+            # Add initial script to set localStorage and block popups
+            await self.context.add_init_script(f"""
+                // Set localStorage items
+                const tvLocalStorage = {json.dumps(TV_LOCAL_STORAGE)};
+                for (const [key, value] of Object.entries(tvLocalStorage)) {{
+                    try {{ localStorage.setItem(key, value); }} catch (e) {{}}
+                }}
+                // Block popups
+                window.open = () => null;
+                window.confirm = () => true;
+                window.alert = () => {{}};
+            """)
+            logger.info("Browser context created with cookies and init script.")
             
         except Exception as e:
-            logger.error(f"Error initializing TradingView Node.js service: {str(e)}")
-            return False
-    
+            logger.error(f"Error creating browser context: {e}", exc_info=True)
+            self.context = None
+
+
     async def take_screenshot(self, symbol, timeframe=None, fullscreen=False):
-        """Take a screenshot of a chart"""
-        try:
-            logger.info(f"Taking screenshot for {symbol} on {timeframe} timeframe (fullscreen: {fullscreen})")
-            
-            # Normaliseer het symbool (verwijder / en converteer naar hoofdletters)
-            normalized_symbol = symbol.replace("/", "").upper()
-            
-            # Bouw de chart URL
-            chart_url = self.chart_links.get(normalized_symbol)
-            if not chart_url:
-                logger.warning(f"No chart URL found for {symbol}, using default URL")
-                # Gebruik een lichtere versie van de chart
-                chart_url = f"https://www.tradingview.com/chart/xknpxpcr/?symbol={normalized_symbol}"
-                
-                # Voeg timeframe parameter toe als die is opgegeven
-                if timeframe:
-                    tv_interval = self.interval_map.get(timeframe, "D")
-                    chart_url += f"&interval={tv_interval}"
-            elif timeframe and "?" in chart_url:
-                # Als de URL al een query bevat, voeg het interval toe
+        """Take a screenshot of a chart using Playwright for Python."""
+        if not self.is_initialized or not self.context:
+             logger.error("Playwright service not initialized or context not available.")
+             # Attempt to initialize if needed
+             if not self.is_initialized:
+                  await self.initialize()
+                  if not self.is_initialized or not self.context:
+                       return None
+             elif not self.context:
+                  await self._create_browser_context()
+                  if not self.context:
+                       return None
+
+        logger.info(f"Taking screenshot for {symbol} on {timeframe} timeframe (fullscreen: {fullscreen})")
+
+        # Build chart URL (same logic as before)
+        normalized_symbol = symbol.replace("/", "").upper()
+        chart_url = self.chart_links.get(normalized_symbol)
+        if not chart_url:
+            logger.warning(f"No specific chart layout URL found for {symbol}, using default chart page.")
+            chart_url = f"https://www.tradingview.com/chart/?symbol={normalized_symbol}"
+            if timeframe:
                 tv_interval = self.interval_map.get(timeframe, "D")
                 chart_url += f"&interval={tv_interval}"
-            elif timeframe:
-                # Als er geen query is, voeg die toe met het interval
-                tv_interval = self.interval_map.get(timeframe, "D")
-                chart_url += f"?interval={tv_interval}"
-            
-            # Controleer of de URL geldig is
-            if not chart_url:
-                logger.error(f"Invalid chart URL for {symbol}")
-                return None
-            
-            # Gebruik de take_screenshot_of_url methode om de screenshot te maken
-            logger.info(f"Taking screenshot of URL: {chart_url}")
-            screenshot_bytes = await self.take_screenshot_of_url(chart_url, fullscreen=fullscreen)
-            
-            if screenshot_bytes:
-                logger.info(f"Screenshot taken successfully for {symbol}")
-                return screenshot_bytes
-            else:
-                logger.error(f"Failed to take screenshot for {symbol}")
-                return None
-            
-        except Exception as e:
-            logger.error(f"Error taking screenshot: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
+        elif timeframe: # Append interval to existing layout URL
+             tv_interval = self.interval_map.get(timeframe, "D")
+             separator = '&' if '?' in chart_url else '?'
+             chart_url += f"{separator}interval={tv_interval}"
+
+        if not chart_url:
+            logger.error(f"Invalid chart URL constructed for {symbol}")
             return None
-    
-    async def batch_capture_charts(self, symbols=None, timeframes=None):
-        """Capture multiple charts"""
-        if not self.is_initialized:
-            logger.warning("TradingView Node.js service not initialized")
-            return None
-        
-        if not symbols:
-            symbols = ["EURUSD", "GBPUSD", "BTCUSD", "ETHUSD"]
-        
-        if not timeframes:
-            timeframes = ["1h", "4h", "1d"]
-        
-        results = {}
-        
+
+        page = None
         try:
-            for symbol in symbols:
-                results[symbol] = {}
-                
-                for timeframe in timeframes:
-                    try:
-                        # Take screenshot
-                        screenshot = await self.take_screenshot(symbol, timeframe)
-                        results[symbol][timeframe] = screenshot
-                    except Exception as e:
-                        logger.error(f"Error capturing {symbol} at {timeframe}: {str(e)}")
-                        results[symbol][timeframe] = None
+            page = await self.context.new_page()
+            logger.info(f"Navigating to URL: {chart_url}")
+
+            # Auto dismiss dialogs (though init script and CSS should handle most)
+            page.on('dialog', lambda dialog: asyncio.ensure_future(dialog.dismiss()))
+
+            # Add CSS to hide dialogs immediately
+            await page.add_style_tag(content=HIDE_DIALOGS_CSS)
+
+            await page.goto(chart_url, wait_until='domcontentloaded', timeout=30000) # 30s timeout
+
+            # Apply localStorage settings again and try to close popups via JS
+            await page.evaluate(f"""
+                const tvLocalStorage = {json.dumps(TV_LOCAL_STORAGE)};
+                for (const [key, value] of Object.entries(tvLocalStorage)) {{
+                    try {{ localStorage.setItem(key, value); }} catch (e) {{}}
+                }}
+                document.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Escape', keyCode: 27 }}));
+                document.querySelectorAll('button.close-B02UUUN3, button[data-name="close"], .nav-button-znwuaSC1').forEach(btn => {{
+                    try {{ btn.click(); }} catch (e) {{}}
+                }});
+                document.querySelectorAll('[role="dialog"], .tv-dialog, .js-dialog, .tv-dialog--popup').forEach(dialog => {{
+                    dialog.style.display = 'none';
+                }});
+            """)
             
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error in batch capture: {str(e)}")
-            return None
-    
-    async def cleanup(self):
-        """Clean up resources"""
-        # Geen resources om op te ruimen
-        logger.info("TradingView Node.js service cleaned up")
-    
-    async def take_screenshot_of_url(self, url: str, fullscreen: bool = False) -> Optional[bytes]:
-        """Take a screenshot of a URL using Node.js"""
-        try:
-            # Cache checking removed
-            
-            # Genereer een unieke bestandsnaam voor de screenshot
-            timestamp = int(time.time())
-            screenshot_path = os.path.join(os.path.dirname(self.script_path), f"screenshot_{timestamp}.png")
-            
-            # Zorg ervoor dat de URL geen aanhalingstekens bevat
-            url = url.strip('"\'')
-            
-            # Gebruik session_id in plaats van tradingview_username
-            # Voeg fullscreen parameter toe aan het commando
-            cmd = f"node {self.script_path} \"{url}\" \"{screenshot_path}\" \"{self.session_id}\""
-            
-            # Voeg fullscreen parameter toe als dat nodig is
-            if fullscreen or "fullscreen=true" in url:
-                cmd += " fullscreen"
-            
-            # Verwijder eventuele puntkomma's uit het commando
-            cmd = cmd.replace(";", "")
-            
-            # Gebruik asyncio.create_subprocess_shell met een timeout om te voorkomen dat het script vastloopt
-            try:
-                process = await asyncio.create_subprocess_shell(
-                    cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                
-                # Wacht op het proces met een kortere timeout (20 seconden max)
+            # Add CSS again for robustness
+            await page.add_style_tag(content=HIDE_DIALOGS_CSS)
+
+            # Wait briefly for the page to settle and scripts to run
+            await page.wait_for_timeout(2000) # 2 seconds
+
+            # Attempt to close common close buttons directly
+            close_selectors = [
+                'button.close-B02UUUN3',
+                'button[data-name="close"]',
+                'button.nav-button-znwuaSC1.size-medium-znwuaSC1.preserve-paddings-znwuaSC1.close-B02UUUN3',
+                'button:has-text("Got it")', # Common confirmation button text
+                 'button[aria-label*="Close"]' # Common aria labels
+            ]
+            for selector in close_selectors:
                 try:
-                    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=20.0)
-                except asyncio.TimeoutError:
-                    logger.error("Timeout waiting for Node.js script, terminating process")
-                    try:
-                        process.kill()
-                    except Exception as kill_error:
-                        logger.error(f"Error killing process: {str(kill_error)}")
-                    return None
-                
-                # Only log errors, not standard output
-                if stderr:
-                    stderr_output = stderr.decode()
-                    if stderr_output.strip():  # Only log if there's actual content
-                        logger.error(f"Node.js stderr: {stderr_output}")
-                
-                # Controleer of het bestand bestaat
-                if os.path.exists(screenshot_path):
-                    # Lees het bestand
-                    with open(screenshot_path, 'rb') as f:
-                        screenshot_data = f.read()
+                    buttons = await page.query_selector_all(selector)
+                    for button in buttons:
+                         if await button.is_visible():
+                              await button.click(timeout=500, force=True) # Short timeout, force click
+                              logger.info(f"Clicked potential close button: {selector}")
+                              await page.wait_for_timeout(100) # Small delay after click
+                except PlaywrightTimeoutError:
+                     pass # Ignore timeout errors when clicking close buttons
+                except Exception as e:
+                     logger.warning(f"Minor error clicking close button {selector}: {e}")
+
+
+            # Wait for the main chart container to be present
+            try:
+                chart_container_selector = ".chart-gui-wrapper, .chart-container, .layout__area--center" # Common selectors
+                await page.wait_for_selector(chart_container_selector, timeout=10000) # 10s timeout
+                logger.info("Chart container found.")
+            except PlaywrightTimeoutError:
+                logger.warning("Chart container selector not found within timeout, proceeding anyway.")
+
+
+            if fullscreen:
+                logger.info("Applying fullscreen adjustments...")
+                # Hide UI elements using CSS injection
+                await page.add_style_tag(content="""
+                    .tv-header, .tv-main-panel__toolbar, .tv-side-toolbar, 
+                    .layout__area--left, .layout__area--right, footer, .tv-main-panel__statuses,
+                    .group-T57LDNqT, // Hide bottom ad panel if present
+                     #footer-chart-panel // Hide footer panel
+                     { display: none !important; }
                     
-                    # Verwijder het bestand
-                    try:
-                        os.remove(screenshot_path)
-                    except Exception as e:
-                        logger.warning(f"Failed to remove temporary screenshot file: {str(e)}")
-                    
-                    # Return the screenshot data directly without caching
-                    return screenshot_data
-                else:
-                    logger.error(f"Screenshot file not found: {screenshot_path}")
-                    return None
-            except Exception as process_error:
-                logger.error(f"Error running Node.js process: {str(process_error)}")
-                return None
-                
+                    .chart-gui-wrapper, .layout__area--center { /* Try to maximize chart area */
+                         height: 100vh !important; 
+                         width: 100vw !important; 
+                         position: fixed !important; 
+                         top: 0 !important; 
+                         left: 0 !important;
+                    }
+                """)
+                # Optional: Try keyboard shortcut (might not always work reliably in headless)
+                # await page.keyboard.press('Shift+F') 
+                await page.wait_for_timeout(1000) # Wait for styles to apply
+
+
+            # Final wait before screenshot
+            await page.wait_for_timeout(1500) # 1.5 seconds
+
+            logger.info("Taking screenshot with Playwright...")
+            screenshot_bytes = await page.screenshot(type='png')
+
+            logger.info(f"Screenshot taken successfully ({len(screenshot_bytes)} bytes).")
+            return screenshot_bytes
+
+        except PlaywrightTimeoutError as e:
+             logger.error(f"Playwright timeout error during screenshot: {e}")
+             return None
+        except PlaywrightError as e:
+             logger.error(f"Playwright general error during screenshot: {e}")
+             return None
         except Exception as e:
-            logger.error(f"Error taking screenshot: {str(e)}")
+            logger.error(f"Unexpected error taking screenshot: {e}", exc_info=True)
             return None
+        finally:
+            if page:
+                await page.close()
+
+    async def cleanup(self):
+        """Clean up Playwright resources."""
+        logger.info("Cleaning up Playwright service...")
+        if self.context:
+            try:
+                await self.context.close()
+                self.context = None
+                logger.info("Playwright context closed.")
+            except Exception as e:
+                 logger.error(f"Error closing Playwright context: {e}")
+        if self.browser:
+            try:
+                await self.browser.close()
+                self.browser = None
+                logger.info("Playwright browser closed.")
+            except Exception as e:
+                 logger.error(f"Error closing Playwright browser: {e}")
+        if self.playwright:
+            try:
+                await self.playwright.stop()
+                self.playwright = None
+                logger.info("Playwright stopped.")
+            except Exception as e:
+                 logger.error(f"Error stopping Playwright: {e}")
+        self.is_initialized = False
+        logger.info("Playwright service cleanup complete.")
+
+    # Remove batch_capture_charts as it wasn't fully implemented and complicates refactoring
+    # async def batch_capture_charts(self, symbols=None, timeframes=None): ...
+
+    # Remove take_screenshot_of_url as its logic is now integrated into take_screenshot
+    # async def take_screenshot_of_url(self, url: str, fullscreen: bool = False) -> Optional[bytes]: ...
+
