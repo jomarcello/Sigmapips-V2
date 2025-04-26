@@ -438,16 +438,10 @@ class YahooFinanceProvider:
             system_date = datetime.now()
             logger.info(f"System datetime: {system_date}")
             
-            # Force a valid current year regardless of system date
-            # Hardcode to 2024 instead of using system time which is incorrect
-            CORRECT_YEAR = 2024
-            CORRECT_MONTH = 4
-            
-            # Create dates that are definitely in the present/past
-            end_date = datetime(CORRECT_YEAR, CORRECT_MONTH, 25, 
-                               system_date.hour, system_date.minute, system_date.second)
-            
-            logger.info(f"Using corrected end date: {end_date} (overriding system year {system_date.year})")
+            # Use the current system date dynamically
+            end_date = system_date
+        
+            logger.info(f"Using current system date as end date: {end_date}")
             
             if interval in ["1m", "5m", "15m", "30m", "60m"]:
                 # For intraday data, yahoo only provides limited history
