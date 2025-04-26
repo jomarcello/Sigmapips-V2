@@ -421,12 +421,12 @@ class ChartService:
             cache_key = f"{instrument}_{timeframe}_analysis"
             current_time = time.time()
             
-            if hasattr(self, 'analysis_cache') and cache_key in self.analysis_cache:
-                cached_time, cached_analysis = self.analysis_cache[cache_key]
-                # Use cache if less than cache_ttl seconds old
-                if current_time - cached_time < self.analysis_cache_ttl:
-                    logger.info(f"Using cached analysis for {instrument} ({timeframe})")
-                    return cached_analysis
+            # if hasattr(self, 'analysis_cache') and cache_key in self.analysis_cache:
+            #     cached_time, cached_analysis = self.analysis_cache[cache_key]
+            #     # Use cache if less than cache_ttl seconds old
+            #     if current_time - cached_time < self.analysis_cache_ttl:
+            #         logger.info(f"Using cached analysis for {instrument} ({timeframe})")
+            #         return cached_analysis
             
             logger.info(f"Generating new technical analysis for {instrument} on {timeframe}")
             try:
@@ -678,6 +678,7 @@ class ChartService:
                     current_price = analysis_data["close"]
                     ema_20 = analysis_data["ema_20"]
                     ema_50 = analysis_data["ema_50"]
+                    ema_200 = analysis_data.get("ema_200", ema_50 * 0.96)  # Fallback if ema_200 is not available
                     rsi = analysis_data["rsi"]
                     macd = analysis_data["macd"]
                     macd_signal = analysis_data["macd_signal"]
@@ -1014,10 +1015,10 @@ class ChartService:
                         elif instrument == "US30":
                             # Format US30 prices with comma after second digit
                             low_digits = str(int(analysis_data['low']))
-                            formatted_low = f"{low_digits[:2]},{low_digits[2:]}.{str(analysis_data['low']).split('.')[low][:2]}"
+                            formatted_low = f"{low_digits[:2]},{low_digits[2:]}.{str(analysis_data['low']).split('.')[1][:2]}"
                             
                             high_digits = str(int(analysis_data['high']))
-                            formatted_high = f"{high_digits[:2]},{high_digits[2:]}.{str(analysis_data['high']).split('.')[high][:2]}"
+                            formatted_high = f"{high_digits[:2]},{high_digits[2:]}.{str(analysis_data['high']).split('.')[1][:2]}"
                             
                             analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {formatted_low} "
                             analysis_text += f"and selling opportunities near {formatted_high}. "
@@ -1025,10 +1026,10 @@ class ChartService:
                         elif instrument == "US500":
                             # Format US500 prices with comma after first digit
                             low_digits = str(int(analysis_data['low']))
-                            formatted_low = f"{low_digits[0]},{low_digits[1:]}.{str(analysis_data['low']).split('.')[low][:2]}"
+                            formatted_low = f"{low_digits[0]},{low_digits[1:]}.{str(analysis_data['low']).split('.')[1][:2]}"
                             
                             high_digits = str(int(analysis_data['high']))
-                            formatted_high = f"{high_digits[0]},{high_digits[1:]}.{str(analysis_data['high']).split('.')[high][:2]}"
+                            formatted_high = f"{high_digits[0]},{high_digits[1:]}.{str(analysis_data['high']).split('.')[1][:2]}"
                             
                             analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {formatted_low} "
                             analysis_text += f"and selling opportunities near {formatted_high}. "
@@ -1036,10 +1037,10 @@ class ChartService:
                         elif instrument == "US100":
                             # Format US100 prices with comma after second digit
                             low_digits = str(int(analysis_data['low']))
-                            formatted_low = f"{low_digits[:2]},{low_digits[2:]}.{str(analysis_data['low']).split('.')[low][:2]}"
+                            formatted_low = f"{low_digits[:2]},{low_digits[2:]}.{str(analysis_data['low']).split('.')[1][:2]}"
                             
                             high_digits = str(int(analysis_data['high']))
-                            formatted_high = f"{high_digits[:2]},{high_digits[2:]}.{str(analysis_data['high']).split('.')[high][:2]}"
+                            formatted_high = f"{high_digits[:2]},{high_digits[2:]}.{str(analysis_data['high']).split('.')[1][:2]}"
                             
                             analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {formatted_low} "
                             analysis_text += f"and selling opportunities near {formatted_high}. "
@@ -1052,7 +1053,7 @@ class ChartService:
                     analysis_text += f"⚠️ <b>Disclaimer:</b> For educational purposes only."
                     
                     # Cache the analysis
-                    self.analysis_cache[cache_key] = (current_time, analysis_text)
+                    # self.analysis_cache[cache_key] = (current_time, analysis_text)
                     
                     return analysis_text
                 else:
