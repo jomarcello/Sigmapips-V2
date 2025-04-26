@@ -236,23 +236,16 @@ class TradingViewCalendarService:
                     if "<html" in response_text.lower():
                         logger.error("Received HTML response instead of JSON data")
                         logger.error(f"HTML content (first 200 chars): {response_text[:200]}...")
-                        
-                        # TradingView might load data through JavaScript
-                            # For now, fall back to mock data
-                            if HAS_CUSTOM_MOCK_DATA:
-                                logger.info("Falling back to mock calendar data due to HTML response")
-                                return generate_mock_calendar_data(days_ahead, min_impact)
+
+                        # TradingView might load data through JavaScript, which we don't handle here.
+                        # Fall back to mock data or return empty list if HTML is received.
+                        if HAS_CUSTOM_MOCK_DATA:
+                            logger.info("Falling back to mock calendar data due to HTML response")
+                            return generate_mock_calendar_data(days_ahead, min_impact)
+                        else:
+                            logger.warning("Received HTML response and no mock data available. Returning empty list.")
                             return []
-                        try:
-                        return events_to_return
-                    # COMMENT: except block removed due to indentation error
-                    logger.error("Error processing response")
-                            logger.error(f"Failed to extract data from HTML: {str(e)}")
-                            if HAS_CUSTOM_MOCK_DATA:
-                                logger.info("Falling back to mock calendar data")
-                                return generate_mock_calendar_data(days_ahead, min_impact)
-                            return []
-                    
+
                     # Clean up invalid JSON - fix common issues like semicolons after URLs
                     # This pattern fixes the issue with semicolons after URLs in source_url fields
                     response_text = response_text.replace('";,', '",')
@@ -523,10 +516,7 @@ class TradingViewCalendarService:
                                 if len(events) <= 3:
                                     logger.info(f"Processed event {len(events)}: From '{event.get('title', '')}' ({event.get('country', '')}) to {json.dumps(event_obj)}")
                                 
-                            try:
-                        return events_to_return
-                    # COMMENT: except block removed due to indentation error
-                    logger.error("Error processing response")
+                            except Exception as e:
                                 logger.error(f"Error processing event {event}: {str(e)}")
                                 continue
                         
@@ -568,7 +558,7 @@ class TradingViewCalendarService:
                     return events
                     
                 except Exception as e:
-                        logger.error(f"Error processing response: {str(e)}")
+                    logger.error(f"Error processing response: {str(e)}")
                     return []
                 
         except Exception as e:
