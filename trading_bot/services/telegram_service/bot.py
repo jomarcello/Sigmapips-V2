@@ -2469,126 +2469,123 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             return CHOOSE_ANALYSIS
 
     async def back_to_signal_callback(self, update: Update, context=None) -> int:
-        """Handle back_to_signal button press"""
+        """Handle back_to_signal button press. Deletes the current message and sends a new one with the original signal info."""
         query = update.callback_query
         await query.answer()
         
         try:
-            # Add detailed logging for debugging
             logger.info("ENTERING: back_to_signal_callback")
-            if context and hasattr(context, 'user_data'):
-                logger.info(f"Context user_data at start of back_to_signal_callback: {context.user_data}")
-            else:
-                logger.warning("No context or user_data found at start of back_to_signal_callback")
-                
-            # Get the current signal being viewed
             user_id = update.effective_user.id
-            
-            # First try to get signal data from backup in context
+            chat_id = update.effective_chat.id
+
             signal_instrument = None
             signal_direction = None
             signal_timeframe = None
+            signal_id_from_context = None
+            original_signal_message = None
             
             if context and hasattr(context, 'user_data'):
-                # Try to get from backup fields first (these are more reliable after navigation)
+                logger.info(f"Context user_data at start of back_to_signal_callback: {context.user_data}")
                 signal_instrument = context.user_data.get('signal_instrument_backup') or context.user_data.get('signal_instrument')
                 signal_direction = context.user_data.get('signal_direction_backup') or context.user_data.get('signal_direction')
                 signal_timeframe = context.user_data.get('signal_timeframe_backup') or context.user_data.get('signal_timeframe')
-                
-                # Reset signal flow flags but keep the signal info
-                context.user_data['from_signal'] = True
-                
-                # Log retrieved values for debugging
-                logger.info(f"Retrieved signal data from context: instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
-            
-            # Find the most recent signal for this user based on context data
+                signal_id_from_context = context.user_data.get('signal_id_backup') or context.user_data.get('signal_id')
+                original_signal_message = context.user_data.get('original_signal_message')
+                context.user_data['from_signal'] = True # Ensure we stay in signal context
+                logger.info(f"Retrieved from context: instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}, id={signal_id_from_context}")
+
+            # Find the signal message and ID
             signal_data = None
-            signal_id = None
-            
-            # Find matching signal based on instrument and direction
-            if str(user_id) in self.user_signals:
+            signal_id = signal_id_from_context # Prioritize ID from context if available
+
+            # If ID wasn't in context, try finding the latest matching signal in cache
+            if not signal_id and str(user_id) in self.user_signals and signal_instrument:
                 user_signal_dict = self.user_signals[str(user_id)]
-                # Find signals matching instrument, direction and timeframe
                 matching_signals = []
-                
                 for sig_id, sig in user_signal_dict.items():
                     instrument_match = sig.get('instrument') == signal_instrument
-                    direction_match = True  # Default to true if we don't have direction data
-                    timeframe_match = True  # Default to true if we don't have timeframe data
-                    
-                    if signal_direction:
-                        direction_match = sig.get('direction') == signal_direction
-                    if signal_timeframe:
-                        timeframe_match = sig.get('timeframe') == signal_timeframe
-                    
+                    direction_match = (not signal_direction) or (sig.get('direction') == signal_direction)
+                    timeframe_match = (not signal_timeframe) or (sig.get('timeframe') == signal_timeframe)
                     if instrument_match and direction_match and timeframe_match:
                         matching_signals.append((sig_id, sig))
                 
-                # Sort by timestamp, newest first
                 if matching_signals:
                     matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
                     signal_id, signal_data = matching_signals[0]
-                    logger.info(f"Found matching signal with ID: {signal_id}")
+                    logger.info(f"Found matching signal in cache with ID: {signal_id}")
                 else:
-                    logger.warning(f"No matching signals found for instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
-                    # If no exact match, try with just the instrument
-                    matching_signals = []
-                    for sig_id, sig in user_signal_dict.items():
-                        if sig.get('instrument') == signal_instrument:
-                            matching_signals.append((sig_id, sig))
-                    
-                    if matching_signals:
-                        matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
-                        signal_id, signal_data = matching_signals[0]
-                        logger.info(f"Found signal with just instrument match, ID: {signal_id}")
+                    logger.warning(f"No matching signal found in cache for instrument={signal_instrument}, dir={signal_direction}, tf={signal_timeframe}")
             
-            # If we have the original message in context, we can use it even if signal not found in cache
-            original_signal_message = None
-            if context and hasattr(context, 'user_data'):
-                original_signal_message = context.user_data.get('original_signal_message')
-                if original_signal_message:
-                    logger.info("Using original signal message from context")
+            # Retrieve signal data from cache if we have an ID but not the data yet
+            if signal_id and not signal_data and str(user_id) in self.user_signals:
+                 signal_data = self.user_signals[str(user_id)].get(signal_id)
+                 if signal_data:
+                      logger.info(f"Retrieved signal data from cache using ID: {signal_id}")
             
-            if not signal_data and not original_signal_message:
-                # Fallback message if signal not found and no original message
-                await query.edit_message_text(
-                    text="Signal not found. Please use the main menu to continue.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-                return MENU
-            
-            # Show the signal details with analyze button
-            # Prepare analyze button with signal info embedded
-            callback_data = f"analyze_from_signal_{signal_instrument}_{signal_id}" if signal_id else f"analyze_from_signal_{signal_instrument}_{signal_instrument}_{signal_direction}_{signal_timeframe}"
-            keyboard = [
-                [InlineKeyboardButton("🔍 Analyze Market", callback_data=callback_data)]
-            ]
-            
-            # Get the formatted message from the signal or use the original message
-            signal_message = signal_data.get('message', original_signal_message) if signal_data else original_signal_message
+            # Determine the message text
+            signal_message = None
+            if signal_data:
+                signal_message = signal_data.get('message')
+            if not signal_message and original_signal_message:
+                signal_message = original_signal_message
+                logger.info("Using original signal message from context as fallback.")
             if not signal_message:
-                signal_message = "Signal details not available."
+                 signal_message = "Signal details not available." # Final fallback
+
+            # Construct the callback data for the Analyze button
+            # Ensure instrument is valid before creating callback data
+            if not signal_instrument:
+                 logger.error("Signal instrument is missing, cannot create Analyze button callback data.")
+                 # Handle error appropriately, maybe return to menu
+                 await query.message.delete() # Delete the analysis message
+                 await context.bot.send_message(
+                     chat_id=chat_id,
+                     text="Error: Could not determine the instrument. Please use /menu.",
+                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                 )
+                 return MENU
             
-            # Edit current message to show signal
-            await query.edit_message_text(
+            # Use the most reliable signal_id found
+            final_signal_id = signal_id if signal_id else f"{signal_instrument}_{signal_direction or 'DIR'}_{signal_timeframe or 'TF'}_{int(time.time())}"
+            analyze_callback_data = f"analyze_from_signal_{signal_instrument}_{final_signal_id}"
+            keyboard = [[InlineKeyboardButton("🔍 Analyze Market", callback_data=analyze_callback_data)]]
+            
+            # Delete the current message (technical analysis/chart)
+            try:
+                await query.message.delete()
+                logger.info(f"Deleted message {query.message.message_id}")
+            except Exception as delete_error:
+                logger.error(f"Could not delete message {query.message.message_id}: {str(delete_error)}")
+                # Continue anyway, try sending the new message
+            
+            # Send a NEW message with the signal details
+            await context.bot.send_message(
+                chat_id=chat_id,
                 text=signal_message,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
+            logger.info(f"Sent new message with signal details for {signal_instrument}")
             
             return SIGNAL_DETAILS
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_callback: {str(e)}")
+            logger.exception(e)
             
-            # Error recovery
+            # Error recovery: Try to send user back to main menu
             try:
-                await query.edit_message_text(
+                # Try deleting the current message first
+                if query and query.message:
+                     await query.message.delete()
+                # Send main menu message
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
                     text="An error occurred. Please try again from the main menu.",
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
-            except Exception:
-                pass
+            except Exception as recovery_error:
+                logger.error(f"Error during error recovery in back_to_signal_callback: {recovery_error}")
             
             return MENU
 
@@ -4236,95 +4233,56 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         return mock_data
 
     async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
-        """Handle back_to_signal_analysis button press"""
+        """Handle back_to_signal_analysis button press. Deletes the current message and sends a new one with analysis options."""
         query = update.callback_query
         await query.answer()
         
-        # Add detailed logging for debugging
         logger.info("back_to_signal_analysis_callback called")
-        logger.info(f"Query data: {query.data}")
-        if context and hasattr(context, 'user_data'):
-            logger.info(f"Context user_data: {context.user_data}")
+        chat_id = update.effective_chat.id
         
         try:
-            # Get instrument from context
-            instrument = None
-            if context and hasattr(context, 'user_data'):
-                instrument = context.user_data.get('instrument')
-            
-            # Check if message has photo or animation
-            has_photo = bool(query.message.photo) or query.message.animation is not None
-            
+            # Delete the current message (containing the analysis chart/text)
+            try:
+                await query.message.delete()
+                logger.info(f"Deleted message {query.message.message_id}")
+            except Exception as delete_error:
+                logger.error(f"Could not delete message {query.message.message_id}: {str(delete_error)}")
+                # Log the error but proceed to send the new message anyway
+
             # Use the standard SIGNAL_ANALYSIS_KEYBOARD
             keyboard = SIGNAL_ANALYSIS_KEYBOARD
+            text = "Select your analysis type:"
             
-            # Format the message text
-            text = f"Select your analysis type:"
-            
-            if has_photo:
-                # Try to delete the message first (if possible)
-                try:
-                    await query.message.delete()
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                    return SIGNAL_DETAILS
-                except Exception as delete_error:
-                    logger.error(f"Could not delete message: {str(delete_error)}")
-                    
-                    # Try to replace the photo with a transparent GIF
-                    try:
-                        transparent_gif_url = "https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png"
-                        await query.message.edit_media(
-                            media=InputMediaAnimation(
-                                media=transparent_gif_url,
-                                caption=text
-                            ),
-                            reply_markup=InlineKeyboardMarkup(keyboard)
-                        )
-                        return SIGNAL_DETAILS
-                    except Exception as e:
-                        logger.error(f"Could not replace photo: {str(e)}")
-                        
-                        # Final fallback - try to edit the caption
-                        try:
-                            await query.message.edit_caption(
-                                caption=text,
-                                reply_markup=InlineKeyboardMarkup(keyboard),
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception as caption_error:
-                            logger.error(f"Could not edit caption: {str(caption_error)}")
-                            # Just log the error, will try to edit the message text next
-            else:
-                # No photo, just edit the message text
-                try:
-                    await query.edit_message_text(
-                        text=text,
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as e:
-                    logger.error(f"Error updating message: {str(e)}")
-            
-            return SIGNAL_DETAILS
+            # Send a NEW message with the analysis options
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            logger.info(f"Sent new message with signal analysis options.")
+
+            return SIGNAL_DETAILS # Stay in the signal details context, now showing options
             
         except Exception as e:
             logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
+            logger.exception(e)
             
-            # Error recovery - return to signal menu
+            # Error recovery: Try to send user back to main menu
             try:
-                await query.edit_message_text(
-                    text="An error occurred. Please try again from the signals menu.",
-                    reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-                )
-            except Exception:
-                pass
+                 # Try deleting the current message first
+                 if query and query.message:
+                     await query.message.delete()
+                 # Send main menu message
+                 await context.bot.send_message(
+                     chat_id=chat_id,
+                     text="An error occurred. Please try again from the main menu.",
+                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                 )
+            except Exception as recovery_error:
+                 logger.error(f"Error during error recovery in back_to_signal_analysis_callback: {recovery_error}")
             
-            return CHOOSE_SIGNALS
+            return MENU
 
     async def handle_subscription_callback(self, update: Update, context=None) -> int:
         """Handle subscription button press"""
