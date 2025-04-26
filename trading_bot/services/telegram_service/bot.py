@@ -9,6 +9,11 @@ import copy
 import re
 import time
 import random
+import base64
+import datetime
+import socket
+import sys
+import tempfile
 
 from fastapi import FastAPI, Request, HTTPException, status
 from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, InputMediaAnimation, InputMediaDocument, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
@@ -2073,18 +2078,46 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Save analysis type in context
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'technical'
+            # Log the full context for debugging
+            logger.info(f"Current context user_data: {context.user_data}")
         
-        # Get the instrument from context
+        # Get the instrument from context with fallbacks
         instrument = None
+        timeframe = None
         if context and hasattr(context, 'user_data'):
+            # Try to get the instrument from different possible context locations
             instrument = context.user_data.get('instrument')
+            
+            # If instrument is not found, try to get from backup fields
+            if not instrument:
+                instrument = context.user_data.get('signal_instrument_backup')
+                logger.info(f"Using backup instrument from context: {instrument}")
+            
+            # Still not found, check original signal for instrument mention
+            if not instrument and 'original_signal_message' in context.user_data:
+                # Extract instrument from original signal message if possible
+                original_message = context.user_data.get('original_signal_message', '')
+                match = re.search(r'Instrument:\s*([A-Za-z0-9]+)', original_message)
+                if match:
+                    instrument = match.group(1)
+                    logger.info(f"Extracted instrument from original signal message: {instrument}")
+                    # Save it back to context for future use
+                    context.user_data['instrument'] = instrument
+            
+            # Try to get timeframe from context
+            timeframe = context.user_data.get('signal_timeframe')
+            if not timeframe:
+                timeframe = context.user_data.get('signal_timeframe_backup')
+                logger.info(f"Using backup timeframe from context: {timeframe}")
+            
             # Debug log for instrument
-            logger.info(f"Instrument from context: {instrument}")
+            logger.info(f"Final instrument selected: {instrument}, timeframe: {timeframe}")
         
         if instrument:
             # Set flag to indicate we're in signal flow
             if context and hasattr(context, 'user_data'):
                 context.user_data['from_signal'] = True
+                context.user_data['instrument'] = instrument  # Ensure instrument is stored in the primary location
                 logger.info("Set from_signal flag to True")
             
             # Try to show loading animation first
@@ -2139,8 +2172,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         except Exception as gif_error:
                             logger.warning(f"Could not show loading GIF: {str(gif_error)}")
             
-            # Show technical analysis for this instrument
-            return await self.show_technical_analysis(update, context, instrument=instrument)
+            # Show technical analysis for this instrument with timeframe if available
+            return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
         else:
             # Error handling - go back to signal analysis menu
             try:
@@ -2176,19 +2209,46 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         query = update.callback_query
         await query.answer()
         
+        # Add detailed debug logging
+        logger.info(f"signal_sentiment_callback called with query data: {query.data}")
+        
         # Save analysis type in context
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'sentiment'
+            # Log the full context for debugging
+            logger.info(f"Current context user_data: {context.user_data}")
         
-        # Get the instrument from context
+        # Get the instrument from context with fallbacks
         instrument = None
         if context and hasattr(context, 'user_data'):
+            # Try to get the instrument from different possible context locations
             instrument = context.user_data.get('instrument')
+            
+            # If instrument is not found, try to get from backup fields
+            if not instrument:
+                instrument = context.user_data.get('signal_instrument_backup')
+                logger.info(f"Using backup instrument from context: {instrument}")
+            
+            # Still not found, check original signal for instrument mention
+            if not instrument and 'original_signal_message' in context.user_data:
+                # Extract instrument from original signal message if possible
+                original_message = context.user_data.get('original_signal_message', '')
+                match = re.search(r'Instrument:\s*([A-Za-z0-9]+)', original_message)
+                if match:
+                    instrument = match.group(1)
+                    logger.info(f"Extracted instrument from original signal message: {instrument}")
+                    # Save it back to context for future use
+                    context.user_data['instrument'] = instrument
+            
+            # Debug log for instrument
+            logger.info(f"Final instrument selected: {instrument}")
         
         if instrument:
             # Set flag to indicate we're in signal flow
             if context and hasattr(context, 'user_data'):
                 context.user_data['from_signal'] = True
+                context.user_data['instrument'] = instrument  # Ensure instrument is stored in the primary location
+                logger.info("Set from_signal flag to True")
             
             # Try to show loading animation first
             loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
@@ -2265,7 +2325,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 else:
                     # Re-raise for other errors
                     raise
-        return CHOOSE_ANALYSIS
+            return CHOOSE_ANALYSIS
 
     async def signal_calendar_callback(self, update: Update, context=None) -> int:
         """Handle signal_calendar button press"""
@@ -2273,92 +2333,140 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         # Add detailed debug logging
-        logger.info(f"signal_calendar_callback called with data: {query.data}")
+        logger.info(f"signal_calendar_callback called with query data: {query.data}")
         
         # Save analysis type in context
         if context and hasattr(context, 'user_data'):
             context.user_data['analysis_type'] = 'calendar'
-            # Make sure we save the original signal data to return to later
-            signal_instrument = context.user_data.get('instrument')
-            signal_direction = context.user_data.get('signal_direction')
-            signal_timeframe = context.user_data.get('signal_timeframe') 
-            
-            # Save these explicitly to ensure they're preserved
-            context.user_data['signal_instrument_backup'] = signal_instrument
-            context.user_data['signal_direction_backup'] = signal_direction
-            context.user_data['signal_timeframe_backup'] = signal_timeframe
-            
-            # Log for debugging
-            logger.info(f"Saved signal data before calendar analysis: instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}")
+            # Log the full context for debugging
+            logger.info(f"Current context user_data: {context.user_data}")
         
-        # Get the instrument from context (voor tracking van context en eventuele toekomstige functionaliteit)
+        # Get the instrument from context with fallbacks
         instrument = None
         if context and hasattr(context, 'user_data'):
+            # Try to get the instrument from different possible context locations
             instrument = context.user_data.get('instrument')
-            logger.info(f"Instrument from context: {instrument}")
-        
-        # Check if the callback data contains an instrument
-        if query.data.startswith("signal_flow_calendar_"):
-            parts = query.data.split("_")
-            if len(parts) >= 4:
-                instrument = parts[3]  # Extract instrument from callback data
-                logger.info(f"Extracted instrument from callback data: {instrument}")
-                # Save to context
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['instrument'] = instrument
-        
-        # Set flag to indicate we're in signal flow
-        if context and hasattr(context, 'user_data'):
-            context.user_data['from_signal'] = True
-            logger.info(f"Set from_signal flag to True for calendar analysis")
-        
-        # Try to show loading animation first
-        loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-        loading_text = f"Loading economic calendar..."
-        
-        try:
-            # Try to update with animated GIF first (best visual experience)
-            await query.edit_message_media(
-                media=InputMediaAnimation(
-                    media=loading_gif_url,
-                    caption=loading_text
-                )
-            )
-            logger.info(f"Successfully showed loading GIF for economic calendar")
-        except Exception as media_error:
-            logger.warning(f"Could not update with GIF: {str(media_error)}")
             
-            # If GIF fails, try to update the text
+            # If instrument is not found, try to get from backup fields
+            if not instrument:
+                instrument = context.user_data.get('signal_instrument_backup')
+                logger.info(f"Using backup instrument from context: {instrument}")
+            
+            # Still not found, check original signal for instrument mention
+            if not instrument and 'original_signal_message' in context.user_data:
+                # Extract instrument from original signal message if possible
+                original_message = context.user_data.get('original_signal_message', '')
+                match = re.search(r'Instrument:\s*([A-Za-z0-9]+)', original_message)
+                if match:
+                    instrument = match.group(1)
+                    logger.info(f"Extracted instrument from original signal message: {instrument}")
+                    # Save it back to context for future use
+                    context.user_data['instrument'] = instrument
+            
+            # Debug log for instrument
+            logger.info(f"Final instrument selected: {instrument}")
+        
+        if instrument:
+            # Set flag to indicate we're in signal flow
+            if context and hasattr(context, 'user_data'):
+                context.user_data['from_signal'] = True
+                context.user_data['instrument'] = instrument  # Ensure instrument is stored in the primary location
+                logger.info("Set from_signal flag to True")
+            
+            # Try to get related currencies for this instrument
+            currencies = INSTRUMENT_CURRENCY_MAP.get(instrument.upper(), [])
+            
+            if not currencies:
+                # Try to guess currencies from instrument name (assuming the standard is BaseCurrencyQuoteCurrency)
+                if len(instrument) >= 6:
+                    try:
+                        base_currency = instrument[0:3].upper()
+                        quote_currency = instrument[3:6].upper()
+                        currencies = [base_currency, quote_currency]
+                    except:
+                        pass
+            
+            # Try to show loading animation first
+            loading_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+            
+            if currencies:
+                currency_list = ", ".join(currencies)
+                loading_text = f"Loading economic calendar for {currency_list}..."
+            else:
+                loading_text = f"Loading economic calendar for {instrument}..."
+            
             try:
-                loading_message = await query.edit_message_text(
-                    text=loading_text
-                )
-                if context and hasattr(context, 'user_data'):
-                    context.user_data['loading_message'] = loading_message
-            except Exception as text_error:
-                logger.warning(f"Could not update text: {str(text_error)}")
-                
-                # If text update fails, try to update caption
-                try:
-                    await query.edit_message_caption(
+                # Try to update with animated GIF first (best visual experience)
+                await query.edit_message_media(
+                    media=InputMediaAnimation(
+                        media=loading_gif_url,
                         caption=loading_text
                     )
-                except Exception as caption_error:
-                    logger.warning(f"Could not update caption: {str(caption_error)}")
+                )
+                logger.info(f"Successfully showed loading GIF for {instrument} calendar")
+            except Exception as media_error:
+                logger.warning(f"Could not update with GIF: {str(media_error)}")
+                
+                # If GIF fails, try to update the text
+                try:
+                    loading_message = await query.edit_message_text(
+                        text=loading_text
+                    )
+                    if context and hasattr(context, 'user_data'):
+                        context.user_data['loading_message'] = loading_message
+                except Exception as text_error:
+                    logger.warning(f"Could not update text: {str(text_error)}")
                     
-                    # Last resort - send a new message with loading GIF
+                    # If text update fails, try to update caption
                     try:
-                        from trading_bot.services.telegram_service.gif_utils import send_loading_gif
-                        await send_loading_gif(
-                            self.bot,
-                            update.effective_chat.id,
-                            caption=f"⏳ <b>Loading economic calendar...</b>"
+                        await query.edit_message_caption(
+                            caption=loading_text
                         )
-                    except Exception as gif_error:
-                        logger.warning(f"Could not show loading GIF: {str(gif_error)}")
-        
-        # Show calendar analysis for ALL major currencies
-        return await self.show_calendar_analysis(update, context, instrument=None)
+                    except Exception as caption_error:
+                        logger.warning(f"Could not update caption: {str(caption_error)}")
+                        
+                        # Last resort - send a new message with loading GIF
+                        try:
+                            from trading_bot.services.telegram_service.gif_utils import send_loading_gif
+                            await send_loading_gif(
+                                self.bot,
+                                update.effective_chat.id,
+                                caption=f"⏳ <b>Loading economic calendar for {instrument}...</b>"
+                            )
+                        except Exception as gif_error:
+                            logger.warning(f"Could not show loading GIF: {str(gif_error)}")
+            
+            # Show calendar for this instrument
+            return await self.show_calendar_analysis(update, context, instrument=instrument)
+        else:
+            # Error handling - go back to signal analysis menu
+            try:
+                # First try to edit message text
+                await query.edit_message_text(
+                    text="Could not find the instrument. Please try again.",
+                    reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD)
+                )
+            except Exception as text_error:
+                # If that fails due to caption, try editing caption
+                if "There is no text in the message to edit" in str(text_error):
+                    try:
+                        await query.edit_message_caption(
+                            caption="Could not find the instrument. Please try again.",
+                            reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to update caption in signal_calendar_callback: {str(e)}")
+                        # Try to send a new message as last resort
+                        await query.message.reply_text(
+                            text="Could not find the instrument. Please try again.",
+                            reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD),
+                            parse_mode=ParseMode.HTML
+                        )
+                else:
+                    # Re-raise for other errors
+                    raise
+            return CHOOSE_ANALYSIS
 
     async def back_to_signal_callback(self, update: Update, context=None) -> int:
         """Handle back_to_signal button press"""
@@ -2522,7 +2630,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 # Store in context for other handlers
                 if context and hasattr(context, 'user_data'):
+                    # Store instrument in multiple locations to ensure it's available later
                     context.user_data['instrument'] = instrument
+                    # Also store in specific signal flow fields
+                    context.user_data['signal_instrument'] = instrument
+                    
                     if signal_id:
                         context.user_data['signal_id'] = signal_id
                     
@@ -2532,6 +2644,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     # >>> SAVE DIRECTLY PARSED VALUES TO BACKUP <<<
                     context.user_data['signal_direction_backup'] = signal_direction
                     context.user_data['signal_timeframe_backup'] = signal_timeframe_str # Store the parsed string timeframe
+                    
+                    # Flag to indicate this is part of the signal flow
+                    context.user_data['from_signal'] = True
+                    context.user_data['is_signals_context'] = True
                     
                     # Also store info from the actual signal if available (for current context, backups are priority)
                     user_signals_key = str(update.effective_user.id)
@@ -2560,6 +2676,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if original_message and context and hasattr(context, 'user_data'):
                 context.user_data['original_signal_message'] = original_message
                 logger.info("Saved original signal message to context.")
+                
+                # Try to extract instrument from original message as an additional fallback
+                if not context.user_data.get('instrument'):
+                    match = re.search(r'Instrument:\s*([A-Za-z0-9]+)', original_message)
+                    if match:
+                        extracted_instrument = match.group(1)
+                        logger.info(f"Extracted instrument from original message: {extracted_instrument}")
+                        context.user_data['instrument'] = extracted_instrument
+                        context.user_data['signal_instrument'] = extracted_instrument
+                        context.user_data['signal_instrument_backup'] = extracted_instrument
             else:
                 logger.warning("Could not retrieve original signal message text/caption to save.")
             
