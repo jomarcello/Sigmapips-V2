@@ -406,7 +406,7 @@ class TradingViewCalendarService:
                                     return []
                             # Handle the specific {"status": "ok"} response which indicates no events
                             elif isinstance(data, dict) and data == {"status": "ok"}:
-                                logger.info("Received 'status: ok' response, indicating no events for the requested period.")
+                                logger.info(f"Received 'status: ok' response. TradingView API indicates no events found for the period {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}.")
                                 return []
                             else:
                                 logger.error("Response is not a list and does not contain expected fields")
