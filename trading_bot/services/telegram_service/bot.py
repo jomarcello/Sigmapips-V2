@@ -118,6 +118,9 @@ CALLBACK_SIGNALS_ADD = "signals_add"
 CALLBACK_SIGNALS_MANAGE = "signals_manage"
 CALLBACK_MENU_ANALYSE = "menu_analyse"
 CALLBACK_MENU_SIGNALS = "menu_signals"
+CALLBACK_SIGNAL_TECHNICAL = "signal_technical"
+CALLBACK_SIGNAL_SENTIMENT = "signal_sentiment"
+CALLBACK_SIGNAL_CALENDAR = "signal_calendar"
 
 # States
 MENU = 0
@@ -2631,6 +2634,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 return await self.analysis_sentiment_callback(update, context)
             elif callback_data == CALLBACK_ANALYSIS_CALENDAR or callback_data == "analysis_calendar":
                 return await self.analysis_calendar_callback(update, context)
+            
+            # Signal analysis type selection
+            elif callback_data == CALLBACK_SIGNAL_TECHNICAL or callback_data == "signal_technical":
+                return await self.signal_technical_callback(update, context)
+            elif callback_data == CALLBACK_SIGNAL_SENTIMENT or callback_data == "signal_sentiment":
+                return await self.signal_sentiment_callback(update, context)
+            elif callback_data == CALLBACK_SIGNAL_CALENDAR or callback_data == "signal_calendar":
+                return await self.signal_calendar_callback(update, context)
                 
             # Direct instrument_timeframe callbacks  
             if "_timeframe_" in callback_data:
