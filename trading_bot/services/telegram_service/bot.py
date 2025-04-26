@@ -1565,7 +1565,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle menu_analyse button press"""
         query = update.callback_query
         await query.answer()
-        
+
+        # <<< ADDED LINE: Explicitly set context for analysis flow >>>
+        if context and hasattr(context, 'user_data'):
+            context.user_data.clear() # Clear previous context first
+            context.user_data['is_signals_context'] = False
+            logger.info(f"Set analysis flow context: {context.user_data}")
+        # <<< END ADDED LINE >>>
+
         # Gebruik de juiste analyse GIF URL
         gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
@@ -1634,7 +1641,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         )
         
         return CHOOSE_ANALYSIS
-
+        
     async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None, skip_gif=False) -> None:
         """Show the main menu when /menu command is used"""
         # Use context.bot if available, otherwise use self.bot
@@ -2926,18 +2933,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         parts = callback_data.split("_")
         market = parts[1]  # Extract market type (forex, crypto, etc.)
         
-        # Check if signal-specific context
-        is_signals_context = False
-        if callback_data.endswith("_signals"):
-            is_signals_context = True
-        elif context and hasattr(context, 'user_data'):
-            is_signals_context = context.user_data.get('is_signals_context', False)
-        
-        # Store market in context
+        # Store market in context, and READ the existing signals context flag
+        is_signals_context = False # Default to False
         if context and hasattr(context, 'user_data'):
             context.user_data['market'] = market
-            context.user_data['is_signals_context'] = is_signals_context
-        
+            # Read the context flag set by the *previous* step (e.g., menu_analyse or menu_signals)
+            is_signals_context = context.user_data.get('is_signals_context', False)
+
         logger.info(f"Market callback: market={market}, signals_context={is_signals_context}")
         
         # Determine which keyboard to show based on market and context
