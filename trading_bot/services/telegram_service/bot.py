@@ -2363,6 +2363,13 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         await query.answer()
         
         try:
+            # Add detailed logging for debugging
+            logger.info("ENTERING: back_to_signal_callback")
+            if context and hasattr(context, 'user_data'):
+                logger.info(f"Context user_data at start of back_to_signal_callback: {context.user_data}")
+            else:
+                logger.warning("No context or user_data found at start of back_to_signal_callback")
+                
             # Get the current signal being viewed
             user_id = update.effective_user.id
             
