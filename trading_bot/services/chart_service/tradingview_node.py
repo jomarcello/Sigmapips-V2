@@ -379,13 +379,15 @@ class TradingViewNodeService(TradingViewService):
                  await page.wait_for_timeout(1500) 
 
             # Additional aggressive cleanup just before screenshot
-            await page.evaluate(() => {
-                document.querySelectorAll('[role="dialog"], .tv-dialog, .js-dialog, .tv-dialog--popup, .tv-notification').forEach(el => {
-                    el.style.display = 'none';
-                    el.style.visibility = 'hidden';
-                    el.style.opacity = '0';
-                });
-            });
+            await page.evaluate("""
+                () => {
+                    document.querySelectorAll('[role="dialog"], .tv-dialog, .js-dialog, .tv-dialog--popup, .tv-notification').forEach(el => {
+                        el.style.display = 'none';
+                        el.style.visibility = 'hidden';
+                        el.style.opacity = '0';
+                    });
+                }
+            """)
             await page.wait_for_timeout(200) # Very short wait after final cleanup
 
             logger.info("Taking screenshot with Playwright...")
