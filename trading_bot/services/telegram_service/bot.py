@@ -3128,7 +3128,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 self.chart_service = ChartService()
             
             # Get the chart image
-            chart_image = await self.chart_service.get_chart(instrument, timeframe)
+            chart_image = await self.chart_service.get_chart(instrument, timeframe, fullscreen=True)
             
             if not chart_image:
                 # Fallback to error message
