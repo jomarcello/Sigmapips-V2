@@ -620,8 +620,8 @@ class ChartService:
                     
                     # Key levels section
                     analysis_text += f"🔑 <b>Key Levels</b>\n"
-                    analysis_text += f"Support: {analysis_data['low']:{precision}f}, {(analysis_data['low'] * 0.99):{precision}f}, {(analysis_data['low'] * 0.98):{precision}f} (weekly low)\n"
-                    analysis_text += f"Resistance: {analysis_data['high']:{precision}f}, {(analysis_data['high'] * 1.01):{precision}f}, {(analysis_data['high'] * 1.02):{precision}f} (weekly high)\n\n"
+                    analysis_text += f"Support: {analysis_data['low']:{precision}f} (daily low), {(analysis_data['low'] * 0.98):{precision}f} (weekly low)\n"
+                    analysis_text += f"Resistance: {analysis_data['high']:{precision}f} (daily high), {(analysis_data['high'] * 1.02):{precision}f} (weekly high)\n\n"
                     
                     # Technical indicators section
                     analysis_text += f"📈 <b>Technical Indicators</b>\n"
@@ -835,8 +835,8 @@ class ChartService:
             
             # Key levels section
             analysis_text += f"🔑 <b>Key Levels</b>\n"
-            analysis_text += f"Support: {daily_low:{precision}f} (daily low), {(daily_low * 0.99):{precision}f}, {weekly_low:{precision}f} (weekly low)\n"
-            analysis_text += f"Resistance: {daily_high:{precision}f} (daily high), {(daily_high * 1.01):{precision}f}, {weekly_high:{precision}f} (weekly high)\n\n"
+            analysis_text += f"Support: {daily_low:{precision}f} (daily low), {weekly_low:{precision}f} (weekly low)\n"
+            analysis_text += f"Resistance: {daily_high:{precision}f} (daily high), {weekly_high:{precision}f} (weekly high)\n\n"
             
             # Technical indicators section
             analysis_text += f"📈 <b>Technical Indicators</b>\n"
