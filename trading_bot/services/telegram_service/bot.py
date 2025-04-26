@@ -1297,7 +1297,7 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
             
             # Catch-all handler for any other callbacks
-            application.add_handler(CallbackQueryHandler(self.button_callback))
+            # application.add_handler(CallbackQueryHandler(self.button_callback)) # REMOVED
             
             # Don't load signals here - it will be done in initialize_services
             # self._load_signals()
@@ -2728,154 +2728,155 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 
     async def button_callback(self, update: Update, context=None) -> int:
         """Handle button callback queries"""
-        try:
-            query = update.callback_query
-            callback_data = query.data
-            
-            # Log the callback data
-            logger.info(f"Button callback opgeroepen met data: {callback_data}")
-            
-            # Answer the callback query to stop the loading indicator
-            await query.answer()
-            
-            # Handle analyze from signal button
-            if callback_data.startswith("analyze_from_signal_"):
-                return await self.analyze_from_signal_callback(update, context)
-                
-            # Help button
-            if callback_data == "help":
-                await self.help_command(update, context)
-                return MENU
-                
-            # Menu navigation
-            if callback_data == CALLBACK_MENU_ANALYSE:
-                return await self.menu_analyse_callback(update, context)
-            elif callback_data == CALLBACK_MENU_SIGNALS:
-                return await self.menu_signals_callback(update, context)
-            
-            # Analysis type selection
-            elif callback_data == CALLBACK_ANALYSIS_TECHNICAL or callback_data == "analysis_technical":
-                return await self.analysis_technical_callback(update, context)
-            elif callback_data == CALLBACK_ANALYSIS_SENTIMENT or callback_data == "analysis_sentiment":
-                return await self.analysis_sentiment_callback(update, context)
-            elif callback_data == CALLBACK_ANALYSIS_CALENDAR or callback_data == "analysis_calendar":
-                return await self.analysis_calendar_callback(update, context)
-            
-            # Signal analysis type selection
-            elif callback_data == CALLBACK_SIGNAL_TECHNICAL or callback_data == "signal_technical":
-                return await self.signal_technical_callback(update, context)
-            elif callback_data == CALLBACK_SIGNAL_SENTIMENT or callback_data == "signal_sentiment":
-                return await self.signal_sentiment_callback(update, context)
-            elif callback_data == CALLBACK_SIGNAL_CALENDAR or callback_data == "signal_calendar":
-                return await self.signal_calendar_callback(update, context)
-                
-            # Direct instrument_timeframe callbacks  
-            if "_timeframe_" in callback_data:
-                # Format: instrument_EURUSD_timeframe_H1
-                parts = callback_data.split("_")
-                instrument = parts[1]
-                timeframe = parts[3] if len(parts) > 3 else "1h"  # Default to 1h
-                return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
-            
-            # Verwerk instrument keuzes met specifiek type (chart, sentiment, calendar)
-            if "_chart" in callback_data or "_sentiment" in callback_data or "_calendar" in callback_data:
-                # Direct doorsturen naar de instrument_callback methode
-                logger.info(f"Specifiek instrument type gedetecteerd in: {callback_data}")
-                return await self.instrument_callback(update, context)
-            
-            # Handle instrument signal choices
-            if "_signals" in callback_data and callback_data.startswith("instrument_"):
-                logger.info(f"Signal instrument selection detected: {callback_data}")
-                return await self.instrument_signals_callback(update, context)
-            
-            # Speciale afhandeling voor markt keuzes
-            if callback_data.startswith("market_"):
-                return await self.market_callback(update, context)
-            
-            # Signals handlers
-            if callback_data == "signals_add" or callback_data == CALLBACK_SIGNALS_ADD:
-                return await self.signals_add_callback(update, context)
-                
-            # Manage signals handler
-            if callback_data == "signals_manage" or callback_data == CALLBACK_SIGNALS_MANAGE:
-                return await self.signals_manage_callback(update, context)
-            
-            # Back navigation handlers
-            if callback_data == "back_menu" or callback_data == CALLBACK_BACK_MENU:
-                return await self.back_menu_callback(update, context)
-            elif callback_data == "back_analysis" or callback_data == CALLBACK_BACK_ANALYSIS:
-                return await self.analysis_callback(update, context)
-            elif callback_data == "back_signals" or callback_data == CALLBACK_BACK_SIGNALS:
-                return await self.back_signals_callback(update, context)
-            elif callback_data == "back_market" or callback_data == CALLBACK_BACK_MARKET:
-                return await self.back_market_callback(update, context)
-            elif callback_data == "back_instrument" or callback_data == CALLBACK_BACK_INSTRUMENT:
-                logger.info("Explicitly handling back_instrument callback in button_callback")
-                return await self.back_instrument_callback(update, context)
-            elif callback_data == "back_to_signal":
-                logger.info("Explicitly handling back_to_signal callback in button_callback")
-                return await self.back_to_signal_callback(update, context)
-            # ADD EXPLICIT HANDLING FOR back_to_signal_analysis
-            elif callback_data == "back_to_signal_analysis":
-                logger.info("Explicitly handling back_to_signal_analysis callback in button_callback")
-                return await self.back_to_signal_analysis_callback(update, context)
-                
-            # Handle delete signal
-            if callback_data.startswith("delete_signal_"):
-                # Extract signal ID from callback data
-                signal_id = callback_data.replace("delete_signal_", "")
-                
-                try:
-                    # Delete the signal subscription
-                    response = self.db.supabase.table('signal_subscriptions').delete().eq('id', signal_id).execute()
-                    
-                    if response and response.data:
-                        # Successfully deleted
-                        await query.answer("Signal subscription removed successfully")
-                    else:
-                        # Failed to delete
-                        await query.answer("Failed to remove signal subscription")
-                    
-                    # Refresh the manage signals view
-                    return await self.signals_manage_callback(update, context)
-                    
-                except Exception as e:
-                    logger.error(f"Error deleting signal subscription: {str(e)}")
-                    await query.answer("Error removing signal subscription")
-                    return await self.signals_manage_callback(update, context)
-                    
-            # Handle delete all signals
-            if callback_data == "delete_all_signals":
-                user_id = update.effective_user.id
-                
-                try:
-                    # Delete all signal subscriptions for this user
-                    response = self.db.supabase.table('signal_subscriptions').delete().eq('user_id', user_id).execute()
-                    
-                    if response and response.data:
-                        # Successfully deleted
-                        await query.answer("All signal subscriptions removed successfully")
-                    else:
-                        # Failed to delete
-                        await query.answer("Failed to remove signal subscriptions")
-                    
-                    # Refresh the manage signals view
-                    return await self.signals_manage_callback(update, context)
-                    
-                except Exception as e:
-                    logger.error(f"Error deleting all signal subscriptions: {str(e)}")
-                    await query.answer("Error removing signal subscriptions")
-                    return await self.signals_manage_callback(update, context)
-                    
-                    
-            # Default handling if no specific callback found, go back to menu
-            logger.warning(f"Unhandled callback_data: {callback_data}")
-            return MENU
-            
-        except Exception as e:
-            logger.error(f"Error in button_callback: {str(e)}")
-            logger.exception(e)
-            return MENU
+        # try:
+        #     query = update.callback_query
+        #     callback_data = query.data
+        #     
+        #     # Log the callback data
+        #     logger.info(f"Button callback opgeroepen met data: {callback_data}")
+        #     
+        #     # Answer the callback query to stop the loading indicator
+        #     await query.answer()
+        #     
+        #     # Handle analyze from signal button
+        #     if callback_data.startswith("analyze_from_signal_"):
+        #         return await self.analyze_from_signal_callback(update, context)
+        #         
+        #     # Help button
+        #     if callback_data == "help":
+        #         await self.help_command(update, context)
+        #         return MENU
+        #         
+        #     # Menu navigation
+        #     if callback_data == CALLBACK_MENU_ANALYSE:
+        #         return await self.menu_analyse_callback(update, context)
+        #     elif callback_data == CALLBACK_MENU_SIGNALS:
+        #         return await self.menu_signals_callback(update, context)
+        #     
+        #     # Analysis type selection
+        #     elif callback_data == CALLBACK_ANALYSIS_TECHNICAL or callback_data == "analysis_technical":
+        #         return await self.analysis_technical_callback(update, context)
+        #     elif callback_data == CALLBACK_ANALYSIS_SENTIMENT or callback_data == "analysis_sentiment":
+        #         return await self.analysis_sentiment_callback(update, context)
+        #     elif callback_data == CALLBACK_ANALYSIS_CALENDAR or callback_data == "analysis_calendar":
+        #         return await self.analysis_calendar_callback(update, context)
+        #     
+        #     # Signal analysis type selection
+        #     elif callback_data == CALLBACK_SIGNAL_TECHNICAL or callback_data == "signal_technical":
+        #         return await self.signal_technical_callback(update, context)
+        #     elif callback_data == CALLBACK_SIGNAL_SENTIMENT or callback_data == "signal_sentiment":
+        #         return await self.signal_sentiment_callback(update, context)
+        #     elif callback_data == CALLBACK_SIGNAL_CALENDAR or callback_data == "signal_calendar":
+        #         return await self.signal_calendar_callback(update, context)
+        #         
+        #     # Direct instrument_timeframe callbacks  
+        #     if "_timeframe_" in callback_data:
+        #         # Format: instrument_EURUSD_timeframe_H1
+        #         parts = callback_data.split("_")
+        #         instrument = parts[1]
+        #         timeframe = parts[3] if len(parts) > 3 else "1h"  # Default to 1h
+        #         return await self.show_technical_analysis(update, context, instrument=instrument, timeframe=timeframe)
+        #     
+        #     # Verwerk instrument keuzes met specifiek type (chart, sentiment, calendar)
+        #     if "_chart" in callback_data or "_sentiment" in callback_data or "_calendar" in callback_data:
+        #         # Direct doorsturen naar de instrument_callback methode
+        #         logger.info(f"Specifiek instrument type gedetecteerd in: {callback_data}")
+        #         return await self.instrument_callback(update, context)
+        #     
+        #     # Handle instrument signal choices
+        #     if "_signals" in callback_data and callback_data.startswith("instrument_"):
+        #         logger.info(f"Signal instrument selection detected: {callback_data}")
+        #         return await self.instrument_signals_callback(update, context)
+        #     
+        #     # Speciale afhandeling voor markt keuzes
+        #     if callback_data.startswith("market_"):
+        #         return await self.market_callback(update, context)
+        #     
+        #     # Signals handlers
+        #     if callback_data == "signals_add" or callback_data == CALLBACK_SIGNALS_ADD:
+        #         return await self.signals_add_callback(update, context)
+        #         
+        #     # Manage signals handler
+        #     if callback_data == "signals_manage" or callback_data == CALLBACK_SIGNALS_MANAGE:
+        #         return await self.signals_manage_callback(update, context)
+        #     
+        #     # Back navigation handlers
+        #     if callback_data == "back_menu" or callback_data == CALLBACK_BACK_MENU:
+        #         return await self.back_menu_callback(update, context)
+        #     elif callback_data == "back_analysis" or callback_data == CALLBACK_BACK_ANALYSIS:
+        #         return await self.analysis_callback(update, context)
+        #     elif callback_data == "back_signals" or callback_data == CALLBACK_BACK_SIGNALS:
+        #         return await self.back_signals_callback(update, context)
+        #     elif callback_data == "back_market" or callback_data == CALLBACK_BACK_MARKET:
+        #         return await self.back_market_callback(update, context)
+        #     elif callback_data == "back_instrument" or callback_data == CALLBACK_BACK_INSTRUMENT:
+        #         logger.info("Explicitly handling back_instrument callback in button_callback")
+        #         return await self.back_instrument_callback(update, context)
+        #     elif callback_data == "back_to_signal":
+        #         logger.info("Explicitly handling back_to_signal callback in button_callback")
+        #         return await self.back_to_signal_callback(update, context)
+        #     # ADD EXPLICIT HANDLING FOR back_to_signal_analysis
+        #     elif callback_data == "back_to_signal_analysis":
+        #         logger.info("Explicitly handling back_to_signal_analysis callback in button_callback")
+        #         return await self.back_to_signal_analysis_callback(update, context)
+        #         
+        #     # Handle delete signal
+        #     if callback_data.startswith("delete_signal_"):
+        #         # Extract signal ID from callback data
+        #         signal_id = callback_data.replace("delete_signal_", "")
+        #         
+        #         try:
+        #             # Delete the signal subscription
+        #             response = self.db.supabase.table('signal_subscriptions').delete().eq('id', signal_id).execute()
+        #             
+        #             if response and response.data:
+        #                 # Successfully deleted
+        #                 await query.answer("Signal subscription removed successfully")
+        #             else:
+        #                 # Failed to delete
+        #                 await query.answer("Failed to remove signal subscription")
+        #             
+        #             # Refresh the manage signals view
+        #             return await self.signals_manage_callback(update, context)
+        #             
+        #         except Exception as e:
+        #             logger.error(f"Error deleting signal subscription: {str(e)}")
+        #             await query.answer("Error removing signal subscription")
+        #             return await self.signals_manage_callback(update, context)
+        #             
+        #     # Handle delete all signals
+        #     if callback_data == "delete_all_signals":
+        #         user_id = update.effective_user.id
+        #         
+        #         try:
+        #             # Delete all signal subscriptions for this user
+        #             response = self.db.supabase.table('signal_subscriptions').delete().eq('user_id', user_id).execute()
+        #             
+        #             if response and response.data:
+        #                 # Successfully deleted
+        #                 await query.answer("All signal subscriptions removed successfully")
+        #             else:
+        #                 # Failed to delete
+        #                 await query.answer("Failed to remove signal subscriptions")
+        #             
+        #             # Refresh the manage signals view
+        #             return await self.signals_manage_callback(update, context)
+        #             
+        #         except Exception as e:
+        #             logger.error(f"Error deleting all signal subscriptions: {str(e)}")
+        #             await query.answer("Error removing signal subscriptions")
+        #             return await self.signals_manage_callback(update, context)
+        #             
+        #             
+        #     # Default handling if no specific callback found, go back to menu
+        #     logger.warning(f"Unhandled callback_data: {callback_data}")
+        #     return MENU
+        #     
+        # except Exception as e:
+        #     logger.error(f"Error in button_callback: {str(e)}")
+        #     logger.exception(e)
+        #     return MENU
+        pass # Keep function definition but disable body
 
     async def market_signals_callback(self, update: Update, context=None) -> int:
         """Handle signals market selection"""
@@ -3046,10 +3047,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             is_signals_context = context.user_data.get('is_signals_context', False)
         
         if is_signals_context:
-            # Go back to signals menu
-            return await self.back_signals_callback(update, context)
+            # Go back to signals market selection
+            logger.info("Returning to signals market selection (via signals_add_callback)")
+            return await self.signals_add_callback(update, context)
         else:
             # Go back to analysis selection
+            logger.info("Returning to analysis type selection (via analysis_callback)")
             return await self.analysis_callback(update, context)
 
     async def instrument_signals_callback(self, update: Update, context=None) -> int:
