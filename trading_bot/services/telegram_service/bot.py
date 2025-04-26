@@ -2472,84 +2472,75 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle back_to_signal button press. Deletes the current message and sends a new one with the original signal info."""
         query = update.callback_query
         await query.answer()
-        
+
         try:
             logger.info("ENTERING: back_to_signal_callback")
             user_id = update.effective_user.id
             chat_id = update.effective_chat.id
 
-            signal_instrument = None
-            signal_direction = None
-            signal_timeframe = None
-            signal_id_from_context = None
-            original_signal_message = None
-            
+            instrument_to_use = None
+            signal_id_to_use = None
+            original_signal_message_fallback = None
+
             if context and hasattr(context, 'user_data'):
                 logger.info(f"Context user_data at start of back_to_signal_callback: {context.user_data}")
-                signal_instrument = context.user_data.get('signal_instrument_backup') or context.user_data.get('signal_instrument')
-                signal_direction = context.user_data.get('signal_direction_backup') or context.user_data.get('signal_direction')
-                signal_timeframe = context.user_data.get('signal_timeframe_backup') or context.user_data.get('signal_timeframe')
-                signal_id_from_context = context.user_data.get('signal_id_backup') or context.user_data.get('signal_id')
-                original_signal_message = context.user_data.get('original_signal_message')
+                # --- Prioritize backup values stored when entering signal analysis flow ---
+                instrument_to_use = context.user_data.get('signal_instrument_backup')
+                signal_id_to_use = context.user_data.get('signal_id_backup')
+                original_signal_message_fallback = context.user_data.get('original_signal_message') # Keep for fallback
+
+                # If backups are missing, try current context values (less reliable)
+                if not instrument_to_use:
+                    instrument_to_use = context.user_data.get('signal_instrument')
+                    logger.warning("Using current signal_instrument from context as backup instrument was missing.")
+                if not signal_id_to_use:
+                    signal_id_to_use = context.user_data.get('signal_id')
+                    logger.warning("Using current signal_id from context as backup ID was missing.")
+
                 context.user_data['from_signal'] = True # Ensure we stay in signal context
-                logger.info(f"Retrieved from context: instrument={signal_instrument}, direction={signal_direction}, timeframe={signal_timeframe}, id={signal_id_from_context}")
+                logger.info(f"Prioritized context values: instrument='{instrument_to_use}', signal_id='{signal_id_to_use}'")
 
-            # Find the signal message and ID
+            # --- Find the signal message ---
             signal_data = None
-            signal_id = signal_id_from_context # Prioritize ID from context if available
-
-            # If ID wasn't in context, try finding the latest matching signal in cache
-            if not signal_id and str(user_id) in self.user_signals and signal_instrument:
-                user_signal_dict = self.user_signals[str(user_id)]
-                matching_signals = []
-                for sig_id, sig in user_signal_dict.items():
-                    instrument_match = sig.get('instrument') == signal_instrument
-                    direction_match = (not signal_direction) or (sig.get('direction') == signal_direction)
-                    timeframe_match = (not signal_timeframe) or (sig.get('timeframe') == signal_timeframe)
-                    if instrument_match and direction_match and timeframe_match:
-                        matching_signals.append((sig_id, sig))
-                
-                if matching_signals:
-                    matching_signals.sort(key=lambda x: x[1].get('timestamp', ''), reverse=True)
-                    signal_id, signal_data = matching_signals[0]
-                    logger.info(f"Found matching signal in cache with ID: {signal_id}")
-                else:
-                    logger.warning(f"No matching signal found in cache for instrument={signal_instrument}, dir={signal_direction}, tf={signal_timeframe}")
-            
-            # Retrieve signal data from cache if we have an ID but not the data yet
-            if signal_id and not signal_data and str(user_id) in self.user_signals:
-                 signal_data = self.user_signals[str(user_id)].get(signal_id)
-                 if signal_data:
-                      logger.info(f"Retrieved signal data from cache using ID: {signal_id}")
-            
-            # Determine the message text
             signal_message = None
-            if signal_data:
-                signal_message = signal_data.get('message')
-            if not signal_message and original_signal_message:
-                signal_message = original_signal_message
-                logger.info("Using original signal message from context as fallback.")
-            if not signal_message:
-                 signal_message = "Signal details not available." # Final fallback
 
-            # Construct the callback data for the Analyze button
-            # Ensure instrument is valid before creating callback data
-            if not signal_instrument:
+            # 1. Try retrieving signal data from cache using the prioritized ID
+            if signal_id_to_use and str(user_id) in self.user_signals:
+                 signal_data = self.user_signals[str(user_id)].get(signal_id_to_use)
+                 if signal_data:
+                      signal_message = signal_data.get('message')
+                      logger.info(f"Retrieved signal message from cache using ID: {signal_id_to_use}")
+                 else:
+                      logger.warning(f"Signal ID {signal_id_to_use} not found in cache for user {user_id}.")
+
+            # 2. If not found via ID, try the original_signal_message from context as fallback
+            if not signal_message and original_signal_message_fallback:
+                signal_message = original_signal_message_fallback
+                logger.info("Using original signal message from context as fallback.")
+
+            # 3. Final fallback if no message found
+            if not signal_message:
+                 logger.error(f"Could not find signal message for user {user_id}, ID '{signal_id_to_use}', instrument '{instrument_to_use}'.")
+                 signal_message = "Signal details not available." # Final fallback text
+
+            # --- Construct the Analyze Market button ---
+            if not instrument_to_use:
                  logger.error("Signal instrument is missing, cannot create Analyze button callback data.")
-                 # Handle error appropriately, maybe return to menu
-                 await query.message.delete() # Delete the analysis message
+                 try:
+                    await query.message.delete() # Delete the analysis message
+                 except Exception: pass
                  await context.bot.send_message(
                      chat_id=chat_id,
-                     text="Error: Could not determine the instrument. Please use /menu.",
+                     text=f"Error: Could not determine the instrument for signal '{signal_id_to_use}'. Please use /menu.",
                      reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                  )
                  return MENU
-            
+
             # Use the most reliable signal_id found
-            final_signal_id = signal_id if signal_id else f"{signal_instrument}_{signal_direction or 'DIR'}_{signal_timeframe or 'TF'}_{int(time.time())}"
-            analyze_callback_data = f"analyze_from_signal_{signal_instrument}_{final_signal_id}"
+            analyze_callback_data = f"analyze_from_signal_{instrument_to_use}_{signal_id_to_use}"
             keyboard = [[InlineKeyboardButton("🔍 Analyze Market", callback_data=analyze_callback_data)]]
-            
+
+            # --- Send the message ---
             # Delete the current message (technical analysis/chart)
             try:
                 await query.message.delete()
@@ -2557,7 +2548,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception as delete_error:
                 logger.error(f"Could not delete message {query.message.message_id}: {str(delete_error)}")
                 # Continue anyway, try sending the new message
-            
+
             # Send a NEW message with the signal details
             await context.bot.send_message(
                 chat_id=chat_id,
@@ -2565,14 +2556,16 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML
             )
-            logger.info(f"Sent new message with signal details for {signal_instrument}")
-            
-            return SIGNAL_DETAILS
-            
+            logger.info(f"Sent new message with signal details for {instrument_to_use} (ID: {signal_id_to_use})")
+
+            # <<< Make sure we return the correct state >>>
+            # We are back at the signal details view, awaiting potential analysis requests
+            return SIGNAL_DETAILS # This state indicates viewing signal details
+
         except Exception as e:
             logger.error(f"Error in back_to_signal_callback: {str(e)}")
             logger.exception(e)
-            
+
             # Error recovery: Try to send user back to main menu
             try:
                 # Try deleting the current message first
@@ -2586,7 +2579,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
             except Exception as recovery_error:
                 logger.error(f"Error during error recovery in back_to_signal_callback: {recovery_error}")
-            
+
             return MENU
 
     async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
@@ -2807,7 +2800,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                  
             # >>> SIGNAL FLOW SPECIFIC BACK BUTTONS <<<
             elif callback_data == "back_to_signal_analysis": # Back to Tech/Sentiment/Calendar for the signal (Corrected from back_to_signal_analysis_options)
-                return await self.analyze_from_signal_callback(update, context) # Reuse the function to show options
+                # return await self.analyze_from_signal_callback(update, context) # INCORRECT: This was causing the wrong flow
+                return await self.back_to_signal_analysis_callback(update, context) # CORRECT: Route to the proper handler
             elif callback_data == "back_to_signal": # Back to the original signal message
                 return await self.back_to_signal_callback(update, context)
 
