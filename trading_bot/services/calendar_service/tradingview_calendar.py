@@ -404,6 +404,10 @@ class TradingViewCalendarService:
                                         logger.info("Falling back to mock calendar data")
                                         return generate_mock_calendar_data(days_ahead, min_impact)
                                     return []
+                            # Handle the specific {"status": "ok"} response which indicates no events
+                            elif isinstance(data, dict) and data == {"status": "ok"}:
+                                logger.info("Received 'status: ok' response, indicating no events for the requested period.")
+                                return []
                             else:
                                 logger.error("Response is not a list and does not contain expected fields")
                                 if HAS_CUSTOM_MOCK_DATA:
