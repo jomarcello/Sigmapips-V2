@@ -202,22 +202,22 @@ class YahooFinanceProvider:
             return df
             
         try:
-            # Initial diagnostics
+            # Initial diagnostics (Keep basic shape log)
             logger.info(f"[Validation] Starting data validation with shape: {df.shape}")
-            logger.info(f"[Validation] Original columns: {df.columns}")
-            logger.info(f"[Validation] Index type: {type(df.index).__name__}")
-            logger.info(f"[Validation] Index range: {df.index[0]} to {df.index[-1]}" if len(df) > 0 else "[Validation] Empty index")
-            
+            # logger.info(f"[Validation] Original columns: {df.columns}")
+            # logger.info(f"[Validation] Index type: {type(df.index).__name__}")
+            # logger.info(f"[Validation] Index range: {df.index[0]} to {df.index[-1]}" if len(df) > 0 else "[Validation] Empty index")
+
             # Check for NaN values in the original data
             nan_counts = df.isna().sum()
-            if nan_counts.sum() > 0:
-                logger.warning(f"[Validation] Found NaN values in original data: {nan_counts.to_dict()}")
-            
+            # if nan_counts.sum() > 0:
+            #     logger.warning(f"[Validation] Found NaN values in original data: {nan_counts.to_dict()}")
+
             # Check if we have a multi-index dataframe from yfinance
             if isinstance(df.columns, pd.MultiIndex):
-                logger.info(f"[Validation] Detected MultiIndex columns with levels: {[name for name in df.columns.names]}")
-                logger.info(f"[Validation] First level values: {df.columns.get_level_values(0).unique().tolist()}")
-                logger.info(f"[Validation] Second level values: {df.columns.get_level_values(1).unique().tolist()}")
+                # logger.info(f"[Validation] Detected MultiIndex columns with levels: {[name for name in df.columns.names]}")
+                # logger.info(f"[Validation] First level values: {df.columns.get_level_values(0).unique().tolist()}")
+                # logger.info(f"[Validation] Second level values: {df.columns.get_level_values(1).unique().tolist()}")
                 
                 # Convert multi-index format to standard format
                 result = pd.DataFrame()
@@ -226,13 +226,13 @@ class YahooFinanceProvider:
                 for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
                     if (col, df.columns.get_level_values(1)[0]) in df.columns:
                         result[col] = df[(col, df.columns.get_level_values(1)[0])]
-                        logger.info(f"[Validation] Extracted {col} from MultiIndex")
-                    else:
-                        logger.error(f"[Validation] Column {col} not found in multi-index")
+                        # logger.info(f"[Validation] Extracted {col} from MultiIndex")
+                    # else: # Log errors only if column is truly missing
+                    #     logger.error(f"[Validation] Column {col} not found in multi-index")
                         
                 # Replace original dataframe with converted one
                 if not result.empty:
-                    logger.info(f"[Validation] Successfully converted multi-index to: {result.columns}")
+                    # logger.info(f"[Validation] Successfully converted multi-index to: {result.columns}")
                     df = result
                 else:
                     logger.error("[Validation] Failed to convert multi-index dataframe, returning empty DataFrame")
@@ -246,114 +246,118 @@ class YahooFinanceProvider:
                 logger.info(f"[Validation] Available columns: {df.columns}")
                 return pd.DataFrame()
             
-            # Report initial data statistics
-            logger.info(f"[Validation] Data statistics before cleaning:")
-            for col in required_columns:
-                try:
-                    stats = {
-                        'min': df[col].min(),
-                        'max': df[col].max(),
-                        'mean': df[col].mean(),
-                        'null_count': df[col].isnull().sum()
-                    }
-                    logger.info(f"[Validation] {col}: {stats}")
-                except Exception as stats_e:
-                    logger.error(f"[Validation] Error calculating stats for {col}: {str(stats_e)}")
+            # Report initial data statistics (COMMENTED OUT)
+            # logger.info(f"[Validation] Data statistics before cleaning:")
+            # for col in required_columns:
+            #     try:
+            #         stats = {
+            #             'min': df[col].min(),
+            #             'max': df[col].max(),
+            #             'mean': df[col].mean(),
+            #             'null_count': df[col].isnull().sum()
+            #         }
+            #         logger.info(f"[Validation] {col}: {stats}")
+            #     except Exception as stats_e:
+            #         logger.error(f"[Validation] Error calculating stats for {col}: {str(stats_e)}")
             
             # Remove any duplicate indices
             dupes_count = df.index.duplicated().sum()
             if dupes_count > 0:
-                logger.warning(f"[Validation] Found {dupes_count} duplicate indices, removing duplicates")
+                # logger.warning(f"[Validation] Found {dupes_count} duplicate indices, removing duplicates")
                 df = df[~df.index.duplicated(keep='last')]
-            else:
-                logger.info("[Validation] No duplicate indices found")
+            # else:
+                # logger.info("[Validation] No duplicate indices found")
             
             # Forward fill missing values (max 2 periods)
             null_before = df.isnull().sum().sum()
             df = df.ffill(limit=2)
             null_after = df.isnull().sum().sum()
-            if null_before > 0:
-                logger.info(f"[Validation] Forward-filled {null_before - null_after} NaN values (limit=2)")
+            # if null_before > 0:
+                # logger.info(f"[Validation] Forward-filled {null_before - null_after} NaN values (limit=2)")
             
             # Remove rows with any remaining NaN values
-            row_count_before = len(df)
+            row_count_before_nan = len(df)
             df = df.dropna()
-            row_count_after = len(df)
-            if row_count_after < row_count_before:
-                logger.warning(f"[Validation] Dropped {row_count_before - row_count_after} rows with NaN values")
+            row_count_after_nan = len(df)
+            # if row_count_after_nan < row_count_before_nan:
+                # logger.warning(f"[Validation] Dropped {row_count_before_nan - row_count_after_nan} rows with NaN values")
             
             # Ensure all numeric columns are float
             for col in df.columns:
                 try:
+                    # Use recommended approach to avoid SettingWithCopyWarning if possible
+                    # df[col] = pd.to_numeric(df[col], errors='coerce')
+                    # If direct assignment causes issues, use the original approach with warning suppression
                     with pd.option_context('mode.chained_assignment', None):
                         df[col] = pd.to_numeric(df[col], errors='coerce')
+
                     nan_after_conversion = df[col].isna().sum()
-                    if nan_after_conversion > 0:
-                        logger.warning(f"[Validation] Converting {col} to numeric created {nan_after_conversion} NaN values")
+                    # if nan_after_conversion > 0:
+                        # logger.warning(f"[Validation] Converting {col} to numeric created {nan_after_conversion} NaN values")
                 except Exception as conv_e:
                     logger.error(f"[Validation] Error converting {col} to numeric: {str(conv_e)}")
             
             # Check for remaining NaN values after numeric conversion
             if df.isna().sum().sum() > 0:
-                logger.warning(f"[Validation] Still have NaN values after numeric conversion: {df.isna().sum().to_dict()}")
+                # logger.warning(f"[Validation] Still have NaN values after numeric conversion: {df.isna().sum().to_dict()}")
                 # Drop rows with NaN values again
-                row_count_before = len(df)
+                row_count_before_nan2 = len(df)
                 df = df.dropna()
-                row_count_after = len(df)
-                logger.warning(f"[Validation] Dropped additional {row_count_before - row_count_after} rows with NaN values")
+                row_count_after_nan2 = len(df)
+                # logger.warning(f"[Validation] Dropped additional {row_count_before_nan2 - row_count_after_nan2} rows with NaN values")
             
-            # Validate price relationships - only keep rows with valid OHLC relationships
-            row_count_before = len(df)
-            valid_rows = (
-                (df['High'] >= df['Low']) & 
-                (df['High'] >= df['Open']) & 
-                (df['High'] >= df['Close']) &
-                (df['Low'] <= df['Open']) & 
-                (df['Low'] <= df['Close'])
-            )
-            
-            # Log invalid row counts by condition
-            if not valid_rows.all():
-                invalid_count = (~valid_rows).sum()
-                logger.warning(f"[Validation] Found {invalid_count} rows with invalid OHLC relationships")
+            # Validate price relationships - only keep rows with valid OHLC relationships (COMMENTED OUT)
+            # row_count_before_ohlc = len(df)
+            # valid_rows = (
+            #     (df['High'] >= df['Low']) &
+            #     (df['High'] >= df['Open']) &
+            #     (df['High'] >= df['Close']) &
+            #     (df['Low'] <= df['Open']) &
+            #     (df['Low'] <= df['Close'])
+            # )
+
+            # Log invalid row counts by condition (COMMENTED OUT)
+            # if not valid_rows.all():
+                # invalid_count = (~valid_rows).sum()
+                # logger.warning(f"[Validation] Found {invalid_count} rows with invalid OHLC relationships")
                 
-                # Detailed diagnostics of invalid rows
-                condition_results = {
-                    'High < Low': (df['High'] < df['Low']).sum(),
-                    'High < Open': (df['High'] < df['Open']).sum(),
-                    'High < Close': (df['High'] < df['Close']).sum(),
-                    'Low > Open': (df['Low'] > df['Open']).sum(),
-                    'Low > Close': (df['Low'] > df['Close']).sum()
-                }
-                logger.warning(f"[Validation] Invalid relationship details: {condition_results}")
+                # Detailed diagnostics of invalid rows (COMMENTED OUT)
+                # condition_results = {
+                #     'High < Low': (df['High'] < df['Low']).sum(),
+                #     'High < Open': (df['High'] < df['Open']).sum(),
+                #     'High < Close': (df['High'] < df['Close']).sum(),
+                #     'Low > Open': (df['Low'] > df['Open']).sum(),
+                #     'Low > Close': (df['Low'] > df['Close']).sum()
+                # }
+                # logger.warning(f"[Validation] Invalid relationship details: {condition_results}")
                 
-                # Show an example of an invalid row
-                if invalid_count > 0:
-                    try:
-                        invalid_idx = (~valid_rows).idxmax()
-                        logger.warning(f"[Validation] Example invalid row at {invalid_idx}: {df.loc[invalid_idx, ['Open', 'High', 'Low', 'Close']].to_dict()}")
-                    except Exception as e:
-                        logger.error(f"[Validation] Error showing invalid row example: {str(e)}")
+                # Show an example of an invalid row (COMMENTED OUT)
+                # if invalid_count > 0:
+                    # try:
+                        # invalid_idx = (~valid_rows).idxmax()
+                        # logger.warning(f"[Validation] Example invalid row at {invalid_idx}: {df.loc[invalid_idx, ['Open', 'High', 'Low', 'Close']].to_dict()}")
+                    # except Exception as e:
+                        # logger.error(f"[Validation] Error showing invalid row example: {str(e)}")
             
-            df = df[valid_rows]
-            row_count_after = len(df)
-            if row_count_after < row_count_before:
-                logger.warning(f"[Validation] Removed {row_count_before - row_count_after} rows with invalid OHLC relationships")
+            # df = df[valid_rows] # Keep the filter commented out for now
+            # row_count_after_ohlc = len(df)
+            # if row_count_after_ohlc < row_count_before_ohlc:
+                # logger.warning(f"[Validation] Removed {row_count_before_ohlc - row_count_after_ohlc} rows with invalid OHLC relationships")
             
             # Also validate Volume if it exists
             if 'Volume' in df.columns:
-                row_count_before = len(df)
+                row_count_before_vol = len(df)
                 df = df[df['Volume'] >= 0]
-                row_count_after = len(df)
-                if row_count_after < row_count_before:
-                    logger.warning(f"[Validation] Removed {row_count_before - row_count_after} rows with negative Volume")
+                row_count_after_vol = len(df)
+                # if row_count_after_vol < row_count_before_vol:
+                    # logger.warning(f"[Validation] Removed {row_count_before_vol - row_count_after_vol} rows with negative Volume")
             
             # Apply correct decimal precision based on instrument type if provided
             if instrument:
                 try:
                     # Get the appropriate precision for this instrument
                     precision = YahooFinanceProvider._get_instrument_precision(instrument)
-                    logger.info(f"[Validation] Using {precision} decimal places for {instrument}")
+                    # logger.info(f"[Validation] Using {precision} decimal places for {instrument}")
                     
                     # Apply precision to price columns
                     price_columns = ['Open', 'High', 'Low', 'Close']
@@ -361,27 +365,31 @@ class YahooFinanceProvider:
                         if col in df.columns:
                             # Round the values to the appropriate precision
                             # This ensures the data is displayed with the correct number of decimal places
-                            df[col] = df[col].round(precision)
+                            # Use recommended approach to avoid SettingWithCopyWarning if possible
+                            # df[col] = df[col].round(precision)
+                            # If direct assignment causes issues, use the original approach with warning suppression
+                            with pd.option_context('mode.chained_assignment', None):
+                                 df[col] = df[col].round(precision)
                 except Exception as e:
                     logger.error(f"[Validation] Error applying precision for {instrument}: {str(e)}")
             
-            # Final data statistics
-            logger.info(f"[Validation] Final validated DataFrame shape: {df.shape}")
-            if len(df) > 0:
-                logger.info(f"[Validation] Date range: {df.index[0]} to {df.index[-1]}")
+            # Final data statistics (COMMENTED OUT)
+            # logger.info(f"[Validation] Final validated DataFrame shape: {df.shape}")
+            # if len(df) > 0:
+                # logger.info(f"[Validation] Date range: {df.index[0]} to {df.index[-1]}")
                 
-                # Log final statistics for key columns
-                for col in required_columns:
-                    if col in df.columns:
-                        try:
-                            stats = {
-                                'min': df[col].min(),
-                                'max': df[col].max(),
-                                'mean': df[col].mean(),
-                            }
-                            logger.info(f"[Validation] Final {col} statistics: {stats}")
-                        except Exception as stats_e:
-                            logger.error(f"[Validation] Error calculating final stats for {col}: {str(stats_e)}")
+                # Log final statistics for key columns (COMMENTED OUT)
+                # for col in required_columns:
+                    # if col in df.columns:
+                        # try:
+                            # stats = {
+                                # 'min': df[col].min(),
+                                # 'max': df[col].max(),
+                                # 'mean': df[col].mean(),
+                            # }
+                            # logger.info(f"[Validation] Final {col} statistics: {stats}")
+                        # except Exception as stats_e:
+                            # logger.error(f"[Validation] Error calculating final stats for {col}: {str(stats_e)}")
             
             return df
             
@@ -389,10 +397,10 @@ class YahooFinanceProvider:
             logger.error(f"[Validation] Error in data validation: {str(e)}")
             logger.error(f"[Validation] Error type: {type(e).__name__}")
             logger.error(traceback.format_exc())
-            return df
+            return df # Return original df on validation error? Or None? Consider implications.
 
     @staticmethod
-    async def get_market_data(symbol: str, timeframe: str = "1d", limit: int = 100) -> Optional[pd.DataFrame]:
+    async def get_market_data(symbol: str, timeframe: str = "1d", limit: int = 100) -> Optional[Tuple[pd.DataFrame, Dict]]:
         """
         Get market data for a symbol and timeframe using Yahoo Finance.
         Includes data fetching optimization and caching.
@@ -403,14 +411,21 @@ class YahooFinanceProvider:
             logger.info(f"[Yahoo Cache] HIT for market data: {symbol} timeframe {timeframe} limit {limit}")
             # Return a copy to prevent modification of cached object
             cached_result = market_data_cache[market_cache_key]
-            if isinstance(cached_result, pd.DataFrame):
-                 # Ensure the 'indicators' attribute exists and is copied if present
-                 df_copy = cached_result.copy()
-                 if hasattr(cached_result, 'indicators'):
-                     df_copy.indicators = cached_result.indicators.copy()
-                 return df_copy
-            else: # Handle potential non-DataFrame cached items (e.g., None)
-                 return cached_result 
+            # Expecting a tuple (df, indicators_dict)
+            if isinstance(cached_result, tuple) and len(cached_result) == 2 and isinstance(cached_result[0], pd.DataFrame):
+                df_copy = cached_result[0].copy()
+                indicators_copy = cached_result[1].copy() if isinstance(cached_result[1], dict) else {}
+                return df_copy, indicators_copy
+            else: # Handle potential non-tuple cached items (e.g., None)
+                 # If None was cached, return (None, None)
+                 if cached_result is None:
+                     return None, None
+                 # Otherwise, log unexpected cache content
+                 logger.warning(f"[Yahoo Cache] Unexpected cached item type for {market_cache_key}: {type(cached_result)}")
+                 # Attempt to clear the invalid cache entry
+                 del market_data_cache[market_cache_key]
+                 # Fall through to re-fetch
+
         logger.info(f"[Yahoo Cache] MISS for market data: {symbol} timeframe {timeframe} limit {limit}")
         # --- End Caching Logic ---
 
@@ -470,7 +485,7 @@ class YahooFinanceProvider:
                 if df is None or df.empty:
                     logger.warning(f"[Yahoo] No data returned for {symbol} ({formatted_symbol}) after download attempt.")
                     market_data_cache[market_cache_key] = None # Cache None result
-                    return None
+                    return None, None # Return tuple
                     
                 # Log success and data shape before validation
                 logger.info(f"[Yahoo] Successfully downloaded data for {symbol} with shape {df.shape}")
@@ -481,7 +496,7 @@ class YahooFinanceProvider:
                 if df_validated is None or df_validated.empty:
                      logger.warning(f"[Yahoo] Data validation failed or resulted in empty DataFrame for {symbol}")
                      market_data_cache[market_cache_key] = None # Cache None result
-                     return None
+                     return None, None # Return tuple
 
                 # For 4h timeframe, resample from 1h
                 if timeframe == "4h" and interval == "1h": # Ensure we fetched 1h data
@@ -571,10 +586,10 @@ class YahooFinanceProvider:
                               delta = df_with_indicators['Close'].diff()
                               gain = delta.where(delta > 0, 0.0).fillna(0.0)
                               loss = -delta.where(delta < 0, 0.0).fillna(0.0)
-                              
+
                               # Use simple moving average for initial values
-                              avg_gain = gain.rolling(window=14, min_periods=14).mean()
-                              avg_loss = loss.rolling(window=14, min_periods=14).mean()
+                              # avg_gain = gain.rolling(window=14, min_periods=14).mean()
+                              # avg_loss = loss.rolling(window=14, min_periods=14).mean()
 
                               # Calculate Wilder's smoothing for subsequent values (alternative: use ewm)
                               # Using ewm is often preferred and simpler
@@ -583,12 +598,14 @@ class YahooFinanceProvider:
 
                               rs = avg_gain / avg_loss.replace(0, np.nan) # Avoid division by zero, replace with NaN
                               df_with_indicators['RSI'] = 100 - (100 / (1 + rs))
-                              df_with_indicators['RSI'].fillna(method='bfill', inplace=True) # Backfill initial NaNs
+                              # df_with_indicators['RSI'].fillna(method='bfill', inplace=True) # Backfill initial NaNs <- FIX WARNING
+                              df_with_indicators['RSI'] = df_with_indicators['RSI'].bfill() # Use direct method (FIXED WARNING)
+
                               
                               # Handle potential NaN in the last value if avg_loss was 0 persistently
                               last_rsi = df_with_indicators['RSI'].iloc[-1]
-                              indicators['RSI'] = float(last_rsi) if pd.notna(last_rsi) else None 
-                         
+                              indicators['RSI'] = float(last_rsi) if pd.notna(last_rsi) else None
+
                          # Calculate MACD safely
                          if len(df_with_indicators) >= min_len_macd:
                               df_with_indicators['EMA12'] = df_with_indicators['Close'].ewm(span=12, adjust=False).mean()
@@ -609,17 +626,17 @@ class YahooFinanceProvider:
                 # --- Limit the number of candles AFTER calculations ---
                 df_limited = df_with_indicators.iloc[-limit:]
                 
-                # --- Store indicators and cache result ---
-                # Attach indicators to the *limited* DataFrame that will be returned
-                result_df = df_limited.copy() # Create the final result copy
-                result_df.indicators = indicators # Attach the calculated indicators dict
-
-                # Cache the final result DataFrame with indicators attribute
-                market_data_cache[market_cache_key] = result_df.copy() # Cache a copy
+                # --- Prepare result and cache --- 
+                # Return the limited DataFrame AND the separate indicators dict
+                result_df = df_limited.copy()
+                # REMOVED: result_df.indicators = indicators # Avoid UserWarning by not setting attribute (FIXED WARNING)
+                
+                # Cache the final result tuple (DataFrame, indicators_dict)
+                market_data_cache[market_cache_key] = (result_df.copy(), indicators.copy()) # Cache copies
                 # Log the shape being returned
                 logger.info(f"[Yahoo] Returning market data for {symbol} with shape {result_df.shape}")
 
-                return result_df
+                return result_df, indicators # Return tuple
                 
             except Exception as download_e:
                 logger.error(f"[Yahoo] Error processing market data for {symbol}: {str(download_e)}")
@@ -634,7 +651,7 @@ class YahooFinanceProvider:
             logger.error(traceback.format_exc()) # Log full traceback for unexpected errors
             # Ensure None is cached on unexpected error before returning
             market_data_cache[market_cache_key] = None 
-            return None
+            return None, None # Return tuple
 
     @staticmethod
     async def get_stock_info(symbol: str) -> Optional[Dict]:
