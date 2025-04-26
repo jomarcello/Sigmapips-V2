@@ -447,26 +447,26 @@ class ChartService:
                 # Choose providers based on market type
                 prioritized_providers = []
                 if market_type == "crypto":
-                    # For crypto, try Binance first, then Yahoo
+                    # For crypto, ONLY try Binance
                     if binance_provider:
                         prioritized_providers.append(binance_provider)
-                    if yahoo_provider:
-                        prioritized_providers.append(yahoo_provider)
+                    else:
+                        logger.warning("Binance provider not found for crypto market.")
+                    # DO NOT add Yahoo as a fallback here for crypto
                 elif market_type == "commodity":
-                    # For commodities, get price from our specialized method if Yahoo fails
+                    # For commodities, try Yahoo first (we have special fallback later)
                     if yahoo_provider:
                         prioritized_providers.append(yahoo_provider)
-                    # We'll handle the fallback specially for commodities
+                    else:
+                         logger.warning("Yahoo provider not found for commodity market.")
+                    # Fallback logic is handled later using _fetch_commodity_price
                 else:
-                    # For non-crypto (forex, indices), only use Yahoo
+                    # For non-crypto/non-commodity (forex, indices), ONLY use Yahoo
                     if yahoo_provider:
                         prioritized_providers.append(yahoo_provider)
-                    # Don't add Binance for non-crypto markets
-                
-                # Add any other providers that aren't Binance (for non-crypto markets)
-                for provider in self.chart_providers:
-                    if provider not in prioritized_providers and (market_type == "crypto" or not isinstance(provider, BinanceProvider)):
-                        prioritized_providers.append(provider)
+                    else:
+                         logger.warning("Yahoo provider not found for non-crypto/non-commodity market.")
+                    # Don't add Binance for these markets
                 
                 # Try the prioritized providers
                 successful_provider = None
