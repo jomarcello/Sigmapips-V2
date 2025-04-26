@@ -108,7 +108,7 @@ class YahooFinanceProvider:
         wait=wait_exponential(multiplier=2, min=4, max=60),
         reraise=True
     )
-    async def _download_data(symbol: str, start_date: datetime, end_date: datetime, interval: str, timeout: int = 30) -> pd.DataFrame:
+    async def _download_data(symbol: str, start_date: datetime, end_date: datetime, interval: str, timeout: int = 30, original_symbol: str = None) -> pd.DataFrame:
         """Download data directly from Yahoo Finance using yfinance"""
         loop = asyncio.get_event_loop()
         
@@ -206,9 +206,13 @@ class YahooFinanceProvider:
         return await loop.run_in_executor(None, download)
     
     @staticmethod
-    def _validate_and_clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    def _validate_and_clean_data(df: pd.DataFrame, instrument: str = None) -> pd.DataFrame:
         """
         Validate and clean the market data
+        
+        Args:
+            df: DataFrame with market data
+            instrument: The instrument symbol to determine appropriate decimal precision
         """
         if df is None or df.empty:
             logger.warning("[Validation] Input DataFrame is None or empty, no validation possible")
@@ -361,6 +365,23 @@ class YahooFinanceProvider:
                 if row_count_after < row_count_before:
                     logger.warning(f"[Validation] Removed {row_count_before - row_count_after} rows with negative Volume")
             
+            # Apply correct decimal precision based on instrument type if provided
+            if instrument:
+                try:
+                    # Get the appropriate precision for this instrument
+                    precision = YahooFinanceProvider._get_instrument_precision(instrument)
+                    logger.info(f"[Validation] Using {precision} decimal places for {instrument}")
+                    
+                    # Apply precision to price columns
+                    price_columns = ['Open', 'High', 'Low', 'Close']
+                    for col in price_columns:
+                        if col in df.columns:
+                            # Round the values to the appropriate precision
+                            # This ensures the data is displayed with the correct number of decimal places
+                            df[col] = df[col].round(precision)
+                except Exception as e:
+                    logger.error(f"[Validation] Error applying precision for {instrument}: {str(e)}")
+            
             # Final data statistics
             logger.info(f"[Validation] Final validated DataFrame shape: {df.shape}")
             if len(df) > 0:
@@ -486,7 +507,8 @@ class YahooFinanceProvider:
                         start_date,
                         end_date,
                         interval,
-                        timeout=timeout
+                        timeout=timeout,
+                        original_symbol=symbol  # Pass the original symbol for precision handling
                     )
                 except Exception as download_e:
                     logger.error(f"Yahoo Finance download error for {formatted_symbol}: {str(download_e)}")
@@ -512,7 +534,7 @@ class YahooFinanceProvider:
                 
                 # Validate and clean data
                 logger.info(f"Validating and cleaning data for {formatted_symbol}, initial shape: {df.shape}")
-                df = YahooFinanceProvider._validate_and_clean_data(df)
+                df = YahooFinanceProvider._validate_and_clean_data(df, symbol)
                 
                 if df is None or (isinstance(df, pd.DataFrame) and df.empty):
                     logger.error(f"No valid data after cleaning for {symbol} (formatted as {formatted_symbol})")
@@ -574,6 +596,45 @@ class YahooFinanceProvider:
         except Exception as e:
             logger.error(f"Error getting stock info from Yahoo Finance: {str(e)}")
             return None
+    
+    @staticmethod
+    def _get_instrument_precision(instrument: str) -> int:
+        """Get the appropriate decimal precision for an instrument
+        
+        Args:
+            instrument: The trading instrument symbol
+            
+        Returns:
+            int: Number of decimal places to use
+        """
+        instrument = instrument.upper().replace("/", "")
+        
+        # JPY pairs use 3 decimal places
+        if instrument.endswith("JPY") or "JPY" in instrument:
+            return 3
+            
+        # Most forex pairs use 5 decimal places
+        if len(instrument) == 6 and all(c.isalpha() for c in instrument):
+            return 5
+            
+        # Crypto typically uses 2 decimal places for major coins, more for smaller ones
+        if any(crypto in instrument for crypto in ["BTC", "ETH", "LTC", "XRP"]):
+            return 2
+            
+        # Gold typically uses 2 decimal places
+        if instrument in ["XAUUSD", "GC=F"]:
+            return 2
+            
+        # Silver typically uses 3 decimal places
+        if instrument in ["XAGUSD", "SI=F"]:
+            return 3
+            
+        # Indices typically use 2 decimal places
+        if any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40", "JP225"]):
+            return 2
+            
+        # Default to 4 decimal places as a safe value
+        return 4
     
     @staticmethod
     def _format_symbol(instrument: str) -> str:
