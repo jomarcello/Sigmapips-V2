@@ -732,27 +732,28 @@ class TelegramService:
             # --- Initialize Calendar Service ---
             try:
                  self.logger.info("Attempting to initialize TradingViewCalendarService...")
-                 self._calendar_service_instance = TradingViewCalendarService() # Create the specific instance
-                 self.logger.info("TradingViewCalendarService instance created successfully.")
+                 # Remove the direct instantiation here, let EconomicCalendarService handle it if needed
+                 # self._calendar_service_instance = TradingViewCalendarService() 
+                 self.logger.info("TradingViewCalendarService instance creation attempt logged (now handled within ECS).")
                  # Log the module path of the EconomicCalendarService class being used
                  self.logger.info(f"Attempting to use EconomicCalendarService from: {EconomicCalendarService.__module__}")
-                 # Create the main EconomicCalendarService wrapper, passing the instance
-                 self._calendar_service = EconomicCalendarService(calendar_service_instance=self._calendar_service_instance)
-                 self.logger.info("EconomicCalendarService initialized with TradingView instance.")
+                 # Create the main EconomicCalendarService wrapper, REMOVING the instance argument
+                 self._calendar_service = EconomicCalendarService() # REMOVED calendar_service_instance
+                 self.logger.info("EconomicCalendarService initialized (potentially with internal TradingView).")
             except ImportError as e:
-                 self.logger.error(f"Failed to import or initialize TradingViewCalendarService: {e}")
-                 self.logger.warning("Falling back to EconomicCalendarService without a specific instance (will use mock).")
-                 # Initialize with None, the EconomicCalendarService will handle creating a mock
+                 self.logger.error(f"Failed to import or initialize TradingViewCalendarService dependencies: {e}")
+                 self.logger.warning("Falling back to basic EconomicCalendarService.")
+                 # Initialize without the instance, REMOVING the instance argument
                  # Log the module path of the EconomicCalendarService class being used in fallback
                  self.logger.info(f"Attempting to use fallback EconomicCalendarService from: {EconomicCalendarService.__module__}")
-                 self._calendar_service = EconomicCalendarService(calendar_service_instance=None)
+                 self._calendar_service = EconomicCalendarService() # REMOVED calendar_service_instance
             except Exception as e:
                  self.logger.error(f"An unexpected error occurred during calendar service initialization: {e}")
                  self.logger.error(traceback.format_exc())
-                 self.logger.warning("Falling back to EconomicCalendarService without a specific instance (will use mock).")
+                 self.logger.warning("Falling back to basic EconomicCalendarService due to error.")
                  # Log the module path of the EconomicCalendarService class being used in fallback
                  self.logger.info(f"Attempting to use fallback EconomicCalendarService from: {EconomicCalendarService.__module__}")
-                 self._calendar_service = EconomicCalendarService(calendar_service_instance=None)
+                 self._calendar_service = EconomicCalendarService() # REMOVED calendar_service_instance
 
             # ... (rest of service initializations)
 
@@ -772,7 +773,8 @@ class TelegramService:
                  # Return a temporary mock or raise an error
                  # Log the module path of the EconomicCalendarService class being used in lazy load fallback
                  self.logger.info(f"Attempting to use lazy-load fallback EconomicCalendarService from: {EconomicCalendarService.__module__}")
-                 return EconomicCalendarService(calendar_service_instance=None) # Return mock
+                 # REMOVED calendar_service_instance=None - let the default init handle it
+                 return EconomicCalendarService() 
         return self._calendar_service
 
     # Calendar service helpers
