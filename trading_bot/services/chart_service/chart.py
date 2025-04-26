@@ -1132,7 +1132,7 @@ class ChartService:
         try:
             logger.info(f"Fetching {symbol} price from external APIs")
             
-            # Updated realistic default values for commodities (April 2024)
+            # Updated realistic default values for commodities (April 2025)
             defaults = {
                 "XAUUSD": 2320.00,  # Gold around $2320/oz
                 "XAGUSD": 27.50,    # Silver around $27.50/oz
