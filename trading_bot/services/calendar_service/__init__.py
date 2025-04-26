@@ -133,11 +133,11 @@ else:
 
 # Exporteer TradingView debug functie als die beschikbaar is
 try:
-    from trading_bot.services.calendar_service.tradingview_calendar import TradingViewCalendarService
     
     # Create a global function to run the debug
     async def debug_tradingview_api():
         """Run a debug check on the TradingView API"""
+        from trading_bot.services.calendar_service.tradingview_calendar import TradingViewCalendarService
         logger.info("Running TradingView API debug check")
         service = TradingViewCalendarService()
         return await service.debug_api_connection()
@@ -145,6 +145,7 @@ try:
     # Add a function to get all calendar events without filtering
     async def get_all_calendar_events():
         """Get all calendar events without filtering"""
+        from trading_bot.services.calendar_service.tradingview_calendar import TradingViewCalendarService
         logger.info("Getting all calendar events without filtering")
         service = TradingViewCalendarService()
         events = await service.get_calendar(days_ahead=0, min_impact="Low")
