@@ -32,6 +32,21 @@ class TradingViewNodeService(TradingViewService):
         self.playwright_installed = None
         self.playwright_browsers_installed = None
         
+        # Mapping van timeframes naar TradingView interval waarden
+        self.interval_map = {
+            "1m": "1",
+            "3m": "3",
+            "5m": "5",
+            "15m": "15",
+            "30m": "30",
+            "1h": "60",
+            "2h": "120",
+            "4h": "240",
+            "1d": "D",
+            "1w": "W",
+            "1M": "M"
+        }
+        
         # Chart links voor verschillende symbolen
         self.chart_links = {
             "EURUSD": "https://www.tradingview.com/chart/?symbol=EURUSD",
@@ -144,9 +159,19 @@ class TradingViewNodeService(TradingViewService):
                 logger.warning(f"No chart URL found for {symbol}, using default URL")
                 # Gebruik een lichtere versie van de chart
                 chart_url = f"https://www.tradingview.com/chart/xknpxpcr/?symbol={normalized_symbol}"
+                
+                # Voeg timeframe parameter toe als die is opgegeven
                 if timeframe:
                     tv_interval = self.interval_map.get(timeframe, "D")
                     chart_url += f"&interval={tv_interval}"
+            elif timeframe and "?" in chart_url:
+                # Als de URL al een query bevat, voeg het interval toe
+                tv_interval = self.interval_map.get(timeframe, "D")
+                chart_url += f"&interval={tv_interval}"
+            elif timeframe:
+                # Als er geen query is, voeg die toe met het interval
+                tv_interval = self.interval_map.get(timeframe, "D")
+                chart_url += f"?interval={tv_interval}"
             
             # Controleer of de URL geldig is
             if not chart_url:
