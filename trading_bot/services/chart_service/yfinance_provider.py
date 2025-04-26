@@ -2,7 +2,7 @@ import logging
 import traceback
 import asyncio
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 import time
 import pandas as pd
 from datetime import datetime, timedelta
