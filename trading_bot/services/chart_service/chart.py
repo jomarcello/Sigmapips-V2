@@ -1121,7 +1121,7 @@ class ChartService:
 
     async def _fetch_commodity_price(self, symbol: str) -> Optional[float]:
         """
-        Fetch commodity price from multiple APIs as a fallback.
+        Fetch commodity price from Yahoo Finance.
         
         Args:
             symbol: The commodity symbol (e.g., XAUUSD for gold)
@@ -1130,66 +1130,46 @@ class ChartService:
             float: Current price or None if failed
         """
         try:
-            logger.info(f"Fetching {symbol} price from external APIs")
+            logger.info(f"Fetching {symbol} price from Yahoo Finance")
             
-            # Updated realistic default values for commodities (April 2025)
-            defaults = {
-                "XAUUSD": 2320.00,  # Gold around $2320/oz
-                "XAGUSD": 27.50,    # Silver around $27.50/oz
-                "XTIUSD": 78.00,    # Crude Oil WTI around $78/barrel
-                "WTIUSD": 78.00,    # Crude Oil WTI around $78/barrel
+            # Map to correct Yahoo Finance symbol
+            yahoo_symbols = {
+                "XAUUSD": "GC=F",   # Gold futures
+                "XAGUSD": "SI=F",    # Silver futures
+                "XTIUSD": "CL=F",    # Crude Oil WTI futures
+                "WTIUSD": "CL=F",    # WTI Crude Oil futures (alternative)
+                "XBRUSD": "BZ=F",    # Brent Crude Oil futures
+                "XPDUSD": "PA=F",    # Palladium futures
+                "XPTUSD": "PL=F",    # Platinum futures
+                "NATGAS": "NG=F",    # Natural Gas futures
+                "COPPER": "HG=F",    # Copper futures
             }
             
-            # First try to get the data from available external APIs
-            try:
-                async with aiohttp.ClientSession() as session:
-                    # Use MetalPriceAPI with a valid API key (free tier)
-                    if symbol in ["XAUUSD", "XAGUSD"]:
-                        metal_name = "gold" if symbol == "XAUUSD" else "silver"
-                        api_url = f"https://metals-api.com/api/latest?access_key=YOUR_API_KEY&base=USD&symbols={metal_name.upper()}"
-                        
-                        async with session.get(api_url, timeout=5) as response:
-                            if response.status == 200:
-                                data = await response.json()
-                                if data and "success" in data and data["success"]:
-                                    if metal_name.upper() in data["rates"]:
-                                        # Convert from rate to price (rates are inverse)
-                                        price = 1 / float(data["rates"][metal_name.upper()])
-                                        logger.info(f"Got {symbol} price from MetalsAPI: {price}")
-                                        return price
+            # If symbol not in our mapping, we can't proceed
+            if symbol not in yahoo_symbols:
+                logger.warning(f"Unknown commodity symbol: {symbol}, cannot fetch from Yahoo Finance")
+                return None
                 
-                    # Try for oil prices if it's crude oil
-                    if symbol in ["XTIUSD", "WTIUSD"]:
-                        # Commodities-API for oil prices
-                        api_url = f"https://commodities-api.com/api/latest?access_key=DEMO_KEY&base=USD&symbols=CRUDE_OIL"
-                        
-                        async with session.get(api_url, timeout=5) as response:
-                            if response.status == 200:
-                                data = await response.json()
-                                if data and "data" in data and "rates" in data["data"]:
-                                    if "CRUDE_OIL" in data["data"]["rates"]:
-                                        # Convert from rate to price
-                                        price = 1 / float(data["data"]["rates"]["CRUDE_OIL"])
-                                        logger.info(f"Got {symbol} price from CommoditiesAPI: {price}")
-                                        return price
-            except Exception as api_e:
-                logger.warning(f"Error fetching from commodity APIs: {str(api_e)}")
+            # Get the corresponding Yahoo Finance symbol
+            yahoo_symbol = yahoo_symbols[symbol]
+            logger.info(f"Using Yahoo Finance symbol {yahoo_symbol} for {symbol}")
             
-            # If all APIs fail, use a fallback with realistic value and small random variation
-            if symbol in defaults:
-                base_price = defaults[symbol]
-                # Add a small random variation of up to ±1%
-                variation = random.uniform(-0.01, 0.01)
-                price = base_price * (1 + variation)
-                logger.info(f"Using fallback price for {symbol}: {price:.2f}")
+            # Use YahooFinanceProvider to get the latest price
+            from .yfinance_provider import YahooFinanceProvider
+            
+            # Get market data with a small limit to make it fast
+            df = await YahooFinanceProvider.get_market_data(yahoo_symbol, "1h", limit=5)
+            
+            if df is not None and hasattr(df, 'indicators') and 'close' in df.indicators:
+                price = df.indicators['close']
+                logger.info(f"Got {symbol} price from Yahoo Finance: {price}")
                 return price
-            
-            # Default fallback if symbol not recognized
-            logger.warning(f"Unknown commodity symbol: {symbol}, using default value")
-            return 100.0
+                
+            logger.warning(f"Failed to get {symbol} price from Yahoo Finance")
+            return None
             
         except Exception as e:
-            logger.error(f"Error fetching commodity price: {str(e)}")
+            logger.error(f"Error fetching commodity price from Yahoo Finance: {str(e)}")
             return None
 
     async def _fetch_index_price(self, symbol: str) -> Optional[float]:
