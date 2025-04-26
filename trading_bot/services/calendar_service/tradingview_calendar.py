@@ -148,7 +148,7 @@ class TradingViewCalendarService:
         Returns:
             List of calendar events
         """
-        try:
+        try: # Outer try for the whole fetch process (indentation 0)
             logger.info(f"Starting calendar fetch from TradingView (days_ahead={days_ahead}, min_impact={min_impact}, currency={currency})")
             await self._ensure_session()
             
@@ -229,7 +229,7 @@ class TradingViewCalendarService:
                 # Update the last successful call timestamp
                 self.last_successful_call = datetime.now()
                 
-                try:
+                try: # Inner try for response processing (indentation 4)
                     response_text = await response.text()
                     
                     # Check if we received HTML instead of JSON
@@ -247,32 +247,20 @@ class TradingViewCalendarService:
                             return []
 
                     # Clean up invalid JSON - fix common issues like semicolons after URLs
-                    # This pattern fixes the issue with semicolons after URLs in source_url fields
                     response_text = response_text.replace('";,', '",')
                     response_text = response_text.replace('";', '"')
-                    
-                    # Fix specifically for the pattern observed in logs
-                    # Handle "http://www.api.org";, pattern
-                    response_text = re.sub(r'"(http://www\.api\.org)";,', r'"\1",', response_text)
-                    # Handle "http://www.federalreserve.gov/";, pattern
-                    response_text = re.sub(r'"(http://www\.federalreserve\.gov/)";,', r'"\1",', response_text)
-                    # Handle other API URLs with trailing semicolons
-                    response_text = re.sub(r'"(https?://[^"]+\.gov[^"]*)";,', r'"\1",', response_text)
-                    response_text = re.sub(r'"(https?://[^"]+\.org[^"]*)";,', r'"\1",', response_text)
-                    response_text = re.sub(r'"(https?://[^"]+\.com[^"]*)";,', r'"\1",', response_text)
-                    
-                    # Additional cleanup for invalid JSON patterns found in the logs
-                    # Fix patterns like: "source_url": "http://www.site.com";,
-                    response_text = re.sub(r'"source_url"\s*:\s*"(https?://[^"]+)";,', r'"source_url": "\1",', response_text)
-                    # Fix patterns like: "source_url": "http://www.site.com";
-                    response_text = re.sub(r'"source_url"\s*:\s*"(https?://[^"]+)";', r'"source_url": "\1"', response_text)
-                    
-                    # More general pattern to catch any stray semicolons after quoted strings in the JSON
-                    response_text = re.sub(r'";(\s*[,}])', r'"\1', response_text)
+                    response_text = re.sub(r'"(http://www\\.api\\.org)";,', r'"\\1",', response_text)
+                    response_text = re.sub(r'"(http://www\\.federalreserve\\.gov/)\";,', r'"\\1",', response_text)
+                    response_text = re.sub(r'"(https?://[^"]+\\.gov[^"]*)\";,', r'"\\1",', response_text)
+                    response_text = re.sub(r'"(https?://[^"]+\\.org[^"]*)\";,', r'"\\1",', response_text)
+                    response_text = re.sub(r'"(https?://[^"]+\\.com[^"]*)\";,', r'"\\1",', response_text)
+                    response_text = re.sub(r'"source_url"\\s*:\\s*"(https?://[^"]+)\";,', r'"source_url": "\\1",', response_text)
+                    response_text = re.sub(r'"source_url"\\s*:\\s*"(https?://[^"]+)\";', r'"source_url": "\\1"', response_text)
+                    response_text = re.sub(r'";(\\s*[,}])', r'"\\1', response_text)
                     
                     # Check for any remaining problematic URL patterns
                     url_patterns = [
-                        r'"source_url"\s*:\s*"[^"]+";',
+                        r'"source_url"\\s*:\\s*"[^"]+";',
                         r'"https?://[^"]+";',
                         r'";,'
                     ]
@@ -293,7 +281,7 @@ class TradingViewCalendarService:
                     if '";' in response_text:
                         logger.warning("Applying extreme JSON fixing measures")
                         # This is a last resort - it might cause data loss but it's better than failing
-                        final_fixed = re.sub(r'";([^,])', r'"\1', response_text)
+                        final_fixed = re.sub(r'";([^,])', r'"\\1', response_text)
                         # Only use this if it looks like it didn't break the JSON structure
                         if final_fixed.count('{') == response_text.count('{') and final_fixed.count('}') == response_text.count('}'):
                             logger.info("Applied extreme measures without changing JSON structure")
@@ -303,7 +291,7 @@ class TradingViewCalendarService:
                     def fix_json_urls(json_str):
                         # This function systematically finds all URL patterns and ensures they're properly formatted
                         # Pattern to find URL fields in JSON: "field_name": "http://...";
-                        url_pattern = re.compile(r'"([^"]+)"\s*:\s*"(https?://[^"]+)";([\s,}])')
+                        url_pattern = re.compile(r'"([^"]+)"\\s*:\\s*"(https?://[^"]+)";([\\s,}])')
                         
                         # Keep replacing until no more matches
                         last_str = ""
@@ -313,7 +301,7 @@ class TradingViewCalendarService:
                         
                         while last_str != current_str and iteration < max_iterations:
                             last_str = current_str
-                            current_str = url_pattern.sub(r'"\1": "\2"\3', current_str)
+                            current_str = url_pattern.sub(r'"\\1": "\\2"\\3', current_str)
                             iteration += 1
                         
                         if iteration > 0 and iteration < max_iterations:
@@ -326,7 +314,7 @@ class TradingViewCalendarService:
                     # Apply the comprehensive URL fix
                     response_text = fix_json_urls(response_text)
                     
-                    try:
+                    try: # Innermost try for JSON parsing (indentation 8)
                         data = json.loads(response_text)
                         # Log response structure for debugging
                         logger.info(f"Response type: {type(data)}")
@@ -335,7 +323,7 @@ class TradingViewCalendarService:
                             # Log a sample of the first few keys and values
                             sample = {k: data[k] for k in list(data.keys())[:3]}
                             logger.info(f"Sample data: {json.dumps(sample, indent=2)[:500]}...")
-                    except json.JSONDecodeError as je:
+                    except json.JSONDecodeError as je: # Innermost except (indentation 8)
                         logger.error(f"Failed to parse JSON response: {str(je)}")
                         logger.error(f"Raw response content (first 200 chars): {response_text[:200]}...")
                         
@@ -349,7 +337,7 @@ class TradingViewCalendarService:
                         logger.error(f"Error position: {pointer}")
                         
                         # Last desperate attempt - try to manually fix the JSON around the error point
-                        try:
+                        try: # Emergency fix try (indentation 12)
                             # Calculate a safer region around the error
                             safe_start = max(0, error_pos - 200)
                             safe_end = min(len(response_text), error_pos + 200)
@@ -358,9 +346,9 @@ class TradingViewCalendarService:
                             # Common patterns at error locations
                             fixes = [
                                 (r'";,', '",'),     # Fix semicolon before comma
-                                (r'";(\s*})', '"\1'),  # Fix semicolon before closing brace
-                                (r'";(\s*$)', '"'),   # Fix trailing semicolon
-                                (r'"([^"]*);([^"]*)"', r'"\1;\2"')  # Fix semicolons within quotes
+                                (r'";(\\s*})', '"\\1'),  # Fix semicolon before closing brace
+                                (r'";(\\s*$)', '"'),   # Fix trailing semicolon
+                                (r'"([^"]*);([^"]*)"', r'"\\1;\\2"')  # Fix semicolons within quotes
                             ]
                             
                             # Apply fixes around the error location
@@ -375,14 +363,14 @@ class TradingViewCalendarService:
                             logger.info("Attempting to parse with emergency fixes")
                             data = json.loads(patched_text)
                             logger.info("Emergency JSON fix successful!")
-                        except Exception as e2:
+                        except Exception as e2: # Emergency fix except (indentation 12)
                             logger.error(f"Emergency JSON fix failed: {str(e2)}")
                             if HAS_CUSTOM_MOCK_DATA:
                                 logger.info("Falling back to mock calendar data")
                                 return generate_mock_calendar_data(days_ahead, min_impact)
                             return []
                     
-                    try:
+                    try: # Try block for processing the parsed data (indentation 8)
                         if not isinstance(data, list):
                             logger.info(f"Response format is: {type(data)}")
                             
@@ -436,7 +424,7 @@ class TradingViewCalendarService:
                         non_major_events = 0
                         
                         for event in data:
-                            try:
+                            try: # Try for individual event processing (indentation 16)
                                 # Gebruik de omgekeerde van CURRENCY_COUNTRY_MAP voor volledige dekking
                                 # Bouw een country-to-currency mapping op basis van de CURRENCY_COUNTRY_MAP
                                 country_to_currency = {country: currency for currency, country in CURRENCY_COUNTRY_MAP.items()}
@@ -516,9 +504,9 @@ class TradingViewCalendarService:
                                 if len(events) <= 3:
                                     logger.info(f"Processed event {len(events)}: From '{event.get('title', '')}' ({event.get('country', '')}) to {json.dumps(event_obj)}")
                                 
-                            except Exception as e:
+                            except Exception as e: # Except for individual event processing (indentation 16)
                                 logger.error(f"Error processing event {event}: {str(e)}")
-                                continue
+                                continue # Continue to the next event in the loop
                         
                         logger.info(f"Processed {len(events)} valid events")
                         
@@ -555,19 +543,33 @@ class TradingViewCalendarService:
                             highlighted_count = sum(1 for e in events if e.get("highlighted", False))
                             logger.info(f"Showing all {len(events)} events with {highlighted_count} {currency} events highlighted")
                         
-                        return events
-                    
-                except Exception as e:
+                        return events # Return successful result (indentation 12)
+
+                    except Exception as e: # Except block for data processing errors (indentation 8)
+                        # This catches errors after successful JSON parsing but during data transformation/filtering
+                        logger.error(f"Error processing parsed data: {str(e)}")
+                        # Optionally log traceback here if needed: import traceback; logger.error(traceback.format_exc())
+                        if HAS_CUSTOM_MOCK_DATA:
+                             logger.info("Falling back to mock calendar data due to processing error")
+                             return generate_mock_calendar_data(days_ahead, min_impact)
+                        return [] # Return empty list on processing failure
+
+                except Exception as e: # Except block for response processing errors (JSON cleaning, parsing, etc.) (indentation 4)
                     logger.error(f"Error processing response: {str(e)}")
-                    return []
-                
-        except Exception as e:
+                    # Optionally log traceback here
+                    if HAS_CUSTOM_MOCK_DATA:
+                         logger.info("Falling back to mock calendar data due to response processing error")
+                         return generate_mock_calendar_data(days_ahead, min_impact)
+                    return [] # Return empty list on response processing failure
+
+        except Exception as e: # Outer except for the whole fetch process (indentation 0)
             logger.error(f"Error fetching calendar data: {str(e)}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
-            return []
-            
-        finally:
+            # No mock data fallback here as the entire fetch failed
+            return [] # Return empty list on catastrophic failure
+
+        finally: # Outer finally (indentation 0)
             await self._close_session()
 
     async def debug_api_connection(self):
