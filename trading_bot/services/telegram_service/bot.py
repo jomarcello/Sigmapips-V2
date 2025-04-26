@@ -3465,7 +3465,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         text = re.sub(r'<[^>]*>', '', text)
         
         # Ensure we don't have excessive newlines
-        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = re.sub(r'\n{3,}', '\n\n', text)  # Replace 3+ newlines with 2
         
         return text
 
@@ -4347,7 +4347,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 if is_subscribed and not payment_failed:
                     active_subscribers.append(user_id)
-                        else:
+                else:
                     logger.info(f"User {user_id} doesn't have an active subscription, skipping signal")
             
             return active_subscribers
@@ -4482,7 +4482,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             self.user_signals[admin_str_id] = {}
                         
                         self.user_signals[admin_str_id][signal_id] = normalized_data
-        except Exception as e:
+                except Exception as e:
                     logger.error(f"Error sending test signal to admin: {str(e)}")
             
             # Get subscribers for this instrument
@@ -4685,11 +4685,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
                 logger.info("Successfully deleted message and sent new analysis menu")
                 return CHOOSE_ANALYSIS
-            except Exception as delete_error: # <<< This except corresponds to the inner try
+            except Exception as delete_error:
                 logger.warning(f"Could not delete message: {str(delete_error)}")
 
                 # Step 2: If deletion fails, try replacing with a GIF or transparent GIF
-                try: # <<< Corrected indentation and added except block
+                try:
                     if has_photo:
                         # Replace with the analysis GIF
                         await query.edit_message_media(
@@ -4708,11 +4708,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         )
                     logger.info("Updated message with analysis menu")
                     return CHOOSE_ANALYSIS
-                except Exception as media_error: # <<< This except corresponds to the Step 2 try
+                except Exception as media_error:
                     logger.warning(f"Could not update media: {str(media_error)}")
 
                     # Step 3: As last resort, only update the caption
-                    try: # <<< Corrected indentation and added except block
+                    try:
                         await query.edit_message_caption(
                             caption="Select your analysis type:",
                             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
@@ -4720,7 +4720,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         )
                         logger.info("Updated caption with analysis menu")
                         return CHOOSE_ANALYSIS
-                    except Exception as caption_error: # <<< This except corresponds to the Step 3 try
+                    except Exception as caption_error:
                         logger.error(f"Failed to update caption in analysis_callback: {str(caption_error)}")
                         # Send a new message as absolutely last resort
                         await context.bot.send_message(
@@ -4730,7 +4730,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                         )
                         # No return here, will fall through to the outer return
-        except Exception as e: # <<< This except corresponds to the outer try
+        except Exception as e:
             logger.error(f"Error in analysis_callback: {str(e)}")
             # Send a new message as fallback
             await context.bot.send_message(
@@ -4834,14 +4834,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         )
             
             return MENU
-        except Exception as e: # <<< Corrected indentation and added except block
+        except Exception as e:
             logger.error(f"Error in back_menu_callback: {str(e)}")
             # Try to recover by sending a basic menu as fallback
-            await context.bot.send_message( # <<< Corrected indentation
-                chat_id=update.effective_chat.id, # <<< Corrected indentation
-                text=WELCOME_MESSAGE, # <<< Corrected indentation
-                parse_mode=ParseMode.HTML, # <<< Corrected indentation
-                reply_markup=InlineKeyboardMarkup(START_KEYBOARD) # <<< Corrected indentation
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=WELCOME_MESSAGE,
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
             )
             return MENU
 
@@ -4880,7 +4880,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Try to update with GIF for better visual feedback
-            try: # <<< Corrected indentation and added except block
+            try:
                 # First try to delete and send new message with GIF
                 await query.message.delete()
                 await context.bot.send_animation(
@@ -4891,7 +4891,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=reply_markup
                 )
                 return SIGNALS
-            except Exception as delete_error: # <<< Corrected indentation and added except block
+            except Exception as delete_error:
                 logger.warning(f"Could not delete message: {str(delete_error)}")
 
                 # If deletion fails, try replacing with a GIF
@@ -4935,7 +4935,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
         
             return SIGNALS
-        except Exception as e: # <<< Added missing except block
+        except Exception as e:
              logger.error(f"Error in menu_signals_callback: {str(e)}")
              # Fallback approach on error
              await context.bot.send_message(
