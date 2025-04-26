@@ -349,8 +349,9 @@ class TradingViewNodeService(TradingViewService):
 
 
             if fullscreen:
-                logger.info("Applying minimal CSS and simulating Shift+F for fullscreen...")
+                logger.info("[FS] Fullscreen requested. Applying minimal CSS and simulating Shift+F...")
                 # Hide only the most basic UI elements
+                logger.info("[FS] Applying CSS to hide basic UI elements...")
                 await page.add_style_tag(content="""
                     .tv-header, .tv-main-panel__toolbar, .tv-side-toolbar, 
                     footer, .tv-main-panel__statuses
@@ -358,17 +359,34 @@ class TradingViewNodeService(TradingViewService):
                     body { overflow: hidden !important; } /* Prevent scrollbars */
                 """)
                 await page.wait_for_timeout(500) # Short wait for basic CSS
+                logger.info("[FS] Basic CSS applied and waited.")
                 
                 # Simulate Shift+F
-                logger.info("Simulating Shift+F keyboard shortcut.")
+                logger.info("[FS] Simulating Shift+F keyboard shortcut.")
                 await page.keyboard.press('Shift+F')
+                logger.info("[FS] Shift+F simulated.")
                 
                 # Wait specifically for the fullscreen transition
-                logger.info("Waiting for fullscreen transition...")
+                logger.info("[FS] Waiting for potential fullscreen transition (3000ms)...")
                 await page.wait_for_timeout(3000) # Increased wait time after Shift+F
+                logger.info("[FS] Finished waiting for transition.")
+                
+                # Check fullscreen status via JS
+                try:
+                    fs_status = await page.evaluate("document.fullscreenElement !== null")
+                    logger.info(f"[FS] Browser fullscreenElement status via JS: {fs_status}")
+                except Exception as js_eval_err:
+                    logger.warning(f"[FS] Could not evaluate fullscreenElement status: {js_eval_err}")
+            
+            # Log viewport and document size before final cleanup
+            try:
+                dims = await page.evaluate("() => ({ vp_w: window.innerWidth, vp_h: window.innerHeight, doc_w: document.documentElement.scrollWidth, doc_h: document.documentElement.scrollHeight })")
+                logger.info(f"[PRE-CLEANUP] Viewport: {dims.get('vp_w')}x{dims.get('vp_h')}, Document: {dims.get('doc_w')}x{dims.get('doc_h')}")
+            except Exception as js_eval_err:
+                 logger.warning(f"Could not evaluate dimensions: {js_eval_err}")
 
             # Additional aggressive cleanup just before screenshot
-            logger.info("Performing final cleanup before screenshot...")
+            logger.info("Performing final JS cleanup before screenshot...")
             await page.evaluate("""
                 () => {
                     document.querySelectorAll('[role="dialog"], .tv-dialog, .js-dialog, .tv-dialog--popup, .tv-notification').forEach(el => {
@@ -379,6 +397,14 @@ class TradingViewNodeService(TradingViewService):
                 }
             """)
             await page.wait_for_timeout(500) # Short wait after final cleanup
+            logger.info("Final JS cleanup finished.")
+
+            # Log final dimensions before screenshot
+            try:
+                final_dims = await page.evaluate("() => ({ vp_w: window.innerWidth, vp_h: window.innerHeight, doc_w: document.documentElement.scrollWidth, doc_h: document.documentElement.scrollHeight })")
+                logger.info(f"[PRE-SHOT] Viewport: {final_dims.get('vp_w')}x{final_dims.get('vp_h')}, Document: {final_dims.get('doc_w')}x{final_dims.get('doc_h')}")
+            except Exception as js_eval_err:
+                 logger.warning(f"Could not evaluate final dimensions: {js_eval_err}")
 
             logger.info("Taking screenshot with Playwright...")
             screenshot_bytes = await page.screenshot(type='png')
