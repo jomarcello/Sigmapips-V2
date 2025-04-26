@@ -349,31 +349,23 @@ class TradingViewNodeService(TradingViewService):
 
 
             if fullscreen:
-                logger.info("Applying fullscreen CSS adjustments to maximize chart within viewport...")
-                # Hide UI elements and maximize chart area using CSS injection
+                logger.info("Applying minimal CSS and simulating Shift+F for fullscreen...")
+                # Hide only the most basic UI elements
                 await page.add_style_tag(content="""
                     .tv-header, .tv-main-panel__toolbar, .tv-side-toolbar, 
-                    .layout__area--left, .layout__area--right, footer, .tv-main-panel__statuses,
-                    .group-T57LDNqT, #footer-chart-panel, .tv-floating-toolbar,
-                    div[data-name='legend-source-item'], /* Hide indicator legends */
-                    div[data-name='scales'], /* Hide price/time scales if needed */
-                    div[data-name='pane-legend'] /* Hide pane legends */
+                    footer, .tv-main-panel__statuses
                      { display: none !important; visibility: hidden !important; opacity: 0 !important; }
-                    
-                    .chart-gui-wrapper, .layout__area--center { /* Maximize chart area */
-                         height: 100vh !important; 
-                         width: 100vw !important; 
-                         position: fixed !important; 
-                         top: 0 !important; 
-                         left: 0 !important;
-                         border: none !important; /* Remove borders */
-                         margin: 0 !important; /* Remove margins */
-                         padding: 0 !important; /* Remove padding */
-                    }
                     body { overflow: hidden !important; } /* Prevent scrollbars */
                 """)
-                # Wait for CSS to apply and chart to potentially redraw
-                await page.wait_for_timeout(2000) # Adjusted wait time
+                await page.wait_for_timeout(500) # Short wait for basic CSS
+                
+                # Simulate Shift+F
+                logger.info("Simulating Shift+F keyboard shortcut.")
+                await page.keyboard.press('Shift+F')
+                
+                # Wait specifically for the fullscreen transition
+                logger.info("Waiting for fullscreen transition...")
+                await page.wait_for_timeout(3000) # Increased wait time after Shift+F
 
             # Additional aggressive cleanup just before screenshot
             logger.info("Performing final cleanup before screenshot...")
