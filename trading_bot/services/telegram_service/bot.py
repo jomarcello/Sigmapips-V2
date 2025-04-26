@@ -32,7 +32,7 @@ import telegram.error  # Add this import for BadRequest error handling
 from trading_bot.services.database.db import Database
 from trading_bot.services.chart_service.chart import ChartService
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-from trading_bot.services.calendar_service import EconomicCalendarService
+from trading_bot.services.calendar_service.calendar import EconomicCalendarService
 from trading_bot.services.payment_service.stripe_service import StripeService
 from trading_bot.services.payment_service.stripe_config import get_subscription_features
 from trading_bot.services.telegram_service.states import (
@@ -43,6 +43,8 @@ from trading_bot.services.telegram_service.states import (
     CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU
 )
 import trading_bot.services.telegram_service.gif_utils as gif_utils
+from trading_bot.services.calendar_service.tradingview_calendar import TradingViewCalendarService
+from trading_bot.services.calendar_service.__init__ import debug_tradingview_api, get_all_calendar_events
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -709,30 +711,63 @@ class TelegramService:
             logger.error(f"Error initializing Telegram service: {str(e)}")
             raise
 
-    async def initialize_services(self):
-        """Initialize services that require an asyncio event loop"""
+        # --- Calendar Service Initialization ---
+        self._calendar_service = None
+        self._calendar_service_instance = None # Store the specific instance (e.g., TradingView)
+
+        if not lazy_init:
+            self._initialize_services()
+        else:
+            self.logger.info("Lazy initialization enabled. Services will be loaded on demand.")
+
+    def _initialize_services(self):
+        """Initialize external services."""
+        self.logger.info("Initializing external services...")
         try:
-            # Initialize chart service
-            await self.chart_service.initialize()
-            logger.info("Chart service initialized")
-            
-            # Load stored signals
-            await self._load_signals()
-            logger.info("Signals loaded")
+            # Initialiseer andere services...
+            self.chart = ChartService()
+            self.sentiment = MarketSentimentService()
+            self.logger.info("Chart and Sentiment services initialized.")
+
+            # --- Initialize Calendar Service ---
+            try:
+                 self.logger.info("Attempting to initialize TradingViewCalendarService...")
+                 self._calendar_service_instance = TradingViewCalendarService() # Create the specific instance
+                 self.logger.info("TradingViewCalendarService instance created successfully.")
+                 # Create the main EconomicCalendarService wrapper, passing the instance
+                 self._calendar_service = EconomicCalendarService(calendar_service_instance=self._calendar_service_instance)
+                 self.logger.info("EconomicCalendarService initialized with TradingView instance.")
+            except ImportError as e:
+                 self.logger.error(f"Failed to import or initialize TradingViewCalendarService: {e}")
+                 self.logger.warning("Falling back to EconomicCalendarService without a specific instance (will use mock).")
+                 # Initialize with None, the EconomicCalendarService will handle creating a mock
+                 self._calendar_service = EconomicCalendarService(calendar_service_instance=None)
+            except Exception as e:
+                 self.logger.error(f"An unexpected error occurred during calendar service initialization: {e}")
+                 self.logger.error(traceback.format_exc())
+                 self.logger.warning("Falling back to EconomicCalendarService without a specific instance (will use mock).")
+                 self._calendar_service = EconomicCalendarService(calendar_service_instance=None)
+
+            # ... (rest of service initializations)
+
         except Exception as e:
-            logger.error(f"Error initializing services: {str(e)}")
-            raise
-            
-    # Calendar service helpers
+            self.logger.error(f"Failed to initialize one or more services: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            # Optionally decide how to handle this - e.g., set services to None or raise
+
     @property
     def calendar_service(self):
-        """Lazy loaded calendar service"""
+        """Lazy load calendar service if not initialized."""
         if self._calendar_service is None:
-            # Only initialize the calendar service when it's first accessed
-            self.logger.info("Lazy loading calendar service")
-            self._calendar_service = EconomicCalendarService()
+            self.logger.info("Lazy loading calendar service...")
+            self._initialize_services() # Ensure all services are initialized
+            if self._calendar_service is None: # If initialization failed
+                 self.logger.error("Failed to lazy-load calendar service!")
+                 # Return a temporary mock or raise an error
+                 return EconomicCalendarService(calendar_service_instance=None) # Return mock
         return self._calendar_service
-        
+
+    # Calendar service helpers
     def _get_calendar_service(self):
         """Get the calendar service instance"""
         self.logger.info("Getting calendar service")
