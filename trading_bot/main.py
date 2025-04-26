@@ -75,12 +75,6 @@ class WebhookHandler:
             """Main webhook endpoint"""
             return await self.handle_webhook(request)
             
-        @app.post("/webhook/webhook")
-        async def webhook_doubled(request: Request):
-            """Handle doubled webhook path"""
-            self.logger.info("Received request on doubled webhook path")
-            return await self.handle_webhook(request)
-            
         self.logger.info("Webhook routes registered")
 
 # Create a singleton instance of the webhook handler
@@ -330,13 +324,6 @@ async def telegram_webhook(request: Request):
         logger.error(f"Error processing Telegram webhook: {str(e)}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))
-
-# Add endpoint to handle doubled webhook path (/webhook/webhook)
-@app.post("/webhook/webhook")
-async def telegram_webhook_doubled(request: Request):
-    """Endpoint for handling doubled webhook path"""
-    logger.info("Received request on doubled webhook path, redirecting to main webhook handler")
-    return await telegram_webhook(request)
 
 # Comment out this route as it conflicts with the telegram webhook
 # @app.get("/webhook")
