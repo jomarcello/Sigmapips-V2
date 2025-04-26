@@ -2788,8 +2788,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Market type selection (handle sentiment separately)
             if callback_data.startswith("market_") and "sentiment" in callback_data:
                 return await self.analysis_sentiment_callback(update, context, market_selected=True)
-            elif callback_data.startswith("market_") and "signals" in callback_data:
-                return await self.market_signals_callback(update, context)
+            elif callback_data.startswith("market_"):
+                return await self.market_callback(update, context)
             elif callback_data.startswith("market_"):
                 return await self.market_callback(update, context)
                 
@@ -2871,58 +2871,6 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 pass
             return MENU # Fallback state on unexpected errors
 
-    async def market_signals_callback(self, update: Update, context=None) -> int:
-        """Handle signals market selection"""
-        query = update.callback_query
-        await query.answer()
-        
-        # Set the signal context flag
-        if context and hasattr(context, 'user_data'):
-            context.user_data['is_signals_context'] = True
-        
-        # Get the signals GIF URL
-        gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-        
-        # Update the message with the GIF and keyboard
-        success = await gif_utils.update_message_with_gif(
-            query=query,
-            gif_url=gif_url,
-            text="Select a market for trading signals:",
-            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
-        )
-        
-        if not success:
-            # If the helper function failed, try a direct approach as fallback
-            try:
-                # First try to edit message text
-                await query.edit_message_text(
-                    text="Select a market for trading signals:",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
-                )
-            except Exception as text_error:
-                # If that fails due to caption, try editing caption
-                if "There is no text in the message to edit" in str(text_error):
-                    try:
-                        await query.edit_message_caption(
-                            caption="Select a market for trading signals:",
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to update caption in market_signals_callback: {str(e)}")
-                        # Try to send a new message as last resort
-                        await query.message.reply_text(
-                            text="Select a market for trading signals:",
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS)
-                        )
-                else:
-                    # Re-raise for other errors
-                    raise
-                    
-        return CHOOSE_MARKET
-        
     async def market_callback(self, update: Update, context=None) -> int:
         """Handle market selection and show appropriate instruments"""
         query = update.callback_query
@@ -5156,7 +5104,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if market == 'forex': keyboard = FOREX_KEYBOARD
             elif market == 'crypto': keyboard = CRYPTO_KEYBOARD
             elif market == 'indices': keyboard = INDICES_KEYBOARD
-            elif market == 'commodities': keyboard = COMMODITIES_KEYBOARD
+            elif market == 'commodities': keyboard = COMMODITIES_SENTIMENT_KEYBOARD
             else: keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]] # Fallback back button
 
         # Show the instrument selection keyboard
