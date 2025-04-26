@@ -370,10 +370,28 @@ class TradingViewNodeService(TradingViewService):
 
             # Final wait/actions before screenshot
             if fullscreen:
-                 # Try keyboard shortcut AFTER other cleanup and closer to screenshot time
-                 logger.info("Simulating Shift+F keyboard shortcut for fullscreen.")
-                 await page.keyboard.press('Shift+F') 
-                 await page.wait_for_timeout(2500) # Longer wait time for fullscreen transition
+                # Attempt fullscreen using JavaScript Fullscreen API
+                logger.info("Attempting fullscreen via JavaScript API...")
+                try:
+                    await page.evaluate("""
+                        async () => {
+                            const chartElement = document.querySelector('.layout__area--center'); // Target the main chart area
+                            if (chartElement && chartElement.requestFullscreen) {
+                                try {
+                                    await chartElement.requestFullscreen();
+                                    console.log('Fullscreen requested via JS API.');
+                                } catch (err) {
+                                    console.error('JS Fullscreen API error:', err.message);
+                                }
+                            } else {
+                                console.warn('Chart element for fullscreen not found or API not supported.');
+                            }
+                        }
+                    """)
+                    await page.wait_for_timeout(2500) # Wait for potential transition
+                except Exception as js_err:
+                     logger.warning(f"Error executing fullscreen JavaScript: {js_err}")
+
             else:
                  # Standard final wait if not fullscreen
                  await page.wait_for_timeout(1500) 
