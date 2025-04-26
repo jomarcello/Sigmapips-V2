@@ -676,7 +676,17 @@ class ChartService:
                     
                     # Market overview section
                     analysis_text += f"📊 <b>Market Overview</b>\n"
-                    analysis_text += f"Price is currently trading near current price of {current_price:.{precision}f}, "
+                    if instrument == "XAUUSD":
+                        # Format gold price with comma after first digit
+                        price_first_digit = str(int(current_price))[0]
+                        price_rest_digits = f"{current_price:.3f}".split('.')[0][1:] + "." + f"{current_price:.3f}".split('.')[1]
+                        formatted_price = f"{price_first_digit},{price_rest_digits}"
+                        
+                        analysis_text += f"Price is currently trading near current price of {formatted_price}, "
+                    else:
+                        analysis_text += f"Price is currently trading near current price of {current_price:.{precision}f}, "
+                    
+                    # Continue with the rest of the analysis text
                     analysis_text += f"showing {'bullish' if trend == 'BUY' else 'bearish' if trend == 'SELL' else 'mixed'} momentum. "
                     analysis_text += f"The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
                     analysis_text += f"indicating a {'strong uptrend' if trend == 'BUY' else 'strong downtrend' if trend == 'SELL' else 'consolidation phase'}. "
@@ -684,8 +694,29 @@ class ChartService:
                     
                     # Key levels section
                     analysis_text += f"🔑 <b>Key Levels</b>\n"
-                    analysis_text += f"Support: {analysis_data['low']:{precision}f} (daily low), {(analysis_data['low'] * 0.98):{precision}f} (weekly low)\n"
-                    analysis_text += f"Resistance: {analysis_data['high']:{precision}f} (daily high), {(analysis_data['high'] * 1.02):{precision}f} (weekly high)\n\n"
+                    if instrument == "XAUUSD":
+                        # Format gold support/resistance levels with comma after first digit
+                        daily_low_first_digit = str(int(analysis_data['low']))[0]
+                        daily_low_rest_digits = f"{analysis_data['low']:.3f}".split('.')[0][1:] + "." + f"{analysis_data['low']:.3f}".split('.')[1]
+                        formatted_daily_low = f"{daily_low_first_digit},{daily_low_rest_digits}"
+                        
+                        weekly_low_first_digit = str(int(analysis_data['low'] * 0.98))[0]
+                        weekly_low_rest_digits = f"{analysis_data['low'] * 0.98:.3f}".split('.')[0][1:] + "." + f"{analysis_data['low'] * 0.98:.3f}".split('.')[1]
+                        formatted_weekly_low = f"{weekly_low_first_digit},{weekly_low_rest_digits}"
+                        
+                        daily_high_first_digit = str(int(analysis_data['high']))[0]
+                        daily_high_rest_digits = f"{analysis_data['high']:.3f}".split('.')[0][1:] + "." + f"{analysis_data['high']:.3f}".split('.')[1]
+                        formatted_daily_high = f"{daily_high_first_digit},{daily_high_rest_digits}"
+                        
+                        weekly_high_first_digit = str(int(analysis_data['high'] * 1.02))[0]
+                        weekly_high_rest_digits = f"{analysis_data['high'] * 1.02:.3f}".split('.')[0][1:] + "." + f"{analysis_data['high'] * 1.02:.3f}".split('.')[1]
+                        formatted_weekly_high = f"{weekly_high_first_digit},{weekly_high_rest_digits}"
+                        
+                        analysis_text += f"Support: {formatted_daily_low} (daily low), {formatted_weekly_low} (weekly low)\n"
+                        analysis_text += f"Resistance: {formatted_daily_high} (daily high), {formatted_weekly_high} (weekly high)\n\n"
+                    else:
+                        analysis_text += f"Support: {analysis_data['low']:.{precision}f} (daily low), {analysis_data['low'] * 0.98:.{precision}f} (weekly low)\n"
+                        analysis_text += f"Resistance: {analysis_data['high']:.{precision}f} (daily high), {analysis_data['high'] * 1.02:.{precision}f} (weekly high)\n\n"
                     
                     # Technical indicators section
                     analysis_text += f"📈 <b>Technical Indicators</b>\n"
@@ -695,23 +726,81 @@ class ChartService:
                     # Get ema_200 value safely from analysis_data or calculate it
                     ema_200_value = analysis_data.get("ema_200", ema_50 * 0.98)
                     
-                    analysis_text += f"Moving Averages: Price {'above' if current_price > ema_50 else 'below'} EMA 50 ({ema_50:{precision}f}) and "
-                    analysis_text += f"{'above' if current_price > ema_200_value else 'below'} EMA 200 ({ema_200_value:{precision}f}), confirming {trend.lower()} bias.\n\n"
+                    # Special formatting for EMAs when instrument is gold
+                    if instrument == "XAUUSD":
+                        # Format gold EMAs with comma after first digit
+                        # EMA 50
+                        ema50_first_digit = str(int(ema_50))[0]
+                        ema50_rest_digits = f"{ema_50:.3f}".split('.')[0][1:] + "." + f"{ema_50:.3f}".split('.')[1]
+                        formatted_ema50 = f"{ema50_first_digit},{ema50_rest_digits}"
+                        
+                        # EMA 200
+                        ema200_first_digit = str(int(ema_200_value))[0]
+                        ema200_rest_digits = f"{ema_200_value:.3f}".split('.')[0][1:] + "." + f"{ema_200_value:.3f}".split('.')[1]
+                        formatted_ema200 = f"{ema200_first_digit},{ema200_rest_digits}"
+                        
+                        analysis_text += f"Moving Averages: Price {'above' if current_price > ema_50 else 'below' if current_price < ema_50 else 'near'} EMA 50 ({formatted_ema50}) and "
+                        analysis_text += f"{'above' if current_price > ema_200_value else 'below' if current_price < ema_200_value else 'near'} EMA 200 ({formatted_ema200}), confirming {trend.lower()} bias.\n\n"
+                    else:
+                        analysis_text += f"Moving Averages: Price {'above' if current_price > ema_50 else 'below' if current_price < ema_50 else 'near'} EMA 50 ({ema_50:.{precision}f}) and "
+                        analysis_text += f"{'above' if current_price > ema_200_value else 'below' if current_price < ema_200_value else 'near'} EMA 200 ({ema_200_value:.{precision}f}), confirming {trend.lower()} bias.\n\n"
                     
                     # AI recommendation
                     analysis_text += f"🤖 <b>Sigmapips AI Recommendation</b>\n"
                     if trend == 'BULLISH':
-                        analysis_text += f"Watch for a breakout above {analysis_data['high']:{precision}f} for further upside. "
-                        analysis_text += f"Maintain a buy bias while price holds above {analysis_data['low']:{precision}f}. "
-                        analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
+                        if instrument == "XAUUSD":
+                            # Format gold prices with comma after first digit
+                            high_first_digit = str(int(analysis_data['high']))[0]
+                            high_rest_digits = f"{analysis_data['high']:.3f}".split('.')[0][1:] + "." + f"{analysis_data['high']:.3f}".split('.')[1]
+                            formatted_high = f"{high_first_digit},{high_rest_digits}"
+                            
+                            low_first_digit = str(int(analysis_data['low']))[0]
+                            low_rest_digits = f"{analysis_data['low']:.3f}".split('.')[0][1:] + "." + f"{analysis_data['low']:.3f}".split('.')[1]
+                            formatted_low = f"{low_first_digit},{low_rest_digits}"
+                            
+                            analysis_text += f"Watch for a breakout above {formatted_high} for further upside. "
+                            analysis_text += f"Maintain a buy bias while price holds above {formatted_low}. "
+                            analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
+                        else:
+                            analysis_text += f"Watch for a breakout above {analysis_data['high']:.{precision}f} for further upside. "
+                            analysis_text += f"Maintain a buy bias while price holds above {analysis_data['low']:.{precision}f}. "
+                            analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
                     elif trend == 'BEARISH':
-                        analysis_text += f"Watch for a breakdown below {analysis_data['low']:{precision}f} for further downside. "
-                        analysis_text += f"Maintain a sell bias while price holds below {analysis_data['high']:{precision}f}. "
-                        analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
+                        if instrument == "XAUUSD":
+                            # Format gold prices with comma after first digit
+                            low_first_digit = str(int(analysis_data['low']))[0]
+                            low_rest_digits = f"{analysis_data['low']:.3f}".split('.')[0][1:] + "." + f"{analysis_data['low']:.3f}".split('.')[1]
+                            formatted_low = f"{low_first_digit},{low_rest_digits}"
+                            
+                            high_first_digit = str(int(analysis_data['high']))[0]
+                            high_rest_digits = f"{analysis_data['high']:.3f}".split('.')[0][1:] + "." + f"{analysis_data['high']:.3f}".split('.')[1]
+                            formatted_high = f"{high_first_digit},{high_rest_digits}"
+                            
+                            analysis_text += f"Watch for a breakdown below {formatted_low} for further downside. "
+                            analysis_text += f"Maintain a sell bias while price holds below {formatted_high}. "
+                            analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
+                        else:
+                            analysis_text += f"Watch for a breakdown below {analysis_data['low']:.{precision}f} for further downside. "
+                            analysis_text += f"Maintain a sell bias while price holds below {analysis_data['high']:.{precision}f}. "
+                            analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
                     else:
-                        analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {analysis_data['low']:{precision}f} "
-                        analysis_text += f"and selling opportunities near {analysis_data['high']:{precision}f}. "
-                        analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
+                        if instrument == "XAUUSD":
+                            # Format gold prices with comma after first digit
+                            low_first_digit = str(int(analysis_data['low']))[0]
+                            low_rest_digits = f"{analysis_data['low']:.3f}".split('.')[0][1:] + "." + f"{analysis_data['low']:.3f}".split('.')[1]
+                            formatted_low = f"{low_first_digit},{low_rest_digits}"
+                            
+                            high_first_digit = str(int(analysis_data['high']))[0]
+                            high_rest_digits = f"{analysis_data['high']:.3f}".split('.')[0][1:] + "." + f"{analysis_data['high']:.3f}".split('.')[1]
+                            formatted_high = f"{high_first_digit},{high_rest_digits}"
+                            
+                            analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {formatted_low} "
+                            analysis_text += f"and selling opportunities near {formatted_high}. "
+                            analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
+                        else:
+                            analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {analysis_data['low']:.{precision}f} "
+                            analysis_text += f"and selling opportunities near {analysis_data['high']:.{precision}f}. "
+                            analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
                     
                     analysis_text += f"⚠️ <b>Disclaimer:</b> For educational purposes only."
                     
@@ -848,7 +937,7 @@ class ChartService:
             zone_stars = "★" * zone_strength + "☆" * (5 - zone_strength)
             
             # Determine the appropriate price formatting based on instrument type
-            if any(crypto in instrument for crypto in ["BTC", "ETH", "XRP", "SOL", "BNB"]):
+            if any(crypto in instrument for crypto in ["BTC", "ETH", "LTC", "XRP"]):
                 if instrument == "BTCUSD":
                     # Bitcoin usually shows fewer decimal places
                     precision = 2
@@ -891,7 +980,16 @@ class ChartService:
             
             # Market overview section
             analysis_text += f"📊 <b>Market Overview</b>\n"
-            analysis_text += f"Price is currently trading near current price of {current_price:.{precision}f}, "
+            if instrument == "XAUUSD":
+                # Format gold price with comma after first digit
+                price_first_digit = str(int(current_price))[0]
+                price_rest_digits = f"{current_price:.3f}".split('.')[0][1:] + "." + f"{current_price:.3f}".split('.')[1]
+                formatted_price = f"{price_first_digit},{price_rest_digits}"
+                
+                analysis_text += f"Price is currently trading near current price of {formatted_price}, "
+            else:
+                analysis_text += f"Price is currently trading near current price of {current_price:.{precision}f}, "
+                
             analysis_text += f"showing {'bullish' if trend == 'BUY' else 'bearish' if trend == 'SELL' else 'mixed'} momentum. "
             analysis_text += f"The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
             analysis_text += f"indicating a {'strong uptrend' if trend == 'BUY' else 'strong downtrend' if trend == 'SELL' else 'consolidation phase'}. "
@@ -899,8 +997,29 @@ class ChartService:
             
             # Key levels section
             analysis_text += f"🔑 <b>Key Levels</b>\n"
-            analysis_text += f"Support: {daily_low:{precision}f} (daily low), {weekly_low:{precision}f} (weekly low)\n"
-            analysis_text += f"Resistance: {daily_high:{precision}f} (daily high), {weekly_high:{precision}f} (weekly high)\n\n"
+            if instrument == "XAUUSD":
+                # Format gold support/resistance levels with comma after first digit
+                daily_low_first_digit = str(int(daily_low))[0]
+                daily_low_rest_digits = f"{daily_low:.3f}".split('.')[0][1:] + "." + f"{daily_low:.3f}".split('.')[1]
+                formatted_daily_low = f"{daily_low_first_digit},{daily_low_rest_digits}"
+                
+                weekly_low_first_digit = str(int(weekly_low))[0]
+                weekly_low_rest_digits = f"{weekly_low:.3f}".split('.')[0][1:] + "." + f"{weekly_low:.3f}".split('.')[1]
+                formatted_weekly_low = f"{weekly_low_first_digit},{weekly_low_rest_digits}"
+                
+                daily_high_first_digit = str(int(daily_high))[0]
+                daily_high_rest_digits = f"{daily_high:.3f}".split('.')[0][1:] + "." + f"{daily_high:.3f}".split('.')[1]
+                formatted_daily_high = f"{daily_high_first_digit},{daily_high_rest_digits}"
+                
+                weekly_high_first_digit = str(int(weekly_high))[0]
+                weekly_high_rest_digits = f"{weekly_high:.3f}".split('.')[0][1:] + "." + f"{weekly_high:.3f}".split('.')[1]
+                formatted_weekly_high = f"{weekly_high_first_digit},{weekly_high_rest_digits}"
+                
+                analysis_text += f"Support: {formatted_daily_low} (daily low), {formatted_weekly_low} (weekly low)\n"
+                analysis_text += f"Resistance: {formatted_daily_high} (daily high), {formatted_weekly_high} (weekly high)\n\n"
+            else:
+                analysis_text += f"Support: {daily_low:.{precision}f} (daily low), {weekly_low:.{precision}f} (weekly low)\n"
+                analysis_text += f"Resistance: {daily_high:.{precision}f} (daily high), {weekly_high:.{precision}f} (weekly high)\n\n"
             
             # Technical indicators section
             analysis_text += f"📈 <b>Technical Indicators</b>\n"
@@ -912,23 +1031,78 @@ class ChartService:
             analysis_text += f"MACD: {macd_status} ({macd_value:.5f} is {'above' if macd_value > macd_signal else 'below'} signal {macd_signal:.5f})\n"
             
             ma_status = "bullish" if trend == "BUY" else "bearish" if trend == "SELL" else "mixed"
-            analysis_text += f"Moving Averages: Price {'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 50 ({ema_50:{precision}f}) and "
-            analysis_text += f"{'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 200 ({ema_200:{precision}f}), confirming {ma_status} bias.\n\n"
+            if instrument == "XAUUSD":
+                # Format gold EMAs with comma after first digit
+                ema50_first_digit = str(int(ema_50))[0]
+                ema50_rest_digits = f"{ema_50:.3f}".split('.')[0][1:] + "." + f"{ema_50:.3f}".split('.')[1]
+                formatted_ema50 = f"{ema50_first_digit},{ema50_rest_digits}"
+                
+                ema200_first_digit = str(int(ema_200))[0]
+                ema200_rest_digits = f"{ema_200:.3f}".split('.')[0][1:] + "." + f"{ema_200:.3f}".split('.')[1]
+                formatted_ema200 = f"{ema200_first_digit},{ema200_rest_digits}"
+                
+                analysis_text += f"Moving Averages: Price {'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 50 ({formatted_ema50}) and "
+                analysis_text += f"{'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 200 ({formatted_ema200}), confirming {ma_status} bias.\n\n"
+            else:
+                analysis_text += f"Moving Averages: Price {'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 50 ({ema_50:.{precision}f}) and "
+                analysis_text += f"{'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 200 ({ema_200:.{precision}f}), confirming {ma_status} bias.\n\n"
             
             # AI recommendation
             analysis_text += f"🤖 <b>Sigmapips AI Recommendation</b>\n"
             if trend == "BUY":
-                analysis_text += f"Watch for a breakout above {daily_high:{precision}f} for further upside. "
-                analysis_text += f"Maintain a buy bias while price holds above {daily_low:{precision}f}. "
-                analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
+                if instrument == "XAUUSD":
+                    # Format gold prices with comma after first digit
+                    daily_high_first_digit = str(int(daily_high))[0]
+                    daily_high_rest_digits = f"{daily_high:.3f}".split('.')[0][1:] + "." + f"{daily_high:.3f}".split('.')[1]
+                    formatted_daily_high = f"{daily_high_first_digit},{daily_high_rest_digits}"
+                    
+                    daily_low_first_digit = str(int(daily_low))[0]
+                    daily_low_rest_digits = f"{daily_low:.3f}".split('.')[0][1:] + "." + f"{daily_low:.3f}".split('.')[1]
+                    formatted_daily_low = f"{daily_low_first_digit},{daily_low_rest_digits}"
+                    
+                    analysis_text += f"Watch for a breakout above {formatted_daily_high} for further upside. "
+                    analysis_text += f"Maintain a buy bias while price holds above {formatted_daily_low}. "
+                    analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
+                else:
+                    analysis_text += f"Watch for a breakout above {daily_high:.{precision}f} for further upside. "
+                    analysis_text += f"Maintain a buy bias while price holds above {daily_low:.{precision}f}. "
+                    analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
             elif trend == "SELL":
-                analysis_text += f"Watch for a breakdown below {daily_low:{precision}f} for further downside. "
-                analysis_text += f"Maintain a sell bias while price holds below {daily_high:{precision}f}. "
-                analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
+                if instrument == "XAUUSD":
+                    # Format gold prices with comma after first digit
+                    daily_low_first_digit = str(int(daily_low))[0]
+                    daily_low_rest_digits = f"{daily_low:.3f}".split('.')[0][1:] + "." + f"{daily_low:.3f}".split('.')[1]
+                    formatted_daily_low = f"{daily_low_first_digit},{daily_low_rest_digits}"
+                    
+                    daily_high_first_digit = str(int(daily_high))[0]
+                    daily_high_rest_digits = f"{daily_high:.3f}".split('.')[0][1:] + "." + f"{daily_high:.3f}".split('.')[1]
+                    formatted_daily_high = f"{daily_high_first_digit},{daily_high_rest_digits}"
+                    
+                    analysis_text += f"Watch for a breakdown below {formatted_daily_low} for further downside. "
+                    analysis_text += f"Maintain a sell bias while price holds below {formatted_daily_high}. "
+                    analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
+                else:
+                    analysis_text += f"Watch for a breakdown below {daily_low:.{precision}f} for further downside. "
+                    analysis_text += f"Maintain a sell bias while price holds below {daily_high:.{precision}f}. "
+                    analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
             else:
-                analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {daily_low:{precision}f} "
-                analysis_text += f"and selling opportunities near {daily_high:{precision}f}. "
-                analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
+                if instrument == "XAUUSD":
+                    # Format gold prices with comma after first digit
+                    daily_low_first_digit = str(int(daily_low))[0]
+                    daily_low_rest_digits = f"{daily_low:.3f}".split('.')[0][1:] + "." + f"{daily_low:.3f}".split('.')[1]
+                    formatted_daily_low = f"{daily_low_first_digit},{daily_low_rest_digits}"
+                    
+                    daily_high_first_digit = str(int(daily_high))[0]
+                    daily_high_rest_digits = f"{daily_high:.3f}".split('.')[0][1:] + "." + f"{daily_high:.3f}".split('.')[1]
+                    formatted_daily_high = f"{daily_high_first_digit},{daily_high_rest_digits}"
+                    
+                    analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {formatted_daily_low} "
+                    analysis_text += f"and selling opportunities near {formatted_daily_high}. "
+                    analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
+                else:
+                    analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {daily_low:.{precision}f} "
+                    analysis_text += f"and selling opportunities near {daily_high:.{precision}f}. "
+                    analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
             
             # Disclaimer
             analysis_text += f"⚠️ <b>Disclaimer:</b> For educational purposes only."
@@ -970,13 +1144,17 @@ class ChartService:
         if any(crypto in instrument for crypto in ["BTC", "ETH", "LTC", "XRP"]):
             return 2
             
-        # Gold typically uses 2 decimal places
+        # Gold uses 3 decimal places
         if instrument in ["XAUUSD", "GC=F"]:
-            return 2
-            
-        # Silver typically uses 3 decimal places
-        if instrument in ["XAGUSD", "SI=F"]:
             return 3
+            
+        # Silver uses 4 decimal places
+        if instrument in ["XAGUSD", "SI=F"]:
+            return 4
+            
+        # Oil prices use 2 decimal places
+        if instrument in ["XTIUSD", "WTIUSD", "XBRUSD", "USOIL", "CL=F", "BZ=F"]:
+            return 2
             
         # Indices typically use 2 decimal places
         if any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40", "JP225"]):
