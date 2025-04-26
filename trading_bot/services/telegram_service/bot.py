@@ -2811,7 +2811,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # >>> SIGNAL FLOW SPECIFIC BACK BUTTONS <<<
             elif callback_data == "back_to_signal_analysis_options": # Back to Tech/Sentiment/Calendar for the signal
                 return await self.analyze_from_signal_callback(update, context) # Reuse the function to show options
-            elif callback_data == "back_to_signal_details": # Back to the original signal message
+            elif callback_data == "back_to_signal": # Back to the original signal message (Corrected from back_to_signal_details)
                 return await self.back_to_signal_callback(update, context)
 
             # Handle timeframe selection (voor Technical Analysis)
