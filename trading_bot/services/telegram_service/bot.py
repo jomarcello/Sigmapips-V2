@@ -2259,9 +2259,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             reply_markup=InlineKeyboardMarkup(SIGNAL_ANALYSIS_KEYBOARD),
                             parse_mode=ParseMode.HTML
                         )
-            else:
-                # Re-raise for other errors
-                raise
+                else:
+                    # Re-raise for other errors
+                    raise
         return CHOOSE_ANALYSIS
 
     async def signal_calendar_callback(self, update: Update, context=None) -> int:
@@ -2408,7 +2408,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     if signal_direction:
                         direction_match = sig.get('direction') == signal_direction
                     if signal_timeframe:
-                        timeframe_match = sig.get('interval') == signal_timeframe
+                        timeframe_match = sig.get('timeframe') == signal_timeframe
                     
                     if instrument_match and direction_match and timeframe_match:
                         matching_signals.append((sig_id, sig))
@@ -2480,10 +2480,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Extract signal information from callback data
             parts = query.data.split('_')
             
-            # Format: analyze_from_signal_INSTRUMENT_SIGNALID
+            # Format: analyze_from_signal_INSTRUMENT_SIGNALID (waar SIGNALID = INSTRUMENT_DIRECTION_TIMEFRAME_TIMESTAMP)
             if len(parts) >= 4:
                 instrument = parts[3]
-                signal_id = parts[4] if len(parts) >= 5 else None
+                # >>> CORRECT SIGNAL ID PARSING <<<
+                # De signal ID bestaat uit alle delen vanaf index 4
+                signal_id_parts = parts[4:]
+                signal_id = "_".join(signal_id_parts) if signal_id_parts else None
+                
+                # >>> EXTRACT DIRECTION/TIMEFRAME DIRECTLY <<< 
+                signal_direction = None
+                signal_timeframe_str = None # String version like '30' or 'H1'
+                if len(signal_id_parts) >= 3: # Expecting at least INSTRUMENT_DIRECTION_TIMEFRAME
+                    # Direction is usually the first part after instrument in ID (index 1 of signal_id_parts)
+                    if signal_id_parts[0].upper() in ["BUY", "SELL"]:
+                        signal_direction = signal_id_parts[0].upper()
+                        # Timeframe is usually the next part (index 2 of signal_id_parts)
+                        if len(signal_id_parts) > 1: 
+                            signal_timeframe_str = signal_id_parts[1] # e.g., '30' or 'H1' etc.
+                    else:
+                        # Maybe instrument name had underscores, try second part for direction
+                        if len(signal_id_parts) > 1 and signal_id_parts[1].upper() in ["BUY", "SELL"]:
+                             signal_direction = signal_id_parts[1].upper()
+                             if len(signal_id_parts) > 2:
+                                signal_timeframe_str = signal_id_parts[2]
+
+                logger.info(f"Parsed from callback: instrument={instrument}, signal_id={signal_id}, direction={signal_direction}, timeframe_str={signal_timeframe_str}")
                 
                 # Store in context for other handlers
                 if context and hasattr(context, 'user_data'):
@@ -2493,19 +2515,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     
                     # Make a backup copy to ensure we can return to signal later
                     context.user_data['signal_instrument_backup'] = instrument
-                    if signal_id:
-                        context.user_data['signal_id_backup'] = signal_id
+                    context.user_data['signal_id_backup'] = signal_id
+                    # >>> SAVE DIRECTLY PARSED VALUES TO BACKUP <<<
+                    context.user_data['signal_direction_backup'] = signal_direction
+                    context.user_data['signal_timeframe_backup'] = signal_timeframe_str # Store the parsed string timeframe
                     
-                    # Also store info from the actual signal if available
-                    if str(update.effective_user.id) in self.user_signals and signal_id in self.user_signals[str(update.effective_user.id)]:
-                        signal = self.user_signals[str(update.effective_user.id)][signal_id]
+                    # Also store info from the actual signal if available (for current context, backups are priority)
+                    user_signals_key = str(update.effective_user.id)
+                    if user_signals_key in self.user_signals and signal_id in self.user_signals[user_signals_key]:
+                        signal = self.user_signals[user_signals_key][signal_id]
                         if signal:
+                            # Store potentially more accurate/complete data for current use
                             context.user_data['signal_direction'] = signal.get('direction')
-                            context.user_data['signal_timeframe'] = signal.get('interval')
-                            # Backup copies
-                            context.user_data['signal_direction_backup'] = signal.get('direction')
-                            context.user_data['signal_timeframe_backup'] = signal.get('interval')
-                            logger.info(f"Stored signal details: direction={signal.get('direction')}, timeframe={signal.get('interval')}")
+                            context.user_data['signal_timeframe'] = signal.get('timeframe') # <<< Use timeframe
+                            logger.info(f"Stored signal details from cache: direction={signal.get('direction')}, timeframe={signal.get('timeframe')}")
+                        else:
+                            # Use parsed values if cache lookup fails
+                            context.user_data['signal_direction'] = signal_direction
+                            context.user_data['signal_timeframe'] = signal_timeframe_str
+                    else:
+                         # Use parsed values if not in cache
+                         context.user_data['signal_direction'] = signal_direction
+                         context.user_data['signal_timeframe'] = signal_timeframe_str
+                         logger.warning(f"Signal ID {signal_id} not found in user_signals cache for user {user_signals_key}. Using parsed values.")
+
+                    # Log context after setting backups
+                    logger.info(f"Context user_data after setting backups in analyze_from_signal: {context.user_data}")
             else:
                 # Legacy support - just extract the instrument
                 instrument = parts[3] if len(parts) >= 4 else None
@@ -3541,6 +3576,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 <b>Market Sentiment Breakdown:</b>
 🟢 Bullish: {bullish}%
 🔴 Bearish: {bearish}%
+```
+</region_of_file_to_rewritten>
 ⚪️ Neutral: {neutral}%"""
 
             # Verwijder alle dubbele newlines om nog meer witruimte te voorkomen
