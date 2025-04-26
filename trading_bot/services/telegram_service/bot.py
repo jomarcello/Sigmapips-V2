@@ -2629,6 +2629,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             elif callback_data == "back_instrument" or callback_data == CALLBACK_BACK_INSTRUMENT:
                 logger.info("Explicitly handling back_instrument callback in button_callback")
                 return await self.back_instrument_callback(update, context)
+            elif callback_data == "back_to_signal":
+                logger.info("Explicitly handling back_to_signal callback in button_callback")
+                return await self.back_to_signal_callback(update, context)
                 
             # Handle delete signal
             if callback_data.startswith("delete_signal_"):
