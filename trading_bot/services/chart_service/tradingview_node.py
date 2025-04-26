@@ -366,9 +366,10 @@ class TradingViewNodeService(TradingViewService):
                          left: 0 !important;
                     }
                 """)
-                # Optional: Try keyboard shortcut (might not always work reliably in headless)
-                # await page.keyboard.press('Shift+F') 
-                await page.wait_for_timeout(1000) # Wait for styles to apply
+                # Try keyboard shortcut for fullscreen
+                logger.info("Simulating Shift+F keyboard shortcut for fullscreen.")
+                await page.keyboard.press('Shift+F') 
+                await page.wait_for_timeout(1500) # Increased wait time for fullscreen transition
 
 
             # Final wait before screenshot
