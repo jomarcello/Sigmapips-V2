@@ -2815,6 +2815,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             elif callback_data == "back_to_signal":
                 logger.info("Explicitly handling back_to_signal callback in button_callback")
                 return await self.back_to_signal_callback(update, context)
+            # ADD EXPLICIT HANDLING FOR back_to_signal_analysis
+            elif callback_data == "back_to_signal_analysis":
+                logger.info("Explicitly handling back_to_signal_analysis callback in button_callback")
+                return await self.back_to_signal_analysis_callback(update, context)
                 
             # Handle delete signal
             if callback_data.startswith("delete_signal_"):
