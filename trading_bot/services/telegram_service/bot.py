@@ -2431,8 +2431,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         signal_id, signal_data = matching_signals[0]
                         logger.info(f"Found signal with just instrument match, ID: {signal_id}")
             
-            if not signal_data:
-                # Fallback message if signal not found
+            # If we have the original message in context, we can use it even if signal not found in cache
+            original_signal_message = None
+            if context and hasattr(context, 'user_data'):
+                original_signal_message = context.user_data.get('original_signal_message')
+                if original_signal_message:
+                    logger.info("Using original signal message from context")
+            
+            if not signal_data and not original_signal_message:
+                # Fallback message if signal not found and no original message
                 await query.edit_message_text(
                     text="Signal not found. Please use the main menu to continue.",
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
@@ -2441,12 +2448,15 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Show the signal details with analyze button
             # Prepare analyze button with signal info embedded
+            callback_data = f"analyze_from_signal_{signal_instrument}_{signal_id}" if signal_id else f"analyze_from_signal_{signal_instrument}_{signal_instrument}_{signal_direction}_{signal_timeframe}"
             keyboard = [
-                [InlineKeyboardButton("🔍 Analyze Market", callback_data=f"analyze_from_signal_{signal_instrument}_{signal_id}")]
+                [InlineKeyboardButton("🔍 Analyze Market", callback_data=callback_data)]
             ]
             
-            # Get the formatted message from the signal
-            signal_message = signal_data.get('message', "Signal details not available.")
+            # Get the formatted message from the signal or use the original message
+            signal_message = signal_data.get('message', original_signal_message) if signal_data else original_signal_message
+            if not signal_message:
+                signal_message = "Signal details not available."
             
             # Edit current message to show signal
             await query.edit_message_text(
