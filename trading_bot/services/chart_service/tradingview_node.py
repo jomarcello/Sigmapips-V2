@@ -349,54 +349,34 @@ class TradingViewNodeService(TradingViewService):
 
 
             if fullscreen:
-                logger.info("Applying fullscreen CSS adjustments...")
-                # Hide UI elements using CSS injection first
+                logger.info("Applying fullscreen CSS adjustments to maximize chart within viewport...")
+                # Hide UI elements and maximize chart area using CSS injection
                 await page.add_style_tag(content="""
                     .tv-header, .tv-main-panel__toolbar, .tv-side-toolbar, 
                     .layout__area--left, .layout__area--right, footer, .tv-main-panel__statuses,
-                    .group-T57LDNqT, // Hide bottom ad panel if present
-                     #footer-chart-panel // Hide footer panel
-                     { display: none !important; }
+                    .group-T57LDNqT, #footer-chart-panel, .tv-floating-toolbar,
+                    div[data-name='legend-source-item'], /* Hide indicator legends */
+                    div[data-name='scales'], /* Hide price/time scales if needed */
+                    div[data-name='pane-legend'] /* Hide pane legends */
+                     { display: none !important; visibility: hidden !important; opacity: 0 !important; }
                     
-                    .chart-gui-wrapper, .layout__area--center { /* Try to maximize chart area */
+                    .chart-gui-wrapper, .layout__area--center { /* Maximize chart area */
                          height: 100vh !important; 
                          width: 100vw !important; 
                          position: fixed !important; 
                          top: 0 !important; 
                          left: 0 !important;
+                         border: none !important; /* Remove borders */
+                         margin: 0 !important; /* Remove margins */
+                         padding: 0 !important; /* Remove padding */
                     }
+                    body { overflow: hidden !important; } /* Prevent scrollbars */
                 """)
-                await page.wait_for_timeout(500) # Short wait for CSS to apply
-
-            # Final wait/actions before screenshot
-            if fullscreen:
-                # Attempt fullscreen using JavaScript Fullscreen API
-                logger.info("Attempting fullscreen via JavaScript API...")
-                try:
-                    await page.evaluate("""
-                        async () => {
-                            const chartElement = document.querySelector('.layout__area--center'); // Target the main chart area
-                            if (chartElement && chartElement.requestFullscreen) {
-                                try {
-                                    await chartElement.requestFullscreen();
-                                    console.log('Fullscreen requested via JS API.');
-                                } catch (err) {
-                                    console.error('JS Fullscreen API error:', err.message);
-                                }
-                            } else {
-                                console.warn('Chart element for fullscreen not found or API not supported.');
-                            }
-                        }
-                    """)
-                    await page.wait_for_timeout(2500) # Wait for potential transition
-                except Exception as js_err:
-                     logger.warning(f"Error executing fullscreen JavaScript: {js_err}")
-
-            else:
-                 # Standard final wait if not fullscreen
-                 await page.wait_for_timeout(1500) 
+                # Wait for CSS to apply and chart to potentially redraw
+                await page.wait_for_timeout(2000) # Adjusted wait time
 
             # Additional aggressive cleanup just before screenshot
+            logger.info("Performing final cleanup before screenshot...")
             await page.evaluate("""
                 () => {
                     document.querySelectorAll('[role="dialog"], .tv-dialog, .js-dialog, .tv-dialog--popup, .tv-notification').forEach(el => {
@@ -406,7 +386,7 @@ class TradingViewNodeService(TradingViewService):
                     });
                 }
             """)
-            await page.wait_for_timeout(200) # Very short wait after final cleanup
+            await page.wait_for_timeout(500) # Short wait after final cleanup
 
             logger.info("Taking screenshot with Playwright...")
             screenshot_bytes = await page.screenshot(type='png')
