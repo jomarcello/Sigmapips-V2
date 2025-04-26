@@ -2541,13 +2541,14 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 
                     # Log context after setting backups
                     logger.info(f"Context user_data after setting backups in analyze_from_signal: {context.user_data}")
+            
+            # >>> SLA ORIGINELE BERICHT OP <<<
+            original_message = query.message.text or query.message.caption
+            if original_message and context and hasattr(context, 'user_data'):
+                context.user_data['original_signal_message'] = original_message
+                logger.info("Saved original signal message to context.")
             else:
-                # Legacy support - just extract the instrument
-                instrument = parts[3] if len(parts) >= 4 else None
-                
-                if instrument and context and hasattr(context, 'user_data'):
-                    context.user_data['instrument'] = instrument
-                    context.user_data['signal_instrument_backup'] = instrument
+                logger.warning("Could not retrieve original signal message text/caption to save.")
             
             # Show analysis options for this instrument
             # Format message
@@ -3577,7 +3578,57 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 🟢 Bullish: {bullish}%
 🔴 Bearish: {bearish}%
 ```
-</region_of_file_to_rewritten>
+</b>
+"""
+            
+            # Determine which back button to use based on flow
+            back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
+            
+            # Show the sentiment analysis
+            try:
+                await query.edit_message_text(
+                    text=full_message,
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
+                    ]]),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                logger.error(f"Error updating message: {str(e)}")
+                try:
+                    await query.edit_message_caption(
+                        caption=full_message,
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
+                        ]]),
+                        parse_mode=ParseMode.HTML
+                    )
+                except Exception as caption_error:
+                    logger.error(f"Error updating caption: {str(caption_error)}")
+                    # Last resort - send a new message
+                    await query.message.reply_text(
+                        text=full_message,
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
+                        ]]),
+                        parse_mode=ParseMode.HTML
+                    )
+            
+            return SHOW_RESULT
+        
+        except Exception as e:
+            logger.error(f"Error in show_sentiment_analysis: {str(e)}")
+            # Error recovery
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again from the main menu.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception:
+                pass
+            
+            return MENU
+
 ⚪️ Neutral: {neutral}%"""
 
             # Verwijder alle dubbele newlines om nog meer witruimte te voorkomen
@@ -5012,83 +5063,3 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             
             return CHOOSE_SIGNALS
-        
-    async def back_instrument_callback(self, update: Update, context=None) -> int:
-        """Handle back button to return to instrument selection"""
-        query = update.callback_query
-        await query.answer()
-        
-        # Add detailed logging
-        logger.info("back_instrument_callback called")
-        logger.info(f"Query data: {query.data}")
-        if context and hasattr(context, 'user_data'):
-            logger.info(f"Context user_data: {context.user_data}")
-        
-        try:
-            # Clear style/timeframe data but keep instrument
-            if context and hasattr(context, 'user_data'):
-                keys_to_clear = ['style', 'timeframe']
-                for key in keys_to_clear:
-                    if key in context.user_data:
-                        del context.user_data[key]
-                logger.info("Cleared style/timeframe data from context")
-            
-            # Get market and analysis type from context
-            market = None
-            analysis_type = None
-            if context and hasattr(context, 'user_data'):
-                market = context.user_data.get('market')
-                analysis_type = context.user_data.get('analysis_type')
-                is_signals_context = context.user_data.get('is_signals_context', False)
-                logger.info(f"Context info: market={market}, analysis_type={analysis_type}, is_signals_context={is_signals_context}")
-            
-            if not market:
-                logger.warning("No market found in context, defaulting to forex")
-                market = "forex"
-            
-            # If we're in signals context, go back to signals menu
-            if is_signals_context and hasattr(self, 'back_signals_callback'):
-                logger.info("Going back to signals menu because is_signals_context=True")
-                return await self.back_signals_callback(update, context)
-            
-            # Otherwise go back to market selection
-            logger.info("Going back to market selection")
-            return await self.back_market_callback(update, context)
-            
-        except Exception as e:
-            logger.error(f"Failed to handle back_instrument_callback: {str(e)}")
-            logger.exception(e)
-            # Try to recover by going to market selection
-            if hasattr(self, 'back_market_callback'):
-                return await self.back_market_callback(update, context)
-            else:
-                # Last resort fallback - update message with error
-                await self.update_message(
-                    query, 
-                    "Sorry, an error occurred. Please use /menu to start again.", 
-                    keyboard=None
-                )
-                return ConversationHandler.END
-
-    def _convert_html_to_markdown(self, text):
-        """Convert simple HTML tags to Markdown format for Telegram"""
-        if not text:
-            return text
-            
-        # Convert bold
-        text = re.sub(r'<b>(.*?)</b>', r'*\1*', text)
-        
-        # Convert italic
-        text = re.sub(r'<i>(.*?)</i>', r'_\1_', text)
-        
-        # Convert underline - Telegram markdown doesn't support underline, so use italic
-        text = re.sub(r'<u>(.*?)</u>', r'_\1_', text)
-        
-        # Convert any other tag by removing it
-        text = re.sub(r'<[^>]*>', '', text)
-        
-        # Escape special markdown characters that are not part of formatting
-        for char in ['[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.']:
-            text = text.replace(char, f'\\{char}')
-        
-        return text
