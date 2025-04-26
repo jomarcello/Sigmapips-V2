@@ -4599,29 +4599,29 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Initialize user_signals dictionary if it doesn't exist
             if not hasattr(self, 'user_signals'):
                 self.user_signals = {}
-                
+
             # If we have a database connection, load signals from there
             if self.db:
                 # Get all active signals from the database
                 signals = await self.db.get_active_signals()
-                
+
                 # Organize signals by user_id for quick access
                 for signal in signals:
                     user_id = str(signal.get('user_id'))
                     signal_id = signal.get('id')
-                    
+
                     # Initialize user dictionary if needed
                     if user_id not in self.user_signals:
                         self.user_signals[user_id] = {}
-                    
+
                     # Store the signal
                     self.user_signals[user_id][signal_id] = signal
-                
+
                 logger.info(f"Loaded {len(signals)} signals for {len(self.user_signals)} users")
-                else:
+            else:
                 logger.warning("No database connection available for loading signals")
-                
-            except Exception as e:
+
+        except Exception as e:
             logger.error(f"Error loading signals: {str(e)}")
             logger.exception(e)
             # Initialize empty dict on error
@@ -4667,17 +4667,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
         # Multi-step approach to handle media messages
+        try:
+            # Step 1: Try to delete the message and send a new one
+            chat_id = update.effective_chat.id
+            message_id = query.message.message_id
+
             try:
-                # Step 1: Try to delete the message and send a new one
-                chat_id = update.effective_chat.id
-                message_id = query.message.message_id
-                
-                try:
-                    # Try to delete the current message
-                    await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                # Try to delete the current message
+                await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
                 # Send a new message with the analysis menu
                 await context.bot.send_animation(
-                        chat_id=chat_id,
+                    chat_id=chat_id,
                     animation=gif_url,
                     caption="Select your analysis type:",
                     reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
@@ -4685,71 +4685,72 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
                 logger.info("Successfully deleted message and sent new analysis menu")
                 return CHOOSE_ANALYSIS
-                except Exception as delete_error:
-                    logger.warning(f"Could not delete message: {str(delete_error)}")
-                    
+            except Exception as delete_error: # <<< This except corresponds to the inner try
+                logger.warning(f"Could not delete message: {str(delete_error)}")
+
                 # Step 2: If deletion fails, try replacing with a GIF or transparent GIF
-                    try:
-                        if has_photo:
+                try: # <<< Corrected indentation and added except block
+                    if has_photo:
                         # Replace with the analysis GIF
-                            await query.edit_message_media(
+                        await query.edit_message_media(
                             media=InputMediaAnimation(
                                 media=gif_url,
                                 caption="Select your analysis type:"
                             ),
                             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
                         )
-                        else:
+                    else:
                         # Just update the text
-                            await query.edit_message_text(
+                        await query.edit_message_text(
                             text="Select your analysis type:",
                             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
                             parse_mode=ParseMode.HTML
                         )
                     logger.info("Updated message with analysis menu")
                     return CHOOSE_ANALYSIS
-                    except Exception as media_error:
-                        logger.warning(f"Could not update media: {str(media_error)}")
-                        
-                        # Step 3: As last resort, only update the caption
-                        try:
-                            await query.edit_message_caption(
+                except Exception as media_error: # <<< This except corresponds to the Step 2 try
+                    logger.warning(f"Could not update media: {str(media_error)}")
+
+                    # Step 3: As last resort, only update the caption
+                    try: # <<< Corrected indentation and added except block
+                        await query.edit_message_caption(
                             caption="Select your analysis type:",
                             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
                             parse_mode=ParseMode.HTML
                         )
                         logger.info("Updated caption with analysis menu")
                         return CHOOSE_ANALYSIS
-                        except Exception as caption_error:
+                    except Exception as caption_error: # <<< This except corresponds to the Step 3 try
                         logger.error(f"Failed to update caption in analysis_callback: {str(caption_error)}")
-                            # Send a new message as absolutely last resort
-                            await context.bot.send_message(
-                                chat_id=chat_id,
+                        # Send a new message as absolutely last resort
+                        await context.bot.send_message(
+                            chat_id=chat_id,
                             text="Select your analysis type:",
-                                parse_mode=ParseMode.HTML,
+                            parse_mode=ParseMode.HTML,
                             reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
-                            )
-            except Exception as e:
+                        )
+                        # No return here, will fall through to the outer return
+        except Exception as e: # <<< This except corresponds to the outer try
             logger.error(f"Error in analysis_callback: {str(e)}")
             # Send a new message as fallback
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
                 text="Select your analysis type:",
-                    parse_mode=ParseMode.HTML,
+                parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD)
             )
-            
+
         return CHOOSE_ANALYSIS
 
     async def back_menu_callback(self, update: Update, context=None) -> int:
         """Handle back_menu button press to return to main menu.
-        
+
         This function properly separates the /menu flow from the signal flow
         by clearing context data to prevent mixing of flows.
         """
         query = update.callback_query
         await query.answer()
-        
+
         try:
             # Reset all context data to ensure clean separation between flows
             if context and hasattr(context, 'user_data'):
@@ -4833,20 +4834,20 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         )
             
             return MENU
-                except Exception as e:
+        except Exception as e: # <<< Corrected indentation and added except block
             logger.error(f"Error in back_menu_callback: {str(e)}")
             # Try to recover by sending a basic menu as fallback
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=WELCOME_MESSAGE,
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+            await context.bot.send_message( # <<< Corrected indentation
+                chat_id=update.effective_chat.id, # <<< Corrected indentation
+                text=WELCOME_MESSAGE, # <<< Corrected indentation
+                parse_mode=ParseMode.HTML, # <<< Corrected indentation
+                reply_markup=InlineKeyboardMarkup(START_KEYBOARD) # <<< Corrected indentation
             )
             return MENU
 
     async def menu_signals_callback(self, update: Update, context=None) -> int:
         """Handle menu_signals button press to show signals management menu.
-        
+
         This function properly sets up the signals flow context to ensure it doesn't
         mix with the regular menu flow.
         """
@@ -4879,7 +4880,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             # Try to update with GIF for better visual feedback
-            try:
+            try: # <<< Corrected indentation and added except block
                 # First try to delete and send new message with GIF
                 await query.message.delete()
                 await context.bot.send_animation(
@@ -4890,9 +4891,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     reply_markup=reply_markup
                 )
                 return SIGNALS
-                except Exception as delete_error:
+            except Exception as delete_error: # <<< Corrected indentation and added except block
                 logger.warning(f"Could not delete message: {str(delete_error)}")
-                
+
                 # If deletion fails, try replacing with a GIF
                 try:
                     # If message has photo or animation, replace media
@@ -4934,10 +4935,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
         
             return SIGNALS
-        except Exception as e:
-            logger.error(f"Error in menu_signals_callback: {str(e)}")
-            # Fallback approach on error
-            await context.bot.send_message(
+        except Exception as e: # <<< Added missing except block
+             logger.error(f"Error in menu_signals_callback: {str(e)}")
+             # Fallback approach on error
+             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text="<b>📈 Signal Management</b>\n\nManage your trading signals",
                 parse_mode=ParseMode.HTML,
@@ -5115,9 +5116,10 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
              # Attempt to delete the previous message (which might contain the photo)
              await query.message.delete()
              # Corrected logger call: removed trailing backslash
-             logger.info(f"Deleted previous message (ID: {query.message.message_id})\")
+             logger.info(f"Deleted previous message (ID: {query.message.message_id})")
         except Exception as delete_error:
-             logger.warning(f"Could not delete previous message (ID: {query.message.message_id}): {delete_error}\")
+             # Corrected logger call: removed trailing backslash
+             logger.warning(f"Could not delete previous message (ID: {query.message.message_id}): {delete_error}")
              # Continue anyway, will try to send a new message
 
         try:
@@ -5128,9 +5130,11 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                  reply_markup=InlineKeyboardMarkup(keyboard_layout),
                  parse_mode=ParseMode.HTML
              )
-             logger.info(f"Sent new instrument selection message for market {market}\")
+             # Corrected logger call: removed trailing backslash
+             logger.info(f"Sent new instrument selection message for market {market}")
         except Exception as send_error:
-             logger.error(f"Error sending new message in back_instrument_callback: {send_error}\")
+             # Corrected logger call: removed trailing backslash
+             logger.error(f"Error sending new message in back_instrument_callback: {send_error}")
              # As a last resort, try to edit the existing message text (might fail if it was a photo)
              try:
                   await query.edit_message_text(
@@ -5139,7 +5143,12 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                        parse_mode=ParseMode.HTML
                   )
              except Exception as edit_error:
-                  logger.error(f"Also failed to edit message text as fallback: {edit_error}\")
+                  # Corrected logger call: removed trailing backslash
+                  logger.error(f"Also failed to edit message text as fallback: {edit_error}")
+        except Exception as e: # <<< Added missing except block
+             logger.error(f"Unhandled exception in back_instrument_callback: {str(e)}")
+             # Optionally add recovery logic here, e.g., return to main menu
+
         # <<< MODIFICATION END >>>
 
         return CHOOSE_INSTRUMENT
