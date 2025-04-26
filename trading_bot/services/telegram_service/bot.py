@@ -2848,7 +2848,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 logger.exception(e)
                 # Notify user if possible
                 try:
-                    await update.callback_query.message.reply_text(\"An error occurred processing your request. Please try again.\")
+                    await update.callback_query.message.reply_text("An error occurred processing your request. Please try again.")
                 except Exception:
                     pass # Avoid nested errors
             return MENU # Return to main menu state on error
@@ -2858,7 +2858,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.exception(e)
             # Notify user if possible
             try:
-                await update.callback_query.message.reply_text(\"A Telegram error occurred. Please try again later.\")
+                await update.callback_query.message.reply_text("A Telegram error occurred. Please try again later.")
             except Exception:
                 pass
             return MENU
@@ -2868,7 +2868,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             logger.exception(e) # Log the full traceback
             # Notify user if possible
             try:
-                await update.callback_query.message.reply_text(\"An unexpected error occurred. Please contact support.\")
+                await update.callback_query.message.reply_text("An unexpected error occurred. Please contact support.")
             except Exception:
                 pass
             return MENU # Fallback state on unexpected errors
