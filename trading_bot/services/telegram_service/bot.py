@@ -734,6 +734,8 @@ class TelegramService:
                  self.logger.info("Attempting to initialize TradingViewCalendarService...")
                  self._calendar_service_instance = TradingViewCalendarService() # Create the specific instance
                  self.logger.info("TradingViewCalendarService instance created successfully.")
+                 # Log the module path of the EconomicCalendarService class being used
+                 self.logger.info(f"Attempting to use EconomicCalendarService from: {EconomicCalendarService.__module__}")
                  # Create the main EconomicCalendarService wrapper, passing the instance
                  self._calendar_service = EconomicCalendarService(calendar_service_instance=self._calendar_service_instance)
                  self.logger.info("EconomicCalendarService initialized with TradingView instance.")
@@ -741,11 +743,15 @@ class TelegramService:
                  self.logger.error(f"Failed to import or initialize TradingViewCalendarService: {e}")
                  self.logger.warning("Falling back to EconomicCalendarService without a specific instance (will use mock).")
                  # Initialize with None, the EconomicCalendarService will handle creating a mock
+                 # Log the module path of the EconomicCalendarService class being used in fallback
+                 self.logger.info(f"Attempting to use fallback EconomicCalendarService from: {EconomicCalendarService.__module__}")
                  self._calendar_service = EconomicCalendarService(calendar_service_instance=None)
             except Exception as e:
                  self.logger.error(f"An unexpected error occurred during calendar service initialization: {e}")
                  self.logger.error(traceback.format_exc())
                  self.logger.warning("Falling back to EconomicCalendarService without a specific instance (will use mock).")
+                 # Log the module path of the EconomicCalendarService class being used in fallback
+                 self.logger.info(f"Attempting to use fallback EconomicCalendarService from: {EconomicCalendarService.__module__}")
                  self._calendar_service = EconomicCalendarService(calendar_service_instance=None)
 
             # ... (rest of service initializations)
@@ -764,6 +770,8 @@ class TelegramService:
             if self._calendar_service is None: # If initialization failed
                  self.logger.error("Failed to lazy-load calendar service!")
                  # Return a temporary mock or raise an error
+                 # Log the module path of the EconomicCalendarService class being used in lazy load fallback
+                 self.logger.info(f"Attempting to use lazy-load fallback EconomicCalendarService from: {EconomicCalendarService.__module__}")
                  return EconomicCalendarService(calendar_service_instance=None) # Return mock
         return self._calendar_service
 
