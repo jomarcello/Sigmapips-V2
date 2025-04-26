@@ -105,8 +105,8 @@ async def lifespan(app: FastAPI):
         logger.info("Database initialized")
         
         # Initialize chart service through the telegram service's initialize_services method
-        await telegram_service.initialize_services()
-        logger.info("Chart service initialized through telegram service")
+        # await telegram_service.initialize_services() # Removed - services are likely lazy-loaded
+        # logger.info("Chart service initialized through telegram service") # Removed
         
         # Log environment variables
         webhook_url = os.getenv("WEBHOOK_URL", "")
