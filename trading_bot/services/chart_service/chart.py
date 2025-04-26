@@ -600,7 +600,6 @@ class ChartService:
                     
                     # Get the appropriate decimal precision for this instrument
                     precision = self._get_instrument_precision(instrument)
-                    price_format = f':.{precision}f'
                     
                     # Format the analysis using the same format as the main method
                     if timeframe == "1d":
@@ -613,7 +612,7 @@ class ChartService:
                     
                     # Market overview section
                     analysis_text += f"📊 <b>Market Overview</b>\n"
-                    analysis_text += f"Price is currently trading near current price of {current_price:{price_format}}, "
+                    analysis_text += f"Price is currently trading near current price of {current_price:.{precision}f}, "
                     analysis_text += f"showing {'bullish' if trend == 'BUY' else 'bearish' if trend == 'SELL' else 'mixed'} momentum. "
                     analysis_text += f"The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
                     analysis_text += f"indicating a {'strong uptrend' if trend == 'BUY' else 'strong downtrend' if trend == 'SELL' else 'consolidation phase'}. "
@@ -621,8 +620,8 @@ class ChartService:
                     
                     # Key levels section
                     analysis_text += f"🔑 <b>Key Levels</b>\n"
-                    analysis_text += f"Support: {analysis_data['low']:{price_format}} (daily low), {(analysis_data['low'] * 0.99):{price_format}}, {(analysis_data['low'] * 0.98):{price_format}} (weekly low)\n"
-                    analysis_text += f"Resistance: {analysis_data['high']:{price_format}} (daily high), {(analysis_data['high'] * 1.01):{price_format}}, {(analysis_data['high'] * 1.02):{price_format}} (weekly high)\n\n"
+                    analysis_text += f"Support: {analysis_data['low']:{precision}f}, {(analysis_data['low'] * 0.99):{precision}f}, {(analysis_data['low'] * 0.98):{precision}f} (weekly low)\n"
+                    analysis_text += f"Resistance: {analysis_data['high']:{precision}f}, {(analysis_data['high'] * 1.01):{precision}f}, {(analysis_data['high'] * 1.02):{precision}f} (weekly high)\n\n"
                     
                     # Technical indicators section
                     analysis_text += f"📈 <b>Technical Indicators</b>\n"
@@ -632,22 +631,22 @@ class ChartService:
                     # Get ema_200 value safely from analysis_data or calculate it
                     ema_200_value = analysis_data.get("ema_200", ema_50 * 0.98)
                     
-                    analysis_text += f"Moving Averages: Price {'above' if current_price > ema_50 else 'below'} EMA 50 ({ema_50:{price_format}}) and "
-                    analysis_text += f"{'above' if current_price > ema_200_value else 'below'} EMA 200 ({ema_200_value:{price_format}}), confirming {trend.lower()} bias.\n\n"
+                    analysis_text += f"Moving Averages: Price {'above' if current_price > ema_50 else 'below'} EMA 50 ({ema_50:{precision}f}) and "
+                    analysis_text += f"{'above' if current_price > ema_200_value else 'below'} EMA 200 ({ema_200_value:{precision}f}), confirming {trend.lower()} bias.\n\n"
                     
                     # AI recommendation
                     analysis_text += f"🤖 <b>Sigmapips AI Recommendation</b>\n"
                     if trend == 'BULLISH':
-                        analysis_text += f"Watch for a breakout above {analysis_data['high']:{price_format}} for further upside. "
-                        analysis_text += f"Maintain a buy bias while price holds above {analysis_data['low']:{price_format}}. "
+                        analysis_text += f"Watch for a breakout above {analysis_data['high']:{precision}f} for further upside. "
+                        analysis_text += f"Maintain a buy bias while price holds above {analysis_data['low']:{precision}f}. "
                         analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
                     elif trend == 'BEARISH':
-                        analysis_text += f"Watch for a breakdown below {analysis_data['low']:{price_format}} for further downside. "
-                        analysis_text += f"Maintain a sell bias while price holds below {analysis_data['high']:{price_format}}. "
+                        analysis_text += f"Watch for a breakdown below {analysis_data['low']:{precision}f} for further downside. "
+                        analysis_text += f"Maintain a sell bias while price holds below {analysis_data['high']:{precision}f}. "
                         analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
                     else:
-                        analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {analysis_data['low']:{price_format}} "
-                        analysis_text += f"and selling opportunities near {analysis_data['high']:{price_format}}. "
+                        analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {analysis_data['low']:{precision}f} "
+                        analysis_text += f"and selling opportunities near {analysis_data['high']:{precision}f}. "
                         analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
                     
                     analysis_text += f"⚠️ <b>Disclaimer:</b> For educational purposes only."
@@ -788,22 +787,22 @@ class ChartService:
             if any(crypto in instrument for crypto in ["BTC", "ETH", "XRP", "SOL", "BNB"]):
                 if instrument == "BTCUSD":
                     # Bitcoin usually shows fewer decimal places
-                    price_format = ",.2f"
+                    precision = 2
                 else:
                     # Other crypto might need more precision
-                    price_format = ",.4f"
+                    precision = 4
             elif any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40", "JP225"]):
                 # Indices typically show 1-2 decimal places
-                price_format = ",.2f"
+                precision = 2
             elif any(commodity in instrument for commodity in ["XAUUSD", "XAGUSD"]):
                 # Gold and silver typically show 2 decimal places
-                price_format = ",.2f"
+                precision = 2
             elif instrument in ["WTIUSD", "XTIUSD"]:
                 # Oil typically shows 2 decimal places
-                price_format = ",.2f"
+                precision = 2
             else:
                 # Default format for forex pairs with 5 decimal places
-                price_format = ",.5f"
+                precision = 5
             
             # EMA values with more realistic relationships to price
             if trend == "BUY":
@@ -828,7 +827,7 @@ class ChartService:
             
             # Market overview section
             analysis_text += f"📊 <b>Market Overview</b>\n"
-            analysis_text += f"Price is currently trading near current price of {current_price:{price_format}}, "
+            analysis_text += f"Price is currently trading near current price of {current_price:.{precision}f}, "
             analysis_text += f"showing {'bullish' if trend == 'BUY' else 'bearish' if trend == 'SELL' else 'mixed'} momentum. "
             analysis_text += f"The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
             analysis_text += f"indicating a {'strong uptrend' if trend == 'BUY' else 'strong downtrend' if trend == 'SELL' else 'consolidation phase'}. "
@@ -836,8 +835,8 @@ class ChartService:
             
             # Key levels section
             analysis_text += f"🔑 <b>Key Levels</b>\n"
-            analysis_text += f"Support: {daily_low:{price_format}} (daily low), {(daily_low * 0.99):{price_format}}, {weekly_low:{price_format}} (weekly low)\n"
-            analysis_text += f"Resistance: {daily_high:{price_format}} (daily high), {(daily_high * 1.01):{price_format}}, {weekly_high:{price_format}} (weekly high)\n\n"
+            analysis_text += f"Support: {daily_low:{precision}f} (daily low), {(daily_low * 0.99):{precision}f}, {weekly_low:{precision}f} (weekly low)\n"
+            analysis_text += f"Resistance: {daily_high:{precision}f} (daily high), {(daily_high * 1.01):{precision}f}, {weekly_high:{precision}f} (weekly high)\n\n"
             
             # Technical indicators section
             analysis_text += f"📈 <b>Technical Indicators</b>\n"
@@ -849,22 +848,22 @@ class ChartService:
             analysis_text += f"MACD: {macd_status} ({macd_value:.5f} is {'above' if macd_value > macd_signal else 'below'} signal {macd_signal:.5f})\n"
             
             ma_status = "bullish" if trend == "BUY" else "bearish" if trend == "SELL" else "mixed"
-            analysis_text += f"Moving Averages: Price {'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 50 ({ema_50:{price_format}}) and "
-            analysis_text += f"{'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 200 ({ema_200:{price_format}}), confirming {ma_status} bias.\n\n"
+            analysis_text += f"Moving Averages: Price {'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 50 ({ema_50:{precision}f}) and "
+            analysis_text += f"{'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 200 ({ema_200:{precision}f}), confirming {ma_status} bias.\n\n"
             
             # AI recommendation
             analysis_text += f"🤖 <b>Sigmapips AI Recommendation</b>\n"
             if trend == "BUY":
-                analysis_text += f"Watch for a breakout above {daily_high:{price_format}} for further upside. "
-                analysis_text += f"Maintain a buy bias while price holds above {daily_low:{price_format}}. "
+                analysis_text += f"Watch for a breakout above {daily_high:{precision}f} for further upside. "
+                analysis_text += f"Maintain a buy bias while price holds above {daily_low:{precision}f}. "
                 analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
             elif trend == "SELL":
-                analysis_text += f"Watch for a breakdown below {daily_low:{price_format}} for further downside. "
-                analysis_text += f"Maintain a sell bias while price holds below {daily_high:{price_format}}. "
+                analysis_text += f"Watch for a breakdown below {daily_low:{precision}f} for further downside. "
+                analysis_text += f"Maintain a sell bias while price holds below {daily_high:{precision}f}. "
                 analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
             else:
-                analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {daily_low:{price_format}} "
-                analysis_text += f"and selling opportunities near {daily_high:{price_format}}. "
+                analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {daily_low:{precision}f} "
+                analysis_text += f"and selling opportunities near {daily_high:{precision}f}. "
                 analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
             
             # Disclaimer
