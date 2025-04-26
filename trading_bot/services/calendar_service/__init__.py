@@ -133,7 +133,7 @@ else:
 
 # Exporteer TradingView debug functie als die beschikbaar is
 try:
-    
+
     # Create a global function to run the debug
     async def debug_tradingview_api():
         """Run a debug check on the TradingView API"""
