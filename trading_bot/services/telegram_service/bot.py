@@ -2881,7 +2881,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             context.user_data['is_signals_context'] = True
         
         # Get the signals GIF URL
-        gif_url = await get_signals_gif()
+        gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
         
         # Update the message with the GIF and keyboard
         success = await gif_utils.update_message_with_gif(
