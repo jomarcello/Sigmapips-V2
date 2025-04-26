@@ -4925,22 +4925,22 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         )
                     except Exception as caption_e:
                         logger.error(f"Failed to update caption in menu_signals_callback: {str(caption_e)}")
-                        
+
                         # Absolute last resort: send a new message
-            await context.bot.send_message(
+                        await context.bot.send_message(
                             chat_id=update.effective_chat.id,
-                            text="<b>📈 Signal Management</b>\n\nManage your trading signals",
-                parse_mode=ParseMode.HTML,
+                            text="<b>📈 Signal Management</b>\\n\\nManage your trading signals",
+                            parse_mode=ParseMode.HTML,
                             reply_markup=reply_markup
-            )
-        
+                        )
+
             return SIGNALS
-        except Exception as e:
-             logger.error(f"Error in menu_signals_callback: {str(e)}")
-             # Fallback approach on error
-             await context.bot.send_message(
+        except Exception as e:  # <<< Corrected indentation: Aligned with 'try'
+            logger.error(f"Error in menu_signals_callback: {str(e)}")
+            # Fallback approach on error
+            await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="<b>📈 Signal Management</b>\n\nManage your trading signals",
+                text="<b>📈 Signal Management</b>\\n\\nManage your trading signals",
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD)
             )
