@@ -30,6 +30,10 @@ os.environ["USE_INVESTING_CALENDAR"] = "false"
 logger.info("⚠️ Investing.com calendar is verwijderd en niet meer beschikbaar")
 print("⚠️ Investing.com calendar is verwijderd en niet meer beschikbaar")
 
+# AGSI (gas storage index) is ook niet meer beschikbaar
+logger.info("⚠️ AGSI (gas storage index) is verwijderd en niet meer beschikbaar")
+print("⚠️ AGSI (gas storage index) is verwijderd en niet meer beschikbaar")
+
 # Calendar fallback uitschakelen - we willen echte data
 os.environ["USE_CALENDAR_FALLBACK"] = "false"
 logger.info("⚠️ Forcing USE_CALENDAR_FALLBACK=false to use real data")
@@ -46,7 +50,7 @@ if os.environ.get("SCRAPINGANT_API_KEY") is None:
     logger.info("Setting default ScrapingAnt API key")
 
 # Check of er iets expliciets in de omgeving is ingesteld voor fallback
-USE_FALLBACK = True  # Forcing fallback due to syntax error in tradingview_calendar.py
+USE_FALLBACK = os.environ.get("USE_CALENDAR_FALLBACK", "false").lower() in ("true", "1", "yes")
 
 # Ingebouwde fallback EconomicCalendarService voor het geval de echte niet werkt
 class InternalFallbackCalendarService:
