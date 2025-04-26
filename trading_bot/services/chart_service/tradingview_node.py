@@ -349,8 +349,8 @@ class TradingViewNodeService(TradingViewService):
 
 
             if fullscreen:
-                logger.info("Applying fullscreen adjustments...")
-                # Hide UI elements using CSS injection
+                logger.info("Applying fullscreen CSS adjustments...")
+                # Hide UI elements using CSS injection first
                 await page.add_style_tag(content="""
                     .tv-header, .tv-main-panel__toolbar, .tv-side-toolbar, 
                     .layout__area--left, .layout__area--right, footer, .tv-main-panel__statuses,
@@ -366,14 +366,27 @@ class TradingViewNodeService(TradingViewService):
                          left: 0 !important;
                     }
                 """)
-                # Try keyboard shortcut for fullscreen
-                logger.info("Simulating Shift+F keyboard shortcut for fullscreen.")
-                await page.keyboard.press('Shift+F') 
-                await page.wait_for_timeout(1500) # Increased wait time for fullscreen transition
+                await page.wait_for_timeout(500) # Short wait for CSS to apply
 
+            # Final wait/actions before screenshot
+            if fullscreen:
+                 # Try keyboard shortcut AFTER other cleanup and closer to screenshot time
+                 logger.info("Simulating Shift+F keyboard shortcut for fullscreen.")
+                 await page.keyboard.press('Shift+F') 
+                 await page.wait_for_timeout(2500) # Longer wait time for fullscreen transition
+            else:
+                 # Standard final wait if not fullscreen
+                 await page.wait_for_timeout(1500) 
 
-            # Final wait before screenshot
-            await page.wait_for_timeout(1500) # 1.5 seconds
+            # Additional aggressive cleanup just before screenshot
+            await page.evaluate(() => {
+                document.querySelectorAll('[role="dialog"], .tv-dialog, .js-dialog, .tv-dialog--popup, .tv-notification').forEach(el => {
+                    el.style.display = 'none';
+                    el.style.visibility = 'hidden';
+                    el.style.opacity = '0';
+                });
+            });
+            await page.wait_for_timeout(200) # Very short wait after final cleanup
 
             logger.info("Taking screenshot with Playwright...")
             screenshot_bytes = await page.screenshot(type='png')
