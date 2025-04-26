@@ -26,6 +26,8 @@ from trading_bot.services.chart_service.base import TradingViewService
 # Import providers
 from trading_bot.services.chart_service.yfinance_provider import YahooFinanceProvider
 from trading_bot.services.chart_service.binance_provider import BinanceProvider
+# Import TradingViewNodeService voor screenshots
+from trading_bot.services.chart_service.tradingview_node import TradingViewNodeService
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,9 @@ class ChartService:
                 BinanceProvider(),      # Eerst Binance voor crypto's
                 YahooFinanceProvider(), # Dan Yahoo Finance voor andere markten
             ]
+            
+            # Initialiseer TradingView service voor screenshots
+            self.tradingview_service = TradingViewNodeService()
             
             # Initialiseer de chart links met de specifieke TradingView links
             self.chart_links = {
@@ -131,7 +136,7 @@ class ChartService:
             self.analysis_cache = {}
             self.analysis_cache_ttl = 60 * 15  # 15 minutes in seconds
             
-            logging.info("Chart service initialized with providers: Binance, YahooFinance")
+            logging.info("Chart service initialized with providers: Binance, YahooFinance, TradingViewNode")
             
         except Exception as e:
             logging.error(f"Error initializing chart service: {str(e)}")
@@ -150,8 +155,28 @@ class ChartService:
             # Normaliseer instrument (verwijder /)
             instrument = instrument.upper().replace("/", "")
             
-            # Probeer om een chart te genereren met onze fallback methode (matplotlib)
-            logger.info(f"Generating chart image for {instrument} using matplotlib")
+            # Probeer eerst TradingView screenshot
+            try:
+                # Initialiseer TradingView service als dat nog niet is gedaan
+                if not self.tradingview_service.is_initialized:
+                    logger.info("Initializing TradingView service for screenshots")
+                    await self.tradingview_service.initialize()
+                
+                # Probeer een screenshot te maken met TradingView
+                logger.info(f"Trying to take screenshot for {instrument} using TradingView")
+                screenshot = await self.tradingview_service.take_screenshot(instrument, timeframe, fullscreen)
+                
+                if screenshot:
+                    logger.info(f"Successfully captured {instrument} chart with TradingView")
+                    return screenshot
+                else:
+                    logger.warning(f"Failed to capture {instrument} chart with TradingView, falling back to matplotlib")
+            except Exception as e:
+                logger.error(f"Error using TradingView screenshot service: {str(e)}")
+                logger.error(traceback.format_exc())
+            
+            # Als TradingView faalt, gebruik matplotlib fallback
+            logger.info(f"Generating fallback chart image for {instrument} using matplotlib")
             return await self._generate_random_chart(instrument, timeframe)
             
         except Exception as e:
@@ -194,7 +219,14 @@ class ChartService:
     async def cleanup(self):
         """Clean up resources"""
         try:
-            # Er zijn nu geen specifieke resources meer om op te schonen
+            # Ruim TradingView service op
+            try:
+                if hasattr(self, 'tradingview_service'):
+                    await self.tradingview_service.cleanup()
+                    logger.info("TradingView service cleaned up")
+            except Exception as e:
+                logger.error(f"Error cleaning up TradingView service: {str(e)}")
+            
             logger.info("Chart service resources cleaned up")
         except Exception as e:
             logger.error(f"Error cleaning up chart service: {str(e)}")
@@ -225,6 +257,15 @@ class ChartService:
                 logger.info("Matplotlib is available for chart generation")
             except ImportError:
                 logger.error("Matplotlib is not available, chart service may not function properly")
+            
+            # Initialize TradingView service
+            try:
+                logger.info("Initializing TradingView service for screenshots")
+                await self.tradingview_service.initialize()
+                logger.info("TradingView service initialized successfully")
+            except Exception as e:
+                logger.error(f"Error initializing TradingView service: {str(e)}")
+                logger.error(traceback.format_exc())
             
             # Initialize technical analysis cache
             self.analysis_cache = {}
