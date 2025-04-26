@@ -5115,3 +5115,68 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             )
             
             return CHOOSE_SIGNALS
+
+    async def back_instrument_callback(self, update: Update, context=None) -> int:
+        """Handle back_instrument button press to return to instrument selection."""
+        query = update.callback_query
+        await query.answer()
+        logger.info("back_instrument_callback called")
+
+        # Retrieve market and analysis type from context
+        market = None
+        analysis_type = 'technical' # Default
+        if context and hasattr(context, 'user_data'):
+            market = context.user_data.get('market')
+            analysis_type = context.user_data.get('analysis_type', 'technical')
+            # Ensure we are not in signals context when going back from analysis
+            context.user_data['is_signals_context'] = False 
+
+        if not market:
+            logger.warning("Market not found in context for back_instrument_callback. Returning to analysis type selection.")
+            # Fallback to analysis type selection if market is missing
+            return await self.analysis_callback(update, context)
+
+        logger.info(f"Returning to instrument selection for market={market}, analysis_type={analysis_type}")
+
+        # Determine the correct keyboard based on market and analysis type
+        keyboard = None
+        message_text = f"Select instrument for {analysis_type} analysis:"
+
+        if analysis_type == 'sentiment':
+            if market == 'forex': keyboard = FOREX_SENTIMENT_KEYBOARD
+            elif market == 'crypto': keyboard = CRYPTO_SENTIMENT_KEYBOARD
+            elif market == 'indices': keyboard = INDICES_SENTIMENT_KEYBOARD
+            elif market == 'commodities': keyboard = COMMODITIES_SENTIMENT_KEYBOARD
+            else: keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]] # Fallback back button
+        elif analysis_type == 'calendar':
+             # Calendar usually goes directly to results, but handle back just in case
+             if market == 'forex': keyboard = FOREX_CALENDAR_KEYBOARD
+             else: keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]] # Fallback back button
+        else: # Default to technical analysis
+            if market == 'forex': keyboard = FOREX_KEYBOARD
+            elif market == 'crypto': keyboard = CRYPTO_KEYBOARD
+            elif market == 'indices': keyboard = INDICES_KEYBOARD
+            elif market == 'commodities': keyboard = COMMODITIES_KEYBOARD
+            else: keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]] # Fallback back button
+
+        # Show the instrument selection keyboard
+        try:
+            await self.update_message(
+                query=query,
+                text=message_text,
+                keyboard=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+        except Exception as e:
+            logger.error(f"Error updating message in back_instrument_callback: {str(e)}")
+            # Try to send a new message as fallback
+            try:
+                await query.message.reply_text(
+                    text=message_text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e2:
+                logger.error(f"Error sending new message in back_instrument_callback: {str(e2)}")
+
+        return CHOOSE_INSTRUMENT
