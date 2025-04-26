@@ -598,6 +598,10 @@ class ChartService:
                     elif macd < macd_signal:
                         macd_signal_text = "BEARISH"
                     
+                    # Get the appropriate decimal precision for this instrument
+                    precision = self._get_instrument_precision(instrument)
+                    price_format = f':.{precision}f'
+                    
                     # Format the analysis using the same format as the main method
                     if timeframe == "1d":
                         # Daily analysis with more data
@@ -609,15 +613,15 @@ class ChartService:
                     
                     # Market overview section
                     analysis_text += f"📊 <b>Market Overview</b>\n"
-                    analysis_text += f"Price is currently trading near current price of {current_price:.2f}, "
+                    analysis_text += f"Price is currently trading near current price of {current_price:{price_format}}, "
                     analysis_text += f"showing {trend.lower()} momentum. The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
                     analysis_text += f"indicating a {'strong uptrend' if trend == 'BULLISH' else 'strong downtrend' if trend == 'BEARISH' else 'consolidation phase'}. "
                     analysis_text += f"Volume is moderate, supporting the current price action.\n\n"
                     
                     # Key levels section
                     analysis_text += f"🔑 <b>Key Levels</b>\n"
-                    analysis_text += f"Support: {analysis_data['low']:.2f} (daily low), {(analysis_data['low'] * 0.99):.2f}, {(analysis_data['low'] * 0.98):.2f} (weekly low)\n"
-                    analysis_text += f"Resistance: {analysis_data['high']:.2f} (daily high), {(analysis_data['high'] * 1.01):.2f}, {(analysis_data['high'] * 1.02):.2f} (weekly high)\n\n"
+                    analysis_text += f"Support: {analysis_data['low']:{price_format}} (daily low), {(analysis_data['low'] * 0.99):{price_format}}, {(analysis_data['low'] * 0.98):{price_format}} (weekly low)\n"
+                    analysis_text += f"Resistance: {analysis_data['high']:{price_format}} (daily high), {(analysis_data['high'] * 1.01):{price_format}}, {(analysis_data['high'] * 1.02):{price_format}} (weekly high)\n\n"
                     
                     # Technical indicators section
                     analysis_text += f"📈 <b>Technical Indicators</b>\n"
@@ -627,22 +631,22 @@ class ChartService:
                     # Get ema_200 value safely from analysis_data or calculate it
                     ema_200_value = analysis_data.get("ema_200", ema_50 * 0.98)
                     
-                    analysis_text += f"Moving Averages: Price {'above' if current_price > ema_50 else 'below'} EMA 50 ({ema_50:.2f}) and "
-                    analysis_text += f"{'above' if current_price > ema_200_value else 'below'} EMA 200 ({ema_200_value:.2f}), confirming {trend.lower()} bias.\n\n"
+                    analysis_text += f"Moving Averages: Price {'above' if current_price > ema_50 else 'below'} EMA 50 ({ema_50:{price_format}}) and "
+                    analysis_text += f"{'above' if current_price > ema_200_value else 'below'} EMA 200 ({ema_200_value:{price_format}}), confirming {trend.lower()} bias.\n\n"
                     
                     # AI recommendation
                     analysis_text += f"🤖 <b>Sigmapips AI Recommendation</b>\n"
                     if trend == 'BULLISH':
-                        analysis_text += f"Watch for a breakout above {analysis_data['high']:.2f} for further upside. "
-                        analysis_text += f"Maintain a buy bias while price holds above {analysis_data['low']:.2f}. "
+                        analysis_text += f"Watch for a breakout above {analysis_data['high']:{price_format}} for further upside. "
+                        analysis_text += f"Maintain a buy bias while price holds above {analysis_data['low']:{price_format}}. "
                         analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
                     elif trend == 'BEARISH':
-                        analysis_text += f"Watch for a breakdown below {analysis_data['low']:.2f} for further downside. "
-                        analysis_text += f"Maintain a sell bias while price holds below {analysis_data['high']:.2f}. "
+                        analysis_text += f"Watch for a breakdown below {analysis_data['low']:{price_format}} for further downside. "
+                        analysis_text += f"Maintain a sell bias while price holds below {analysis_data['high']:{price_format}}. "
                         analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
                     else:
-                        analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {analysis_data['low']:.2f} "
-                        analysis_text += f"and selling opportunities near {analysis_data['high']:.2f}. "
+                        analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {analysis_data['low']:{price_format}} "
+                        analysis_text += f"and selling opportunities near {analysis_data['high']:{price_format}}. "
                         analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
                     
                     analysis_text += f"⚠️ <b>Disclaimer:</b> For educational purposes only."
@@ -879,7 +883,45 @@ class ChartService:
         logger.info(f"ChartService.get_sentiment_analysis called for {instrument} but is now disabled")
         return ""
 
-    def _detect_market_type(self, instrument: str) -> str:
+    def _get_instrument_precision(self, instrument: str) -> int:
+        """Get the appropriate decimal precision for an instrument
+        
+        Args:
+            instrument: The trading instrument symbol
+            
+        Returns:
+            int: Number of decimal places to use
+        """
+        instrument = instrument.upper().replace("/", "")
+        
+        # JPY pairs use 3 decimal places
+        if instrument.endswith("JPY") or "JPY" in instrument:
+            return 3
+            
+        # Most forex pairs use 5 decimal places
+        if len(instrument) == 6 and all(c.isalpha() for c in instrument):
+            return 5
+            
+        # Crypto typically uses 2 decimal places for major coins, more for smaller ones
+        if any(crypto in instrument for crypto in ["BTC", "ETH", "LTC", "XRP"]):
+            return 2
+            
+        # Gold typically uses 2 decimal places
+        if instrument in ["XAUUSD", "GC=F"]:
+            return 2
+            
+        # Silver typically uses 3 decimal places
+        if instrument in ["XAGUSD", "SI=F"]:
+            return 3
+            
+        # Indices typically use 2 decimal places
+        if any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40", "JP225"]):
+            return 2
+            
+        # Default to 4 decimal places as a safe value
+        return 4
+    
+    async def _detect_market_type(self, instrument: str) -> str:
         """
         Detect the market type of the instrument.
         
