@@ -385,7 +385,7 @@ class TradingViewCalendarService:
                     try:
                         if not isinstance(data, list):
                             logger.info(f"Response format is: {type(data)}")
-                        
+                            
                             # Handle dictionary format with 'result' key (TradingView API format)
                             if isinstance(data, dict) and "result" in data:
                                 status = data.get("status", "unknown")
@@ -555,7 +555,7 @@ class TradingViewCalendarService:
                             highlighted_count = sum(1 for e in events if e.get("highlighted", False))
                             logger.info(f"Showing all {len(events)} events with {highlighted_count} {currency} events highlighted")
                         
-                    return events
+                        return events
                     
                 except Exception as e:
                     logger.error(f"Error processing response: {str(e)}")
