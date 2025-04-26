@@ -1203,17 +1203,32 @@ class TelegramService:
             message += f"\n<b>Timeframe:</b> {timeframe}\n"
             message += f"<b>Strategy:</b> TradingView Signal\n\n"
             
-            message += "————————————————————\n\n"
+            message += "————————————————————\\n\\n"
             message += "<b>Risk Management:</b>\n"
             message += "• Position size: 1-2% max\n"
             message += "• Use proper stop loss\n"
             message += "• Follow your trading plan\n\n"
             
-            message += "————————————————————\n\n"
+            message += "————————————————————\\n\\n"
             
-            # Generate AI verdict
-            ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
-            message += f"<b>🤖 SigmaPips AI Verdict:</b>\n{ai_verdict}"
+            # >>> USE SENTIMENT VERDICT FROM SIGNAL DATA IF AVAILABLE <<<
+            sentiment_verdict = signal_data.get('sentiment_verdict')
+            
+            if sentiment_verdict:
+                # Use the verdict provided by the backend
+                # Determine emoji based on verdict content
+                if "aligns" in sentiment_verdict.lower():
+                    verdict_emoji = "✅"
+                elif "does not align" in sentiment_verdict.lower():
+                    verdict_emoji = "❌"
+                else:
+                    verdict_emoji = "⚠️" # Default emoji for other cases
+                message += f"<b>{verdict_emoji} Sentiment Verdict:</b>\n{sentiment_verdict}"
+            else:
+                # Fallback to the old hardcoded AI verdict if 'sentiment_verdict' is not provided
+                logger.warning("'sentiment_verdict' not found in signal_data. Using default AI verdict.")
+                ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
+                message += f"<b>🤖 SigmaPips AI Verdict:</b>\n{ai_verdict}"
             
             return message
             
@@ -3580,8 +3595,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Prepare the message format without relying on regex
             # This will help avoid HTML parsing errors
             title = f"<b>🎯 {clean_instrument} Market Analysis</b>"
-            overall_sentiment = f"<b>Overall Sentiment:</b> {overall} {emoji}"
-            
+            overall_sentiment_text = f"<b>Overall Sentiment:</b> {overall} {emoji}" # Renamed from overall_sentiment to avoid conflict
+
             # Check if the provided analysis already has a title
             if analysis_text and "<b>🎯" in analysis_text and "Market Analysis</b>" in analysis_text:
                 # Extract the title from the analysis
@@ -3625,8 +3640,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Verbeter de layout van het bericht
             # Specifiek verwijder witruimte tussen Overall Sentiment en Market Sentiment Breakdown
-            full_message = f"{title}\n\n{overall_sentiment}"
-            
+            full_message = f"{title}\n\n{overall_sentiment_text}" # Use renamed variable
+
             # If there's analysis text, add it with compact formatting
             if analysis_text:
                 found_header = False
@@ -3672,7 +3687,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Verwijder alle dubbele newlines om nog meer witruimte te voorkomen
             full_message = re.sub(r'\n{3,}', '\n\n', full_message)
-            
+
             # Create reply markup with back button - use correct back button based on flow
             back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
             logger.info(f"Using back button callback: {back_callback} (from_signal: {is_from_signal})")
@@ -4574,17 +4589,32 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             message += f"\n<b>Timeframe:</b> {timeframe}\n"
             message += f"<b>Strategy:</b> TradingView Signal\n\n"
             
-            message += "————————————————————\n\n"
+            message += "————————————————————\\n\\n"
             message += "<b>Risk Management:</b>\n"
             message += "• Position size: 1-2% max\n"
             message += "• Use proper stop loss\n"
             message += "• Follow your trading plan\n\n"
             
-            message += "————————————————————\n\n"
+            message += "————————————————————\\n\\n"
             
-            # Generate AI verdict
-            ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
-            message += f"<b>🤖 SigmaPips AI Verdict:</b>\n{ai_verdict}"
+            # >>> USE SENTIMENT VERDICT FROM SIGNAL DATA IF AVAILABLE <<<
+            sentiment_verdict = signal_data.get('sentiment_verdict')
+            
+            if sentiment_verdict:
+                # Use the verdict provided by the backend
+                # Determine emoji based on verdict content
+                if "aligns" in sentiment_verdict.lower():
+                    verdict_emoji = "✅"
+                elif "does not align" in sentiment_verdict.lower():
+                    verdict_emoji = "❌"
+                else:
+                    verdict_emoji = "⚠️" # Default emoji for other cases
+                message += f"<b>{verdict_emoji} Sentiment Verdict:</b>\n{sentiment_verdict}"
+            else:
+                # Fallback to the old hardcoded AI verdict if 'sentiment_verdict' is not provided
+                logger.warning("'sentiment_verdict' not found in signal_data. Using default AI verdict.")
+                ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
+                message += f"<b>🤖 SigmaPips AI Verdict:</b>\n{ai_verdict}"
             
             return message
             
