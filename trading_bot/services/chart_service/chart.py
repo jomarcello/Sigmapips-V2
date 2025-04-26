@@ -1034,7 +1034,7 @@ class ChartService:
         # Common commodities
         commodities = [
             "XAUUSD", "XAGUSD", "WTIUSD", "XTIUSD", "XBRUSD", "CLUSD",
-            "XPDUSD", "XPTUSD", "NATGAS", "COPPER", "BRENT"
+            "XPDUSD", "XPTUSD", "NATGAS", "COPPER", "BRENT", "USOIL"
         ]
         
         # Check for commodities
@@ -1143,6 +1143,7 @@ class ChartService:
                 "XPTUSD": "PL=F",    # Platinum futures
                 "NATGAS": "NG=F",    # Natural Gas futures
                 "COPPER": "HG=F",    # Copper futures
+                "USOIL": "CL=F",     # US Oil (same as WTI Crude Oil)
             }
             
             # If symbol not in our mapping, we can't proceed
