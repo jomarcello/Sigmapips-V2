@@ -3577,60 +3577,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 <b>Market Sentiment Breakdown:</b>
 🟢 Bullish: {bullish}%
 🔴 Bearish: {bearish}%
-```
-</b>
+⚪️ Neutral: {neutral}%
 """
             
-            # Determine which back button to use based on flow
-            back_callback = "back_to_signal_analysis" if is_from_signal else "back_to_analysis"
-            
-            # Show the sentiment analysis
-            try:
-                await query.edit_message_text(
-                    text=full_message,
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
-                    ]]),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as e:
-                logger.error(f"Error updating message: {str(e)}")
-                try:
-                    await query.edit_message_caption(
-                        caption=full_message,
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
-                        ]]),
-                        parse_mode=ParseMode.HTML
-                    )
-                except Exception as caption_error:
-                    logger.error(f"Error updating caption: {str(caption_error)}")
-                    # Last resort - send a new message
-                    await query.message.reply_text(
-                        text=full_message,
-                        reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⬅️ Back", callback_data=back_callback)
-                        ]]),
-                        parse_mode=ParseMode.HTML
-                    )
-            
-            return SHOW_RESULT
-        
-        except Exception as e:
-            logger.error(f"Error in show_sentiment_analysis: {str(e)}")
-            # Error recovery
-            try:
-                await query.edit_message_text(
-                    text="An error occurred. Please try again from the main menu.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-            except Exception:
-                pass
-            
-            return MENU
-
-⚪️ Neutral: {neutral}%"""
-
             # Verwijder alle dubbele newlines om nog meer witruimte te voorkomen
             full_message = re.sub(r'\n{3,}', '\n\n', full_message)
             
