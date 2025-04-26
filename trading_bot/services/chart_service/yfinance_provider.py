@@ -411,162 +411,199 @@ class YahooFinanceProvider:
     @staticmethod
     async def get_market_data(symbol: str, timeframe: str = "1d", limit: int = 100) -> Optional[pd.DataFrame]:
         """
-        Get market data for a symbol with caching and error handling
+        Get market data for a specific instrument and timeframe.
+        
+        Args:
+            symbol: The instrument symbol (e.g., EURUSD, BTCUSD)
+            timeframe: Timeframe for the data (e.g., 1h, 4h, 1d)
+            limit: Maximum number of candles to return
+            
+        Returns:
+            Optional[pd.DataFrame]: DataFrame with market data or None if failed
         """
         try:
+            logger.info(f"[Yahoo] Getting market data for {symbol} on {timeframe} timeframe")
+            
             # Format the symbol for Yahoo Finance
             formatted_symbol = YahooFinanceProvider._format_symbol(symbol)
+            logger.info(f"[Yahoo] Formatted symbol: {formatted_symbol}")
             
-            # Check cache first
-            cache_key = f"{formatted_symbol}_{timeframe}_{limit}"
-            current_time = time.time()
+            # Is this a commodity?
+            is_commodity = any(commodity in symbol for commodity in ["XAUUSD", "XAGUSD", "XTIUSD", "WTIUSD", "XBRUSD"])
             
-            if cache_key in YahooFinanceProvider._cache:
-                cached_data, cache_time = YahooFinanceProvider._cache[cache_key]
-                if current_time - cache_time < YahooFinanceProvider._cache_timeout:
-                    logger.info(f"Using cached data for {symbol} (formatted as {formatted_symbol})")
-                    return cached_data
-
-            # For Railway deployments: quickly return empty dataframe for forex and cryptos
-            is_railway = os.environ.get('RAILWAY_ENVIRONMENT') is not None
-            
-            # Bepaal of dit een forex symbool is
-            is_forex = len(symbol) == 6 and all(c.isalpha() for c in symbol)
-            
-            # Log de omgeving maar sla geen instrumenten meer over
-            if is_railway:
-                logger.info(f"Running on Railway environment, will attempt Yahoo Finance for {symbol}")
-                if is_forex:
-                    logger.info(f"Forex pair detected: {symbol}, continuing with Yahoo Finance")
-            
-            # Convert timeframe to yfinance interval
-            interval_map = {
-                "1m": "1m",
-                "5m": "5m",
-                "15m": "15m",
-                "30m": "30m",
-                "1h": "60m", # yfinance uses 60m instead of 1h
-                "1d": "1d",
-                "1wk": "1wk",
-                "1mo": "1mo"
-            }
-            
-            interval = interval_map.get(timeframe, "1d")
-            if timeframe != interval:
-                logger.info(f"Mapped timeframe {timeframe} to Yahoo Finance interval {interval}")
-            
-            # Calculate date range based on limit and interval
-            system_date = datetime.now()
-            logger.info(f"System datetime: {system_date}")
-            
-            # Use the current system date dynamically
-            end_date = system_date
-        
-            logger.info(f"Using current system date as end date: {end_date}")
-            
-            if interval in ["1m", "5m", "15m", "30m", "60m"]:
-                # For intraday data, yahoo only provides limited history
-                # 1m - 7 days, 5m - 60 days, 15m/30m/60m - 730 days
-                if interval == "1m":
-                    days_back = 7
-                elif interval == "5m":
-                    days_back = 60
-                else:
-                    days_back = 100  # Limit to 100 days for 15m/30m/60m to be safe
-                # Ensure we don't request too much data
-                days_back = min(days_back, limit)
-                start_date = end_date - timedelta(days=days_back)
-                logger.info(f"Using intraday timeframe {interval}, limited to {days_back} days of history")
+            # Convert timeframe to Yahoo Finance interval
+            if timeframe == "1m":
+                interval = "1m"
+            elif timeframe == "5m":
+                interval = "5m"
+            elif timeframe == "15m":
+                interval = "15m"
+            elif timeframe == "30m":
+                interval = "30m"
+            elif timeframe == "1h":
+                interval = "1h"
+            elif timeframe == "4h":
+                interval = "1h"  # Use 1h and aggregate later
+            elif timeframe == "1d":
+                interval = "1d"
             else:
-                # For other intervals, calculate based on limit with some buffer
-                days_map = {
-                    "1d": 1,
-                    "1wk": 7,
-                    "1mo": 30
-                }
-                multiplier = days_map.get(interval, 1)
-                start_date = end_date - timedelta(days=limit * multiplier)  # Use a more conservative approach
-                logger.info(f"Using standard timeframe {interval}, requesting {limit * multiplier} days of history")
-                
-            logger.info(f"Final date range: from {start_date} to {end_date}")
-
+                interval = "1d"  # Default to daily
+            
+            # Calculate start and end dates based on the requested timeframe and limit
+            end_date = datetime.now()
+            
+            # For 4h timeframe, we need to fetch more 1h candles
+            multiplier = 4 if timeframe == "4h" else 1
+            
+            # Get more data than needed for indicators calculation
+            extra_periods = 200  # Extra periods for calculating indicators like EMA200
+            
+            # Calculate the start date based on the timeframe
+            if interval == "1m":
+                # Yahoo only provides 7 days of 1m data
+                days_to_fetch = min(7, limit * multiplier / 24 / 60)
+                start_date = end_date - timedelta(days=days_to_fetch)
+            elif interval == "5m":
+                # Yahoo provides 60 days of 5m data
+                days_to_fetch = min(60, limit * multiplier * 5 / 24 / 60)
+                start_date = end_date - timedelta(days=days_to_fetch)
+            elif interval == "15m":
+                # Yahoo provides 60 days of 15m data
+                days_to_fetch = min(60, limit * multiplier * 15 / 24 / 60)
+                start_date = end_date - timedelta(days=days_to_fetch)
+            elif interval == "30m":
+                # Yahoo provides 60 days of 30m data
+                days_to_fetch = min(60, limit * multiplier * 30 / 24 / 60)
+                start_date = end_date - timedelta(days=days_to_fetch)
+            elif interval == "1h":
+                # Get enough days based on limit and possibly 4h timeframe
+                days_to_fetch = (limit + extra_periods) * multiplier / 24
+                start_date = end_date - timedelta(days=days_to_fetch + 10)  # Add some buffer
+            elif interval == "1d":
+                # For daily data, simply get enough days
+                days_to_fetch = limit + extra_periods
+                start_date = end_date - timedelta(days=days_to_fetch + 50)  # Add buffer for weekends/holidays
+            else:
+                # Default fallback
+                start_date = end_date - timedelta(days=365)
+            
+            logger.info(f"[Yahoo] Requesting data for {formatted_symbol} from {start_date} to {end_date} with interval {interval}")
+            
             # Wait for rate limit
             await YahooFinanceProvider._wait_for_rate_limit()
             
             try:
-                # Download data from Yahoo Finance
-                logger.info(f"Downloading data for {formatted_symbol} from {start_date} to {end_date} with interval {interval}")
+                # Download the data from Yahoo Finance
+                df = await YahooFinanceProvider._download_data(
+                    formatted_symbol, 
+                    start_date,
+                    end_date,
+                    interval,
+                    timeout=30,  # Longer timeout for potentially slow connections
+                    original_symbol=symbol  # Pass original for reference
+                )
                 
-                # Shorter timeout on Railway
-                timeout = 10 if is_railway else 30
-                logger.info(f"Using timeout of {timeout}s for Yahoo Finance request (Railway: {is_railway})")
-                
-                try:
-                    df = await YahooFinanceProvider._download_data(
-                        formatted_symbol,
-                        start_date,
-                        end_date,
-                        interval,
-                        timeout=timeout,
-                        original_symbol=symbol  # Pass the original symbol for precision handling
-                    )
-                except Exception as download_e:
-                    logger.error(f"Yahoo Finance download error for {formatted_symbol}: {str(download_e)}")
-                    logger.error(f"Error type: {type(download_e).__name__}")
-                    if hasattr(download_e, '__traceback__'):
-                        logger.error(traceback.format_exc())
-                    # Gooi de error opnieuw op in plaats van een lege DataFrame terug te geven
-                    raise download_e
-                
-                if df is None or (isinstance(df, pd.DataFrame) and df.empty):
-                    logger.error(f"No data returned from Yahoo Finance for {symbol} (formatted as {formatted_symbol})")
-                    if df is None:
-                        logger.error("Yahoo Finance returned None instead of DataFrame")
-                    else:
-                        logger.error("Yahoo Finance returned empty DataFrame")
-                    # Geef None terug in plaats van een lege DataFrame
+                if df is None or df.empty:
+                    logger.warning(f"[Yahoo] No data returned for {symbol} ({formatted_symbol})")
+                    
+                    # Special debug message for commodities
+                    if is_commodity:
+                        logger.warning(f"[Yahoo] Commodity data failed for {symbol}. Yahoo Finance may have changed their API for commodity futures.")
+                        
                     return None
-            
-                # Ensure datetime index
-                if not isinstance(df.index, pd.DatetimeIndex):
-                    logger.info(f"Converting index to DatetimeIndex for {formatted_symbol}")
-                    df.index = pd.to_datetime(df.index)
+                    
+                # Log success and data shape
+                logger.info(f"[Yahoo] Successfully downloaded data for {symbol} with shape {df.shape}")
                 
-                # Validate and clean data
-                logger.info(f"Validating and cleaning data for {formatted_symbol}, initial shape: {df.shape}")
+                # Validate and clean the data
                 df = YahooFinanceProvider._validate_and_clean_data(df, symbol)
                 
-                if df is None or (isinstance(df, pd.DataFrame) and df.empty):
-                    logger.error(f"No valid data after cleaning for {symbol} (formatted as {formatted_symbol})")
-                    # Geef None terug in plaats van een lege DataFrame
-                    return None
+                # For 4h timeframe, resample from 1h
+                if timeframe == "4h":
+                    logger.info(f"[Yahoo] Resampling 1h data to 4h for {symbol}")
+                    try:
+                        # Resample to 4h
+                        df = df.resample('4H').agg({
+                            'Open': 'first',
+                            'High': 'max',
+                            'Low': 'min',
+                            'Close': 'last',
+                            'Volume': 'sum'
+                        })
+                        df.dropna(inplace=True)
+                        logger.info(f"[Yahoo] Successfully resampled to 4h with shape {df.shape}")
+                    except Exception as resample_e:
+                        logger.error(f"[Yahoo] Error resampling to 4h: {str(resample_e)}")
+                        # Continue with 1h data if resampling fails
                 
-                logger.info(f"Successfully cleaned data for {formatted_symbol}, final shape: {df.shape}")
+                # Limit the number of candles
+                df = df.iloc[-limit:]
                 
-                # Sort by date and limit rows
-                df = df.sort_index().tail(limit)
-                logger.info(f"Limited to last {limit} rows, final shape: {df.shape}")
+                # Calculate indicators and return as a special object
+                result = pd.DataFrame(df)
                 
-                # Cache the result
-                YahooFinanceProvider._cache[cache_key] = (df, current_time)
-                logger.info(f"Cached data for {formatted_symbol} with key {cache_key}")
+                # Add indicators
+                indicators = {
+                    'open': float(df['Open'].iloc[-1]),
+                    'high': float(df['High'].iloc[-1]),
+                    'low': float(df['Low'].iloc[-1]),
+                    'close': float(df['Close'].iloc[-1]),
+                    'volume': float(df['Volume'].iloc[-1]) if 'Volume' in df.columns else 0
+                }
                 
-                return df
-            except Exception as inner_e:
-                logger.error(f"Error downloading market data for {formatted_symbol}: {str(inner_e)}")
-                logger.error(f"Error type: {type(inner_e).__name__}")
-                # Detailed logging for the error
-                if hasattr(inner_e, '__traceback__'):
-                    logger.error(traceback.format_exc())
-                # Geef None terug in plaats van een lege DataFrame
-                return None
-            
+                # Add EMAs if we have enough data
+                if len(df) >= 20:
+                    df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
+                    indicators['EMA20'] = float(df['EMA20'].iloc[-1])
+                
+                if len(df) >= 50:
+                    df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
+                    indicators['EMA50'] = float(df['EMA50'].iloc[-1])
+                    
+                if len(df) >= 200:
+                    df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
+                    indicators['EMA200'] = float(df['EMA200'].iloc[-1])
+                
+                # Calculate RSI
+                if len(df) >= 14:
+                    delta = df['Close'].diff()
+                    gain = delta.where(delta > 0, 0)
+                    loss = -delta.where(delta < 0, 0)
+                    avg_gain = gain.rolling(window=14).mean()
+                    avg_loss = loss.rolling(window=14).mean()
+                    rs = avg_gain / avg_loss
+                    df['RSI'] = 100 - (100 / (1 + rs))
+                    indicators['RSI'] = float(df['RSI'].iloc[-1])
+                
+                # Calculate MACD
+                if len(df) >= 26:
+                    df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
+                    df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
+                    df['MACD'] = df['EMA12'] - df['EMA26']
+                    df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+                    indicators['MACD'] = float(df['MACD'].iloc[-1])
+                    indicators['MACD_signal'] = float(df['MACD_signal'].iloc[-1])
+                    indicators['MACD_hist'] = float(df['MACD'].iloc[-1]) - float(df['MACD_signal'].iloc[-1])
+                
+                # Store indicators as an attribute of the DataFrame
+                result.indicators = indicators
+                
+                return result
+                
+            except Exception as download_e:
+                logger.error(f"Error downloading market data for {symbol}: {str(download_e)}")
+                logger.error(f"Error type: {type(download_e).__name__}")
+                
+                # Special debug message for commodities
+                if is_commodity:
+                    logger.error(f"Commodity data failed for {symbol}. This is a common issue as Yahoo Finance periodically changes their API for futures contracts.")
+                    logger.error(f"The system will use fallback data for this commodity.")
+                
+                raise download_e
+                
         except Exception as e:
-            logger.error(f"Error fetching market data for {symbol}: {str(e)}")
-            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Error getting market data from Yahoo Finance: {str(e)}")
             logger.error(traceback.format_exc())
-            
-            # Return None on Railway or any other environment
             return None
 
     @staticmethod
@@ -647,20 +684,28 @@ class YahooFinanceProvider:
             quote = instrument[3:]
             return f"{base}{quote}=X"
             
-        # For commodities - using direct futures symbols
+        # For commodities - using correct futures contract symbols
         if instrument == "XAUUSD":
             return "GC=F"  # Gold futures
         elif instrument == "XAGUSD":
-            return "SI=F"  # Silver futures
-        
-        # For crude oil
-        if instrument in ["XTIUSD", "WTIUSD"]:
+            return "SI=F"  # Silver futures (not SL=F)
+        elif instrument in ["XTIUSD", "WTIUSD"]:
             return "CL=F"  # WTI Crude Oil futures
-            
+        elif instrument == "XBRUSD":
+            return "BZ=F"  # Brent Crude Oil futures
+        elif instrument == "XPDUSD":
+            return "PA=F"  # Palladium futures
+        elif instrument == "XPTUSD":
+            return "PL=F"  # Platinum futures
+        elif instrument == "NATGAS":
+            return "NG=F"  # Natural Gas futures
+        elif instrument == "COPPER":
+            return "HG=F"  # Copper futures
+        
         # For indices
         if any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40", "JP225"]):
             indices_map = {
-                "US30": "^DJI",    # Dow Jones
+                "US30": "^DJI",     # Dow Jones
                 "US500": "^GSPC",   # S&P 500
                 "US100": "^NDX",    # Nasdaq 100
                 "UK100": "^FTSE",   # FTSE 100
