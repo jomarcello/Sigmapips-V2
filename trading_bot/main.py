@@ -121,7 +121,7 @@ async def lifespan(app: FastAPI):
         telegram_service.application.add_handler(CallbackQueryHandler(telegram_service.button_callback))
         
         # Load signals - use await with the async method
-        await telegram_service._load_signals()
+        # await telegram_service._load_signals()
         
         # Set bot commands
         commands = [
@@ -195,7 +195,12 @@ async def lifespan(app: FastAPI):
         # Set the commands
         await telegram_service.bot.set_my_commands(commands)
         
-        logger.info("Telegram bot initialized successfully")
+        logger.info("Telegram bot initialized and webhook set")
+
+        # Commented out as the function seems to be removed
+        # await telegram_service._load_signals()
+
+        logger.info("Telegram service initialized successfully")
         
     except Exception as e:
         logger.error(f"Error initializing services: {str(e)}")
