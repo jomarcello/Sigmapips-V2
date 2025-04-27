@@ -3361,3 +3361,134 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
         # If no market was selected or context is missing, return to market selection
         return await self.signals_add_callback(update, context)
+
+    # <<< ADDED METHOD: analyze_from_signal_callback >>>
+    async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
+        """Handle the 'Analyze Market' button press from a signal message."""
+        query = update.callback_query
+        await query.answer()
+        logger.info(f"analyze_from_signal_callback called with data: {query.data}")
+
+        try:
+            # Extract instrument and signal ID from callback data
+            # Format: analyze_from_signal_{instrument}_{signal_id}
+            parts = query.data.split('_')
+            if len(parts) < 4:
+                logger.error(f"Invalid callback data format for analyze_from_signal: {query.data}")
+                await query.message.reply_text("Error: Could not process the request. Invalid signal data.")
+                return MENU # Or appropriate error state
+
+            instrument = parts[3]
+            signal_id = "_".join(parts[4:]) # Rejoin potentially split signal IDs
+
+            logger.info(f"Extracted for analysis: instrument='{instrument}', signal_id='{signal_id}'")
+
+            # Store crucial signal context and backups
+            if context and hasattr(context, 'user_data'):
+                context.user_data.clear() # Start fresh for signal flow
+                context.user_data['instrument'] = instrument
+                context.user_data['signal_id'] = signal_id
+                context.user_data['from_signal'] = True
+                context.user_data['is_signals_context'] = True # Mark as signal context
+
+                # --- Store backups ---
+                context.user_data['signal_instrument_backup'] = instrument
+                context.user_data['signal_id_backup'] = signal_id
+                # Store the original message text/caption if available
+                if query.message.text:
+                    context.user_data['original_signal_message'] = query.message.text_html # Use HTML for formatting
+                elif query.message.caption:
+                    context.user_data['original_signal_message'] = query.message.caption_html
+
+                # --- Store timeframe if available in original message ---
+                timeframe = None
+                original_message_content = context.user_data.get('original_signal_message', '')
+                # Look for timeframe patterns (e.g., M15, H1, 1h, 4h)
+                tf_match = re.search(r'\b(M5|M15|M30|H1|H4|D1|1m|5m|15m|30m|1h|4h|1d)\b', original_message_content, re.IGNORECASE)
+                if tf_match:
+                    timeframe = tf_match.group(1).upper()
+                    # Normalize timeframe (e.g., 1H -> H1)
+                    if timeframe.endswith('M'): timeframe = timeframe.replace('M', 'm') # 5m, 15m, 30m
+                    if timeframe.endswith('H'): timeframe = 'H' + timeframe[:-1] # H1, H4
+                    if timeframe.endswith('D'): timeframe = 'D' + timeframe[:-1] # D1
+                    if timeframe == '1M': timeframe = '1m' # Fix case
+                    context.user_data['signal_timeframe'] = timeframe
+                    context.user_data['signal_timeframe_backup'] = timeframe
+                    logger.info(f"Extracted timeframe from signal message: {timeframe}")
+                else:
+                    logger.warning(f"Could not extract timeframe from signal message for {instrument}")
+
+
+                logger.info(f"Set signal context: {context.user_data}")
+
+            else:
+                logger.error("Context or user_data not available in analyze_from_signal_callback")
+                await query.message.reply_text("Error: Internal context error.")
+                return MENU
+
+            # Create keyboard for signal analysis options
+            keyboard = [
+                # Add instrument to callback data for direct use
+                [InlineKeyboardButton("📈 Technical Analysis", callback_data=f"signal_technical")],
+                [InlineKeyboardButton("🧠 Market Sentiment", callback_data=f"signal_sentiment")],
+                [InlineKeyboardButton("📅 Economic Calendar", callback_data=f"signal_calendar")],
+                [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")] # Back to original signal msg
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            # Update the message to show analysis options
+            message_text = f"<b>📊 Analyze Signal: {instrument}</b>\n\nSelect analysis type:"
+
+            try:
+                # Try editing the existing message
+                await query.edit_message_text(
+                    text=message_text,
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.HTML
+                )
+            except telegram.error.BadRequest as e:
+                if "message is not modified" in str(e):
+                    logger.warning("Message not modified, likely already showing analysis options.")
+                elif "message to edit not found" in str(e):
+                     logger.error("Original message to edit was not found.")
+                     # Send a new message as fallback
+                     await context.bot.send_message(
+                         chat_id=update.effective_chat.id,
+                         text=message_text,
+                         reply_markup=reply_markup,
+                         parse_mode=ParseMode.HTML
+                     )
+                else:
+                    # Handle other potential edit errors (e.g., trying to edit media as text)
+                    logger.warning(f"Could not edit message text ({e}), trying to delete and send new.")
+                    try:
+                         await query.message.delete()
+                    except Exception:
+                         logger.error("Failed to delete message during fallback.")
+                    # Send a new message
+                    await context.bot.send_message(
+                         chat_id=update.effective_chat.id,
+                         text=message_text,
+                         reply_markup=reply_markup,
+                         parse_mode=ParseMode.HTML
+                     )
+            except Exception as e:
+                 logger.error(f"Unexpected error editing message in analyze_from_signal_callback: {e}")
+                 # Send a new message as fallback
+                 await context.bot.send_message(
+                     chat_id=update.effective_chat.id,
+                     text=message_text,
+                     reply_markup=reply_markup,
+                     parse_mode=ParseMode.HTML
+                 )
+
+
+            return CHOOSE_ANALYSIS # State for choosing analysis type
+
+        except Exception as e:
+            logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
+            logger.exception(e)
+            await query.message.reply_text("An error occurred while processing your request.")
+            return MENU # Fallback to main menu
+
+    # <<< END ADDED METHOD >>>
