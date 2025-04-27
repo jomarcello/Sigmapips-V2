@@ -2917,63 +2917,63 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Try to update the message with the GIF and caption
         try:
             # First, try deleting the old message and sending a new one with the GIF
-                    await query.message.delete()
+            await query.message.delete()
             await context.bot.send_animation(
-                        chat_id=update.effective_chat.id,
+                chat_id=update.effective_chat.id,
                 animation=signals_gif_url,
                 caption=signals_caption,
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.HTML
             )
-                except Exception as delete_error:
+        except Exception as delete_error:
             logger.warning(f"Could not delete message, trying media update: {delete_error}")
             # If deletion fails, try editing the media
-                    try:
-                            await query.edit_message_media(
+            try:
+                await query.edit_message_media(
                     media=InputMediaAnimation(
                         media=signals_gif_url,
                         caption=signals_caption,
-                                    parse_mode=ParseMode.HTML
-                                ),
-                                reply_markup=reply_markup
-                            )
-                    except Exception as media_error:
+                        parse_mode=ParseMode.HTML
+                    ),
+                    reply_markup=reply_markup
+                )
+            except Exception as media_error:
                 logger.warning(f"Could not update media, trying text update: {media_error}")
                 # If media edit fails, try editing text/caption
-            try:
-                await query.edit_message_text(
+                try:
+                    await query.edit_message_text(
                         text=signals_caption,
                         reply_markup=reply_markup,
                         parse_mode=ParseMode.HTML
                     )
                 except Exception as text_error:
                     if "There is no text in the message to edit" in str(text_error):
-                    try:
-                        await query.edit_message_caption(
+                        try:
+                            await query.edit_message_caption(
                                 caption=signals_caption,
                                 reply_markup=reply_markup,
-                            parse_mode=ParseMode.HTML
-                        )
-                    except Exception as caption_error:
+                                parse_mode=ParseMode.HTML
+                            )
+                        except Exception as caption_error:
                             logger.error(f"Failed to update caption either: {caption_error}")
                             # Last resort: Send a new message if all else fails
-                await context.bot.send_animation(
-                    chat_id=update.effective_chat.id,
+                            await context.bot.send_animation(
+                                chat_id=update.effective_chat.id,
                                 animation=signals_gif_url,
                                 caption=signals_caption,
                                 reply_markup=reply_markup,
                                 parse_mode=ParseMode.HTML
-                        )
+                            )
                     else:
                          logger.error(f"Failed to update text message: {text_error}")
                          # Last resort: Send a new message
-                await context.bot.send_animation(
-                    chat_id=update.effective_chat.id,
-                    animation=signals_gif_url,
+                         await context.bot.send_animation(
+                             chat_id=update.effective_chat.id,
+                             animation=signals_gif_url,
                              caption=signals_caption,
                              reply_markup=reply_markup,
-            parse_mode=ParseMode.HTML
-        )
+                             parse_mode=ParseMode.HTML
+                         )
         
         return SIGNALS # Return the signals menu state
     # <<< END ADDED METHOD >>>
