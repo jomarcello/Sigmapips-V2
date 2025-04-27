@@ -426,7 +426,9 @@ class ChartService:
             # Try to get analysis directly from TradingView via Playwright service first
             if hasattr(self, 'tradingview_service') and self.tradingview_service:
                  logger.info(f"Attempting to get analysis from TradingViewNodeService for {instrument_normalized} ({timeframe})")
+                 logger.info("[CHART.PY] >> Calling tradingview_service.get_analysis")
                  analysis_text = await self.tradingview_service.get_analysis(instrument_normalized, timeframe)
+                 logger.info(f"[CHART.PY] << tradingview_service.get_analysis returned (type: {type(analysis_text)}, len: {len(analysis_text) if analysis_text else 0})")
                  if analysis_text:
                       logger.info(f"Successfully retrieved analysis from TradingViewNodeService.")
                  else:
@@ -439,9 +441,12 @@ class ChartService:
 
         # If TradingView analysis failed or is empty, fall back to generating default analysis
         if not analysis_text:
+             logger.info("[CHART.PY] Condition 'if not analysis_text' is TRUE. Falling back to _generate_default_analysis.")
              logger.info(f"Falling back to generating default analysis for {instrument_normalized} ({timeframe})")
              try:
+                  logger.info("[CHART.PY] >> Calling _generate_default_analysis")
                   analysis_text = await self._generate_default_analysis(instrument_normalized, timeframe)
+                  logger.info(f"[CHART.PY] << _generate_default_analysis returned (type: {type(analysis_text)}, len: {len(analysis_text) if analysis_text else 0})")
              except Exception as gen_error:
                   logger.error(f"Error generating default analysis: {gen_error}", exc_info=True)
                   analysis_text = f"⚠️ Could not generate technical analysis for {instrument} ({timeframe})."
@@ -462,6 +467,7 @@ class ChartService:
 
     async def _generate_default_analysis(self, instrument: str, timeframe: str) -> str:
         """Generate a fallback analysis when the API fails"""
+        logger.info(f"[CHART.PY] Entered _generate_default_analysis for {instrument} ({timeframe})")
         try:
             # Default values
             current_price = 0.0
