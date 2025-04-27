@@ -41,10 +41,10 @@ async def show_actions_menu(chat_id: int, instrument: str, market: str, message_
     # Back button now goes to market selection for this instrument
     keyboard.add(InlineKeyboardButton(f"🔙 Back to Markets ({instrument})", callback_data=f"back_to_markets_{instrument}"))
 
-    text = f"Selected: <b>{instrument}</b> on <b>{market.upper()}</b> market.
+    text = f"""Selected: <b>{instrument}</b> on <b>{market.upper()}</b> market.
 Timeframe is fixed to <b>H1</b>.
 
-What would you like to do?"
+What would you like to do?"""
 
     if message_id:
         await bot.edit_message_text(text, chat_id, message_id, reply_markup=keyboard, parse_mode=ParseMode.HTML)
