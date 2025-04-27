@@ -1168,6 +1168,10 @@ class TelegramService:
     def _format_signal_message(self, signal_data: Dict[str, Any]) -> str:
         """Format signal data into a nice message for Telegram"""
         try:
+            # <<< DEBUG LOGGING START >>>
+            logger.info(f"[_format_signal_message] Received signal_data: {json.dumps(signal_data)}")
+            # <<< DEBUG LOGGING END >>>
+
             # Extract fields from signal data
             instrument = signal_data.get('instrument', 'Unknown')
             direction = signal_data.get('direction', 'Unknown')
@@ -1179,6 +1183,10 @@ class TelegramService:
             tp2 = signal_data.get('tp2')
             tp3 = signal_data.get('tp3')
             direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴"
+            
+            # <<< DEBUG LOGGING START >>>
+            logger.info(f"[_format_signal_message] Extracted TPs: tp1='{tp1}', tp2='{tp2}', tp3='{tp3}'")
+            # <<< DEBUG LOGGING END >>>
 
             # --- Basic message structure --- 
             message = f"<b>🎯 New Trading Signal 🎯</b>\n\n"
@@ -1247,21 +1255,31 @@ class TelegramService:
                     logger.warning("Could not calculate risk/reward due to invalid number format.")
 
             # Add Take Profit info OR Risk/Reward text
-            if tp2 or tp3:
+            # <<< DEBUG LOGGING START >>>
+            condition_tp2_or_tp3 = bool(tp2 or tp3)
+            logger.info(f"[_format_signal_message] Evaluating condition (tp2 or tp3): {condition_tp2_or_tp3}")
+            # <<< DEBUG LOGGING END >>>
+            if condition_tp2_or_tp3:
+                logger.info("[_format_signal_message] Condition TRUE: Adding multiple TP text.") # DEBUG LOG
                 ai_verdict_parts.append("Multiple take profit levels provide opportunities for partial profit taking. ")
                 ai_verdict_parts.append(risk_reward_text)
             else:
+                logger.info("[_format_signal_message] Condition FALSE: Adding only R:R text.") # DEBUG LOG
                 ai_verdict_parts.append(risk_reward_text)
 
             # Add generic closing if no sentiment was provided
             if not sentiment_verdict:
                 ai_verdict_parts.append(" This setup aligns with current market conditions and trend direction.")
 
+            # <<< DEBUG LOGGING START >>>
+            logger.info(f"[_format_signal_message] Final ai_verdict_parts: {ai_verdict_parts}")
+            # <<< DEBUG LOGGING END >>>
+            
             # Join all parts of the verdict and add to the message
             message += "".join(ai_verdict_parts)
 
             return message
-
+            
         except Exception as e:
             logger.error(f"Error formatting signal message: {str(e)}")
             # Return simple message on error
