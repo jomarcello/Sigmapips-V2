@@ -30,6 +30,7 @@ from .services.payment_service.stripe_config import STRIPE_WEBHOOK_SECRET
 # Import directly from the module to avoid circular imports through __init__.py
 from .services.telegram_service.bot import TelegramService
 from .services.payment_service.stripe_service import StripeService
+from .services.sentiment_service.sentiment import MarketSentimentService
 
 # Initialize global services outside of FastAPI context
 db = Database()
@@ -276,13 +277,63 @@ def convert_interval_to_timeframe(interval):
 # Signal endpoint registration directly on FastAPI
 @app.post("/signal")
 async def process_tradingview_signal(request: Request):
-    """Process TradingView webhook signal"""
+    """Process signals from TradingView webhooks (or similar)"""
     try:
-        # Get the signal data from the request
-        signal_data = await request.json()
-        logger.info(f"Received TradingView webhook signal: {signal_data}")
+        body = await request.body()
+        signal_data = json.loads(body.decode('utf-8'))
+        logger.info(f"Received signal data: {signal_data}")
         
-        # Process the signal
+        # Basic validation
+        if not signal_data or 'instrument' not in signal_data:
+            raise HTTPException(status_code=400, detail="Invalid signal data")
+            
+        # >>> ADD: Sentiment analysis and verdict <<<
+        instrument = signal_data.get('instrument')
+        verdict_string = "Could not determine sentiment alignment."
+        if instrument:
+            try:
+                # Use the sentiment service from the telegram_service instance
+                sentiment_service = telegram_service.sentiment_service
+                sentiment_result = await sentiment_service.get_sentiment(instrument)
+                
+                if sentiment_result:
+                    signal_direction = signal_data.get('direction', '').upper() # Get direction from signal
+                    # Handle both TV format ('BUY'/'SELL' in 'signal') and custom format ('direction')
+                    if not signal_direction and 'signal' in signal_data:
+                         signal_direction = signal_data.get('signal', '').upper()
+                    
+                    market_sentiment = sentiment_result.get('overall_sentiment', '').capitalize()
+                    logger.info(f"Sentiment for {instrument}: {market_sentiment}, Signal direction: {signal_direction}")
+
+                    if signal_direction and market_sentiment:
+                        sentiment_matches = (
+                            (signal_direction == "BUY" and market_sentiment == "Bullish") or
+                            (signal_direction == "SELL" and market_sentiment == "Bearish")
+                        )
+                        if sentiment_matches:
+                            verdict_string = "Trade aligns with market sentiment."
+                        else:
+                            verdict_string = "Trade does not align with market sentiment."
+                        if market_sentiment == "Neutral":
+                             verdict_string = "Market sentiment is neutral."
+                    elif not market_sentiment:
+                         verdict_string = "Could not determine market sentiment."
+                    else: # market_sentiment exists, but signal_direction doesn't
+                         verdict_string = "Could not determine signal direction."
+                else:
+                    logger.warning(f"Could not retrieve sentiment for {instrument}.")
+                    verdict_string = "Could not retrieve market sentiment."
+                    
+            except Exception as sentiment_e:
+                logger.error(f"Error retrieving sentiment for {instrument}: {sentiment_e}")
+                # Keep the default verdict_string
+        
+        # Add verdict to signal data
+        signal_data['sentiment_verdict'] = verdict_string
+        logger.info(f"Added sentiment verdict: {verdict_string}")
+        # >>> END: Sentiment analysis and verdict <<<
+
+        # Process the signal through the Telegram service
         success = await telegram_service.process_signal(signal_data)
         
         if success:
@@ -333,25 +384,68 @@ async def telegram_webhook(request: Request):
 
 @app.post("/tradingview-signal")
 async def tradingview_signal(request: Request):
-    """Endpoint for TradingView signals only"""
+    """Endpoint to receive signals formatted from TradingView Alerts"""
     try:
-        # Log de binnenkomende request
-        body = await request.body()
-        logger.info(f"Received TradingView signal: {body.decode('utf-8')}")
-        
-        # Parse de JSON data
         data = await request.json()
+        logger.info(f"Received tradingview signal data: {data}")
         
-        # Verwerk als TradingView signaal
-        if telegram_service:
-            success = await telegram_service.process_signal(data)
-            if success:
-                return JSONResponse(content={"status": "success", "message": "Signal processed"})
-            else:
-                raise HTTPException(status_code=500, detail="Failed to process signal")
+        # Validate that it has required fields
+        if not data or 'instrument' not in data or 'price' not in data or 'sl' not in data:
+            raise HTTPException(status_code=400, detail="Missing required fields for TradingView signal")
         
-        # Als we hier komen, konden we het verzoek niet verwerken
-        raise HTTPException(status_code=400, detail="Could not process TradingView signal")
+        # >>> ADD: Sentiment analysis and verdict <<<
+        instrument = data.get('instrument')
+        verdict_string = "Could not determine sentiment alignment."
+        if instrument:
+            try:
+                # Use the sentiment service from the telegram_service instance
+                sentiment_service = telegram_service.sentiment_service
+                sentiment_result = await sentiment_service.get_sentiment(instrument)
+                
+                if sentiment_result:
+                    # Determine signal direction based on price vs SL
+                    price = float(data.get('price', 0))
+                    sl = float(data.get('sl', 0))
+                    signal_direction = "BUY" if sl < price else "SELL" if price < sl else ""
+                    
+                    market_sentiment = sentiment_result.get('overall_sentiment', '').capitalize()
+                    logger.info(f"Sentiment for {instrument}: {market_sentiment}, Signal direction: {signal_direction}")
+
+                    if signal_direction and market_sentiment:
+                        sentiment_matches = (
+                            (signal_direction == "BUY" and market_sentiment == "Bullish") or
+                            (signal_direction == "SELL" and market_sentiment == "Bearish")
+                        )
+                        if sentiment_matches:
+                            verdict_string = "Trade aligns with market sentiment."
+                        else:
+                            verdict_string = "Trade does not align with market sentiment."
+                        if market_sentiment == "Neutral":
+                            verdict_string = "Market sentiment is neutral."
+                    elif not market_sentiment:
+                        verdict_string = "Could not retrieve market sentiment."
+                    else: # market_sentiment exists, but signal_direction couldn't be determined
+                         verdict_string = "Could not determine signal direction from price/SL."
+                else:
+                    logger.warning(f"Could not retrieve sentiment for {instrument}.")
+                    verdict_string = "Could not retrieve market sentiment."
+                    
+            except Exception as sentiment_e:
+                logger.error(f"Error retrieving sentiment for {instrument}: {sentiment_e}")
+                # Keep the default verdict_string
+        
+        # Add verdict to signal data
+        data['sentiment_verdict'] = verdict_string
+        logger.info(f"Added sentiment verdict: {verdict_string}")
+        # >>> END: Sentiment analysis and verdict <<<
+        
+        # Process the signal
+        success = await telegram_service.process_signal(data)
+        
+        if success:
+            return JSONResponse(content={"status": "success", "message": "Signal processed"})
+        else:
+            raise HTTPException(status_code=500, detail="Failed to process signal")
     except json.JSONDecodeError:
         logger.error("Invalid JSON in request body")
         raise HTTPException(status_code=400, detail="Invalid JSON")
@@ -361,14 +455,60 @@ async def tradingview_signal(request: Request):
 
 @app.post("/signals")
 async def receive_signal(request: Request):
-    """Endpoint for receiving trading signals"""
+    """General endpoint to receive signals"""
     try:
-        # Haal de data op
         signal_data = await request.json()
+        logger.info(f"Received signal data via /signals: {signal_data}")
         
-        # Process the signal directly without checking if enabled
+        # Basic validation
+        if not signal_data or 'instrument' not in signal_data:
+            raise HTTPException(status_code=400, detail="Invalid signal data")
+        
+        # >>> ADD: Sentiment analysis and verdict <<<
+        instrument = signal_data.get('instrument')
+        verdict_string = "Could not determine sentiment alignment."
+        if instrument:
+            try:
+                # Use the sentiment service from the telegram_service instance
+                sentiment_service = telegram_service.sentiment_service
+                sentiment_result = await sentiment_service.get_sentiment(instrument)
+                
+                if sentiment_result:
+                    signal_direction = signal_data.get('direction', '').upper() # Get direction from signal
+                    market_sentiment = sentiment_result.get('overall_sentiment', '').capitalize()
+                    logger.info(f"Sentiment for {instrument}: {market_sentiment}, Signal direction: {signal_direction}")
+
+                    if signal_direction and market_sentiment:
+                        sentiment_matches = (
+                            (signal_direction == "BUY" and market_sentiment == "Bullish") or
+                            (signal_direction == "SELL" and market_sentiment == "Bearish")
+                        )
+                        if sentiment_matches:
+                            verdict_string = "Trade aligns with market sentiment."
+                        else:
+                            verdict_string = "Trade does not align with market sentiment."
+                        if market_sentiment == "Neutral":
+                             verdict_string = "Market sentiment is neutral."
+                    elif not market_sentiment:
+                         verdict_string = "Could not retrieve market sentiment."
+                    else: # market_sentiment exists, but signal_direction doesn't
+                         verdict_string = "Could not determine signal direction."
+                else:
+                    logger.warning(f"Could not retrieve sentiment for {instrument}.")
+                    verdict_string = "Could not retrieve market sentiment."
+                    
+            except Exception as sentiment_e:
+                logger.error(f"Error retrieving sentiment for {instrument}: {sentiment_e}")
+                # Keep the default verdict_string
+        
+        # Add verdict to signal data
+        signal_data['sentiment_verdict'] = verdict_string
+        logger.info(f"Added sentiment verdict: {verdict_string}")
+        # >>> END: Sentiment analysis and verdict <<<
+
+        # Process the signal
         success = await telegram_service.process_signal(signal_data)
-        
+
         if success:
             return {"status": "success", "message": "Signal processed successfully"}
         else:
