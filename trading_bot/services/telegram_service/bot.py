@@ -1076,7 +1076,9 @@ class TelegramService:
             signal_id = f"{normalized_data['instrument']}_{normalized_data['direction']}_{normalized_data['timeframe']}_{int(time.time())}"
             
             # Format the signal message
+            logger.info(f"[process_signal] Before _format_signal_message, normalized_data: {json.dumps(normalized_data)}")
             message = self._format_signal_message(normalized_data)
+            logger.info(f"[process_signal] After _format_signal_message, message: {message[:100]}...")
             
             # Determine market type for the instrument
             market_type = _detect_market(instrument)
@@ -1225,9 +1227,10 @@ class TelegramService:
             ai_verdict_parts = [] # Build the verdict in parts
             ai_verdict_parts.append(f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. ")
 
-            # Add sentiment analysis result if available
+            # Add sentiment verdict if available
             sentiment_verdict = signal_data.get('sentiment_verdict')
             if sentiment_verdict:
+                logger.info(f"[_format_signal_message] Adding sentiment verdict: {sentiment_verdict}")
                 ai_verdict_parts.append(sentiment_verdict + " ")
 
             # Calculate and add Risk/Reward analysis
@@ -1277,7 +1280,7 @@ class TelegramService:
             
             # Join all parts of the verdict and add to the message
             message += "".join(ai_verdict_parts)
-
+            
             return message
             
         except Exception as e:
@@ -2717,7 +2720,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
             except Exception:
                 pass
-                
+
             return MENU
 
     async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
@@ -2983,66 +2986,97 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 
     # <<< ADDED METHOD >>>
     async def menu_signals_callback(self, update: Update, context=None) -> int:
-        """Handle menu_signals button press"""
+        """Handle menu_signals button press to show signal management options"""
         query = update.callback_query
         await query.answer()
         
         logger.info("menu_signals_callback called")
         
-        # Set context for signals flow
+        # Remove any previous analysis context 
         if context and hasattr(context, 'user_data'):
-            context.user_data.clear() # Clear previous context
+            # Mark that we're in signals flow but not in a specific signal analysis
             context.user_data['is_signals_context'] = True
-            logger.info(f"Set signals flow context: {context.user_data}")
-
-        # Use the signals GIF URL for better UX
+            context.user_data['from_signal'] = False
+            
+            # Clear any specific analysis keys to avoid context leakage
+            keys_to_remove = [
+                'instrument', 'market', 'analysis_type', 'timeframe', 
+                'signal_id', 'signal_instrument', 'signal_direction', 'signal_timeframe',
+                'loading_message'
+            ]
+            
+            for key in keys_to_remove:
+                if key in context.user_data:
+                    del context.user_data[key]
+            
+            logger.info(f"Updated context in menu_signals_callback: {context.user_data}")
+        
+        # Create keyboard for signal menu
+        keyboard = [
+            [InlineKeyboardButton("📊 Add Signal", callback_data="signals_add")],
+            [InlineKeyboardButton("⚙️ Manage Signals", callback_data="signals_manage")],
+            [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Get the signals GIF URL for better UX
         signals_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
-        signals_caption = "<b>📈 Signal Management</b>\n\nChoose an option to manage your trading signals:"
-        reply_markup = InlineKeyboardMarkup(SIGNALS_KEYBOARD)
-
+        signals_caption = "<b>📈 Signal Management</b>\n\nManage your trading signals"
+        
         # Try to update the message with the GIF and caption
         try:
             # First, try deleting the old message and sending a new one with the GIF
-            await query.message.delete()
-            await context.bot.send_animation(
-                chat_id=update.effective_chat.id,
-                animation=signals_gif_url,
-                caption=signals_caption,
-                reply_markup=reply_markup,
-                parse_mode=ParseMode.HTML
-            )
-        except Exception as delete_error:
-            logger.warning(f"Could not delete message, trying media update: {delete_error}")
-            # If deletion fails, try editing the media
             try:
-                await query.edit_message_media(
-                    media=InputMediaAnimation(
-                        media=signals_gif_url,
-                        caption=signals_caption,
-                        parse_mode=ParseMode.HTML
-                    ),
-                    reply_markup=reply_markup
+                await query.message.delete()
+                await context.bot.send_animation(
+                    chat_id=update.effective_chat.id,
+                    animation=signals_gif_url,
+                    caption=signals_caption,
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.HTML
                 )
-            except Exception as media_error:
-                logger.warning(f"Could not update media, trying text update: {media_error}")
-                # If media edit fails, try editing text/caption
+            except Exception as delete_error:
+                logger.warning(f"Could not delete message, trying media update: {delete_error}")
+                # If deletion fails, try editing the media
                 try:
-                    await query.edit_message_text(
-                        text=signals_caption,
-                        reply_markup=reply_markup,
-                        parse_mode=ParseMode.HTML
+                    await query.edit_message_media(
+                        media=InputMediaAnimation(
+                            media=signals_gif_url,
+                            caption=signals_caption,
+                            parse_mode=ParseMode.HTML
+                        ),
+                        reply_markup=reply_markup
                     )
-                except Exception as text_error:
-                    if "There is no text in the message to edit" in str(text_error):
-                        try:
-                            await query.edit_message_caption(
-                                caption=signals_caption,
-                                reply_markup=reply_markup,
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception as caption_error:
-                            logger.error(f"Failed to update caption either: {caption_error}")
-                            # Last resort: Send a new message if all else fails
+                except Exception as media_error:
+                    logger.warning(f"Could not update media, trying text update: {media_error}")
+                    # If media edit fails, try editing text/caption
+                    try:
+                        await query.edit_message_text(
+                            text=signals_caption,
+                            reply_markup=reply_markup,
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as text_error:
+                        if "There is no text in the message to edit" in str(text_error):
+                            try:
+                                await query.edit_message_caption(
+                                    caption=signals_caption,
+                                    reply_markup=reply_markup,
+                                    parse_mode=ParseMode.HTML
+                                )
+                            except Exception as caption_error:
+                                logger.error(f"Failed to update caption: {caption_error}")
+                                # Last resort: Send a new message
+                                await context.bot.send_animation(
+                                    chat_id=update.effective_chat.id,
+                                    animation=signals_gif_url,
+                                    caption=signals_caption,
+                                    reply_markup=reply_markup,
+                                    parse_mode=ParseMode.HTML
+                                )
+                        else:
+                            logger.error(f"Failed to update text message: {text_error}")
+                            # Last resort: Send a new message
                             await context.bot.send_animation(
                                 chat_id=update.effective_chat.id,
                                 animation=signals_gif_url,
@@ -3050,16 +3084,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                                 reply_markup=reply_markup,
                                 parse_mode=ParseMode.HTML
                             )
-                    else:
-                         logger.error(f"Failed to update text message: {text_error}")
-                         # Last resort: Send a new message
-                         await context.bot.send_animation(
-                             chat_id=update.effective_chat.id,
-                             animation=signals_gif_url,
-                             caption=signals_caption,
-                             reply_markup=reply_markup,
-                             parse_mode=ParseMode.HTML
-                         )
+        except Exception as e:
+            logger.error(f"Error updating message: {e}")
+            # Absolute last resort
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=signals_caption,
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as final_error:
+                logger.error(f"All message update attempts failed: {final_error}")
         
         return SIGNALS # Return the signals menu state
     # <<< END ADDED METHOD >>>
