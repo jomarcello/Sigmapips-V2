@@ -3,7 +3,7 @@ import json
 import asyncio
 import traceback
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import copy
 import re
@@ -1060,7 +1060,14 @@ class TelegramService:
                 logger.error(f"Missing required fields in normalized signal data: {normalized_data}")
                 return False
                 
+            # >>> ADD: Copy sentiment_verdict from input signal_data to normalized_data <<<
+            if 'sentiment_verdict' in signal_data:
+                normalized_data['sentiment_verdict'] = signal_data['sentiment_verdict']
+            else:
+                logger.warning("'sentiment_verdict' key not found in incoming signal_data for process_signal")
+
             # Create signal ID for tracking
+            # >>> FIX: Use imported datetime correctly <<<
             signal_id = f"{normalized_data['instrument']}_{normalized_data['direction']}_{normalized_data['timeframe']}_{int(time.time())}"
             
             # Format the signal message
@@ -1071,7 +1078,7 @@ class TelegramService:
             
             # Store the full signal data for reference
             normalized_data['id'] = signal_id
-            normalized_data['timestamp'] = datetime.now().isoformat()
+            normalized_data['timestamp'] = datetime.now(timezone.utc).isoformat() # Added timezone.utc for consistency
             normalized_data['message'] = message
             normalized_data['market'] = market_type
             
@@ -3083,7 +3090,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                         'instrument': instrument,
                         'timeframe': timeframe,
                         'market': market,
-                        'created_at': datetime.now().isoformat()
+                        'created_at': datetime.now(timezone.utc).isoformat()
                     }
                     
                     insert_response = self.db.supabase.table('signal_subscriptions').insert(subscription_data).execute()
@@ -4457,7 +4464,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Store the full signal data for reference
             normalized_data['id'] = signal_id
-            normalized_data['timestamp'] = datetime.now().isoformat()
+            normalized_data['timestamp'] = datetime.now(timezone.utc).isoformat() # Added timezone.utc for consistency
             normalized_data['message'] = message
             normalized_data['market'] = market_type
             
