@@ -2921,3 +2921,20 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if callback_data.startswith("instrument_"):
                  logger.info(f"Generic instrument callback detected: {callback_data}. Handling with instrument_callback.")
                  return await self.instrument_callback(update, context) # Gebruik de bestaande handler
+
+            # Fallback for unhandled callbacks
+            logger.warning(f"Unhandled callback data: {callback_data}")
+            # Optionally send a message back to the user
+            # await query.message.reply_text("Sorry, I didn't understand that action.")
+            return MENU # Return to main menu or another default state
+
+        except Exception as e:
+            logger.error(f"Error processing button callback '{callback_data}': {str(e)}")
+            logger.exception(e)
+            # Attempt to notify the user about the error
+            try:
+                await update.effective_message.reply_text("An error occurred while processing your request. Please try again later.")
+            except Exception as notify_error:
+                logger.error(f"Could not notify user about callback error: {notify_error}")
+            # Fallback to a safe state
+            return MENU
