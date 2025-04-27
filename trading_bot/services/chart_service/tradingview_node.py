@@ -379,7 +379,17 @@ class TradingViewNodeService(TradingViewService):
             await page.wait_for_timeout(500) # Short wait after final cleanup
 
             logger.info("Taking screenshot with Playwright...")
-            screenshot_bytes = await page.screenshot(type='png')
+            if fullscreen:
+                 screenshot_bytes = await page.screenshot(type='png', full_page=True) # Use full_page for fullscreen
+            else:
+                 # Find the main chart element for non-fullscreen screenshots
+                 chart_element_locator = page.locator(".chart-gui-wrapper, .chart-container--has-single-pane .chart-markup-table, .layout__area--center .tv-widget-chart").first
+                 try:
+                      await chart_element_locator.wait_for(state="visible", timeout=5000)
+                      screenshot_bytes = await chart_element_locator.screenshot(type='png')
+                 except Exception as e:
+                      logger.warning(f"Could not find specific chart element, taking viewport screenshot instead: {e}")
+                      screenshot_bytes = await page.screenshot(type='png') # Fallback to viewport screenshot
 
             logger.info(f"Screenshot taken successfully ({len(screenshot_bytes)} bytes).")
             return screenshot_bytes
@@ -392,6 +402,81 @@ class TradingViewNodeService(TradingViewService):
              return None
         except Exception as e:
             logger.error(f"Unexpected error taking screenshot: {e}", exc_info=True)
+            return None
+        finally:
+            if page:
+                await page.close()
+
+    async def get_analysis(self, symbol: str, timeframe: str) -> Optional[str]:
+        """Get technical analysis summary text from TradingView using Playwright."""
+        if not self.is_initialized or not self.context:
+            logger.error("Playwright service not initialized or context not available for get_analysis.")
+            # Attempt to initialize if needed
+            if not self.is_initialized:
+                 await self.initialize()
+                 if not self.is_initialized or not self.context:
+                      return None
+            elif not self.context:
+                 await self._create_browser_context()
+                 if not self.context:
+                      return None
+
+        logger.info(f"Getting analysis for {symbol} on {timeframe} timeframe")
+
+        normalized_symbol = symbol.replace("/", "").upper()
+        # Try to find the corresponding chart URL, otherwise fallback to general symbol page
+        # This helps load the correct layout if available
+        chart_url = self.chart_links.get(normalized_symbol, f"https://www.tradingview.com/symbols/{normalized_symbol}/")
+
+        page = None
+        try:
+            page = await self.context.new_page()
+            logger.info(f"Navigating to URL for analysis: {chart_url}")
+            await page.goto(chart_url, wait_until='domcontentloaded', timeout=20000) # 20s timeout
+
+            # Try to find the technical analysis summary element
+            # Common selectors for the summary widget or similar text areas
+            analysis_selectors = [
+                ".tv-symbol-financials-widget__container", # Financials sometimes has summary
+                ".tv-symbol-profile__description",        # Symbol profile description
+                "div[data-widget-name='Technical Analysis']", # Actual TA widget (might be complex to parse directly)
+                ".tv-feed-widget__description"             # Feed description if available
+            ]
+
+            analysis_text = None
+            for selector in analysis_selectors:
+                try:
+                    element = page.locator(selector).first
+                    await element.wait_for(state="visible", timeout=3000) # 3s wait per selector
+                    analysis_text = await element.inner_text()
+                    if analysis_text and len(analysis_text) > 50: # Basic check for meaningful text
+                        logger.info(f"Found analysis text using selector: {selector}")
+                        # Basic Cleaning (remove excessive newlines, etc.)
+                        analysis_text = '\n'.join([line.strip() for line in analysis_text.split('\n') if line.strip()])
+                        break # Use the first found text
+                except Exception:
+                    logger.debug(f"Analysis selector not found or timed out: {selector}")
+                    continue # Try next selector
+
+            if analysis_text:
+                 # Limit length to avoid issues
+                 max_len = 1500
+                 if len(analysis_text) > max_len:
+                      analysis_text = analysis_text[:max_len] + "... (truncated)"
+                 logger.info(f"Retrieved analysis text for {symbol} (length: {len(analysis_text)})")
+                 return analysis_text
+            else:
+                 logger.warning(f"Could not find analysis text for {symbol} on page {chart_url}")
+                 return None
+
+        except PlaywrightTimeoutError as e:
+            logger.error(f"Playwright timeout error during analysis retrieval: {e}")
+            return None
+        except PlaywrightError as e:
+            logger.error(f"Playwright general error during analysis retrieval: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error getting analysis: {e}", exc_info=True)
             return None
         finally:
             if page:
