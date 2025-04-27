@@ -214,7 +214,7 @@ To continue using SigmaPips Trading Bot, please update your payment method:
 
 Need help? Type /help for assistance.
 """
-                await self.telegram_service.send_message_to_user(user_id, failed_message, parse_mode=ParseMode.HTML)
+                await self.telegram_service.bot.send_message(chat_id=user_id, text=failed_message, parse_mode=ParseMode.HTML)
             
             logger.info(f"Processed payment failure for user {user_id}")
             return True
@@ -344,7 +344,7 @@ Your 14-day FREE trial has been successfully activated. You now have full access
 Type /menu to start using the bot.
 """
                     # Stuur alleen het welkomstbericht, geen menu of bevestiging
-                    await self.telegram_service.send_message_to_user(user_id, welcome_message, parse_mode=ParseMode.HTML)
+                    await self.telegram_service.bot.send_message(chat_id=user_id, text=welcome_message, parse_mode=ParseMode.HTML)
                     return True
                 
                 return False
