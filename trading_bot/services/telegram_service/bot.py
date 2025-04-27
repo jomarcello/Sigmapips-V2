@@ -1224,63 +1224,22 @@ class TelegramService:
             message += "<b>🤖 SigmaPips AI Verdict:</b>\n\n"
 
             # --- Construct AI Verdict --- 
-            ai_verdict_parts = [] # Build the verdict in parts
-            ai_verdict_parts.append(f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. ")
-
-            # Add sentiment verdict if available
+            # Directly add the sentiment_verdict if it exists, with an appropriate emoji.
             sentiment_verdict = signal_data.get('sentiment_verdict')
+            verdict_emoji = ""
             if sentiment_verdict:
                 logger.info(f"[_format_signal_message] Adding sentiment verdict: {sentiment_verdict}")
-                ai_verdict_parts.append(sentiment_verdict + " ")
-
-            # Calculate and add Risk/Reward analysis
-            risk_reward_text = "Manage your risk according to your trading plan."
-            if stop_loss and tp1:
-                try:
-                    entry_float = float(entry)
-                    sl_float = float(stop_loss)
-                    tp_float = float(tp1)
-                    risk = abs(entry_float - sl_float)
-                    reward = abs(tp_float - entry_float)
-                    if risk > 0:
-                        ratio = reward / risk
-                        if ratio >= 2:
-                            risk_reward_text = f"The risk-reward ratio is excellent at {ratio:.2f}:1."
-                        elif ratio >= 1.5:
-                            risk_reward_text = f"The risk-reward ratio is good at {ratio:.2f}:1."
-                        elif ratio >= 1:
-                            risk_reward_text = f"The risk-reward ratio is reasonable at {ratio:.2f}:1."
-                        else:
-                            risk_reward_text = f"The risk-reward ratio is {ratio:.2f}:1, consider your trading plan carefully."
-                    else:
-                        risk_reward_text = "Stop loss is at the entry price, risk cannot be calculated."
-                except (ValueError, TypeError):
-                    logger.warning("Could not calculate risk/reward due to invalid number format.")
-
-            # Add Take Profit info OR Risk/Reward text
-            # <<< DEBUG LOGGING START >>>
-            condition_tp2_or_tp3 = bool(tp2 or tp3)
-            logger.info(f"[_format_signal_message] Evaluating condition (tp2 or tp3): {condition_tp2_or_tp3}")
-            # <<< DEBUG LOGGING END >>>
-            if condition_tp2_or_tp3:
-                logger.info("[_format_signal_message] Condition TRUE: Adding multiple TP text.") # DEBUG LOG
-                ai_verdict_parts.append("Multiple take profit levels provide opportunities for partial profit taking. ")
-                ai_verdict_parts.append(risk_reward_text)
+                if "aligns" in sentiment_verdict.lower():
+                    verdict_emoji = "✅ "
+                elif "does not align" in sentiment_verdict.lower() or "contradicts" in sentiment_verdict.lower():
+                    verdict_emoji = "❌ "
+                # Add other conditions for neutral etc. if needed, otherwise no emoji
+                
+                message += f"{verdict_emoji}{sentiment_verdict}"
             else:
-                logger.info("[_format_signal_message] Condition FALSE: Adding only R:R text.") # DEBUG LOG
-                ai_verdict_parts.append(risk_reward_text)
+                logger.warning("[_format_signal_message] No sentiment_verdict found in signal_data.")
+                message += "AI analysis could not be completed." # Fallback message
 
-            # Add generic closing if no sentiment was provided
-            if not sentiment_verdict:
-                ai_verdict_parts.append(" This setup aligns with current market conditions and trend direction.")
-
-            # <<< DEBUG LOGGING START >>>
-            logger.info(f"[_format_signal_message] Final ai_verdict_parts: {ai_verdict_parts}")
-            # <<< DEBUG LOGGING END >>>
-            
-            # Join all parts of the verdict and add to the message
-            message += "".join(ai_verdict_parts)
-            
             return message
             
         except Exception as e:
