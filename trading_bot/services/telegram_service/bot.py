@@ -139,6 +139,7 @@ SIGNAL_DETAILS = 8
 SIGNAL = 9
 SUBSCRIBE = 10
 BACK_TO_MENU = 11  # Add this line
+INSTRUMENT_ANALYSIS = 12  # Add this line for technical analysis flow
 
 # Messages
 WELCOME_MESSAGE = """
@@ -2474,7 +2475,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                             logger.warning(f"Could not show loading GIF: {str(gif_error)}")
             
             # Show calendar for this instrument
-            return await self.show_economic_calendar(update, context, instrument=instrument)
+            return await self.show_economic_calendar(update, context, currency=instrument)
         else:
             # Error handling - go back to signal analysis menu
             try:
@@ -3162,3 +3163,119 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
          else:
              # Default back to main analysis menu
              return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="menu_analyse")]])
+
+    async def show_technical_analysis(self, update: Update, context: CallbackContext, instrument: str, timeframe: str = None, loading_message=None):
+        """Show the technical analysis chart for a specific instrument."""
+        try:
+            self.logger.info(f"Showing technical analysis for instrument: {instrument}, timeframe: {timeframe}")
+            chat_id = update.effective_chat.id
+            query = update.callback_query
+
+            # Initialize the chart service if needed
+            if not hasattr(self, 'chart_service') or self.chart_service is None:
+                # Attempt lazy initialization if needed
+                self._initialize_services()
+            
+            if not hasattr(self, 'chart_service') or self.chart_service is None:
+                self.logger.error("Chart service is not initialized.")
+                await self.update_message(query, "Error: Chart service is unavailable.", keyboard=self._get_back_keyboard(context))
+                return CHOOSE_ANALYSIS
+
+            chart_service = self.chart_service
+            
+            # --- Get Chart Data ---
+            try:
+                # Get the chart image based on instrument and timeframe
+                chart_image = None
+                chart_caption = f"<b>📊 Technical Analysis: {instrument}</b>"
+                
+                if timeframe:
+                    chart_caption += f" ({timeframe})"
+                    self.logger.info(f"Generating chart for {instrument} with timeframe {timeframe}")
+                    chart_image = await chart_service.get_chart(instrument, timeframe=timeframe)
+                else:
+                    self.logger.info(f"Generating chart for {instrument} with default timeframe")
+                    chart_image = await chart_service.get_chart(instrument)
+                
+                if not chart_image:
+                    raise ValueError(f"Could not generate chart for {instrument}")
+                
+                self.logger.info(f"Successfully generated chart for {instrument}")
+                
+                # --- Determine Keyboard ---
+                keyboard = self._get_back_keyboard(context)
+                
+                # --- Delete loading message if it exists ---
+                loading_message_to_delete = context.user_data.get('loading_message')
+                if loading_message_to_delete:
+                    try:
+                        await loading_message_to_delete.delete()
+                        self.logger.info("Successfully deleted loading message")
+                    except Exception as delete_error:
+                        self.logger.warning(f"Could not delete loading message: {str(delete_error)}")
+                
+                # --- Send the chart image ---
+                if query and query.message:
+                    try:
+                        await query.edit_message_media(
+                            media=InputMediaPhoto(
+                                media=chart_image,
+                                caption=chart_caption,
+                                parse_mode=ParseMode.HTML
+                            ),
+                            reply_markup=keyboard
+                        )
+                        self.logger.info(f"Updated message with chart for {instrument}")
+                    except Exception as e:
+                        self.logger.error(f"Could not update message with chart: {str(e)}")
+                        # If update fails, try sending a new message
+                        await context.bot.send_photo(
+                            chat_id=chat_id,
+                            photo=chart_image,
+                            caption=chart_caption,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=keyboard
+                        )
+                        self.logger.info(f"Sent new message with chart for {instrument}")
+                else:
+                    # Fallback if query/message is not available
+                    await context.bot.send_photo(
+                        chat_id=chat_id,
+                        photo=chart_image,
+                        caption=chart_caption,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=keyboard
+                    )
+                    self.logger.info(f"Sent chart as new message for {instrument}")
+            
+            except Exception as e:
+                self.logger.error(f"Error generating chart for {instrument}: {str(e)}")
+                error_message = f"Could not generate technical analysis chart for {instrument}. Please try again later."
+                if query:
+                    await self.update_message(query, error_message, keyboard=self._get_back_keyboard(context))
+                else:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=error_message,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=self._get_back_keyboard(context)
+                    )
+            
+            # Return to the appropriate state
+            return CHOOSE_ANALYSIS if context.user_data.get('from_signal', False) else INSTRUMENT_ANALYSIS
+
+        except Exception as e:
+            self.logger.exception(f"Unhandled error in show_technical_analysis for {instrument}: {str(e)}")
+            error_message = "An unexpected error occurred while showing technical analysis."
+            if query:
+                await self.update_message(query, error_message, keyboard=self._get_back_keyboard(context))
+            else:
+                # Fallback send
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=error_message,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=self._get_back_keyboard(context)
+                )
+            
+            return CHOOSE_ANALYSIS if context.user_data.get('from_signal', False) else INSTRUMENT_ANALYSIS
