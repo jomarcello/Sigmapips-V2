@@ -34,6 +34,7 @@ from .services.sentiment_service.sentiment import MarketSentimentService
 
 # Initialize global services outside of FastAPI context
 db = Database()
+sentiment_service = MarketSentimentService()
 stripe_service = StripeService(db)
 telegram_service = TelegramService(db, lazy_init=True)
 
@@ -298,7 +299,6 @@ async def process_tradingview_signal(request: Request):
         if instrument:
             try:
                 # Use the sentiment service from the telegram_service instance
-                sentiment_service = telegram_service.sentiment_service
                 sentiment_result = await sentiment_service.get_sentiment(instrument)
                 
                 if sentiment_result:
@@ -404,7 +404,6 @@ async def tradingview_signal(request: Request):
         if instrument:
             try:
                 # Use the sentiment service from the telegram_service instance
-                sentiment_service = telegram_service.sentiment_service
                 sentiment_result = await sentiment_service.get_sentiment(instrument)
                 
                 if sentiment_result:
@@ -475,7 +474,6 @@ async def receive_signal(request: Request):
         if instrument:
             try:
                 # Use the sentiment service from the telegram_service instance
-                sentiment_service = telegram_service.sentiment_service
                 sentiment_result = await sentiment_service.get_sentiment(instrument)
                 
                 if sentiment_result:
