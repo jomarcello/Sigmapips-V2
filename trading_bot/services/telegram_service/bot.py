@@ -33,15 +33,13 @@ from telegram.error import TelegramError, BadRequest
 import httpx
 import telegram.error  # Add this import for BadRequest error handling
 
-# Use relative imports to go up two levels from services/telegram_service/ to trading_bot/
-from ...utils.config_manager import ConfigManager
-from ...services.chart_service import ChartService
-from ...utils.instrument_manager import get_markets_for_instrument, get_instruments
+# Revert back to absolute imports
+from trading_bot.utils.config_manager import ConfigManager
+from trading_bot.services.chart_service.chart import ChartService # Corrected path
+from trading_bot.utils.instrument_manager import get_markets_for_instrument, get_instruments
 
-# from trading_bot.services.database.db import Database # Keep original, Database might be outside the intended structure or used differently
-from trading_bot.services.database.db import Database
-# ChartService already imported relatively
-# from trading_bot.services.chart_service.chart import ChartService
+from trading_bot.services.database.db import Database # Keep original
+# ChartService already imported absolutely
 from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
 from trading_bot.services.calendar_service.calendar import EconomicCalendarService
 from trading_bot.services.payment_service.stripe_service import StripeService
@@ -53,8 +51,7 @@ from trading_bot.services.telegram_service.states import (
     CALLBACK_ANALYSIS_SENTIMENT, CALLBACK_ANALYSIS_CALENDAR, CALLBACK_SIGNALS_ADD,
     CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU
 )
-# utils already imported relatively
-# from trading_bot.utils.instrument_manager import get_markets_for_instrument, get_instruments
+# utils already imported absolutely
 import trading_bot.services.telegram_service.gif_utils as gif_utils
 from trading_bot.services.calendar_service.tradingview_calendar import TradingViewCalendarService
 from trading_bot.services.calendar_service.__init__ import debug_tradingview_api, get_all_calendar_events
