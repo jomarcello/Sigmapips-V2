@@ -1297,6 +1297,15 @@ class TelegramService:
             application.add_handler(CallbackQueryHandler(self.instrument_callback, pattern="^instrument_(?!.*_signals)"))
             application.add_handler(CallbackQueryHandler(self.instrument_signals_callback, pattern="^instrument_.*_signals$"))
             
+            # Add handler for market_signals pattern
+            application.add_handler(CallbackQueryHandler(self.market_signals_callback, pattern="^market_.*_signals$"))
+            
+            # Add back to signals markets button handler
+            application.add_handler(CallbackQueryHandler(self.signals_add_callback, pattern="^back_to_signals_markets$"))
+            
+            # Add handler for back from instruments signals to market selection
+            application.add_handler(CallbackQueryHandler(self.back_to_signals_markets_callback, pattern="^back_to_instruments_signals$"))
+            
             # Add handler for back buttons
             application.add_handler(CallbackQueryHandler(self.back_market_callback, pattern="^back_market$"))
             application.add_handler(CallbackQueryHandler(self.back_instrument_callback, pattern="^back_instrument$"))
@@ -2653,23 +2662,22 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Show analysis options keyboard (SIGNAL_ANALYSIS_KEYBOARD)
             keyboard = SIGNAL_ANALYSIS_KEYBOARD
             
-            # Try to edit the message
+            # First delete the current message
             try:
-                await query.edit_message_text(
-                    text=f"Select your analysis type for {instrument}:",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-                logger.info(f"Updated message with signal analysis options for {instrument}")
-            except Exception as e:
-                logger.error(f"Error updating message: {str(e)}")
-                # Fall back to new message
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=f"Select your analysis type for {instrument}:",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
+                await query.message.delete()
+                logger.info(f"Deleted message {query.message.message_id}")
+            except Exception as delete_error:
+                logger.error(f"Could not delete message {query.message.message_id}: {str(delete_error)}")
+                # Continue anyway, we'll try sending a new message
+            
+            # Send a new message with the signal analysis options
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"Select your analysis type for {instrument}:",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+            logger.info(f"Sent new message with signal analysis options for {instrument}")
             
             return CHOOSE_ANALYSIS
             
@@ -2679,147 +2687,18 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Generic error handling
             try:
-                await query.edit_message_text(
+                # Try to delete the current message if it exists
+                if query and query.message:
+                    await query.message.delete()
+                # Send a new message with the main menu
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
                     text="An error occurred. Please try again from the main menu.",
                     reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
                 )
             except Exception:
                 pass
 
-            return MENU
-
-    async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
-        """Handle Analyze Market button from signal notifications"""
-        query = update.callback_query
-        logger.info(f"analyze_from_signal_callback called with data: {query.data}")
-        
-        try:
-            # Extract signal information from callback data
-            parts = query.data.split('_')
-            
-            # Format: analyze_from_signal_INSTRUMENT_SIGNALID (waar SIGNALID = INSTRUMENT_DIRECTION_TIMEFRAME_TIMESTAMP)
-            if len(parts) >= 4:
-                instrument = parts[3]
-                # >>> CORRECT SIGNAL ID PARSING <<<
-                # De signal ID bestaat uit alle delen vanaf index 4
-                signal_id_parts = parts[4:]
-                signal_id = "_".join(signal_id_parts) if signal_id_parts else None
-                
-                # >>> EXTRACT DIRECTION/TIMEFRAME DIRECTLY <<< 
-                signal_direction = None
-                signal_timeframe_str = None # String version like '30' or 'H1'
-                if len(signal_id_parts) >= 3: # Expecting at least INSTRUMENT_DIRECTION_TIMEFRAME
-                    # Direction is usually the first part after instrument in ID (index 1 of signal_id_parts)
-                    if signal_id_parts[0].upper() in ["BUY", "SELL"]:
-                        signal_direction = signal_id_parts[0].upper()
-                        # Timeframe is usually the next part (index 2 of signal_id_parts)
-                        if len(signal_id_parts) > 1: 
-                            signal_timeframe_str = signal_id_parts[1] # e.g., '30' or 'H1' etc.
-                    else:
-                        # Maybe instrument name had underscores, try second part for direction
-                        if len(signal_id_parts) > 1 and signal_id_parts[1].upper() in ["BUY", "SELL"]:
-                             signal_direction = signal_id_parts[1].upper()
-                             if len(signal_id_parts) > 2:
-                                signal_timeframe_str = signal_id_parts[2]
-
-                logger.info(f"Parsed from callback: instrument={instrument}, signal_id={signal_id}, direction={signal_direction}, timeframe_str={signal_timeframe_str}")
-                
-                # Store in context for other handlers
-                if context and hasattr(context, 'user_data'):
-                    # Store instrument in multiple locations to ensure it's available later
-                    context.user_data['instrument'] = instrument
-                    # Also store in specific signal flow fields
-                    context.user_data['signal_instrument'] = instrument
-                    
-                    if signal_id:
-                        context.user_data['signal_id'] = signal_id
-                    
-                    # Make a backup copy to ensure we can return to signal later
-                    context.user_data['signal_instrument_backup'] = instrument
-                    context.user_data['signal_id_backup'] = signal_id
-                    # >>> SAVE DIRECTLY PARSED VALUES TO BACKUP <<<
-                    context.user_data['signal_direction_backup'] = signal_direction
-                    context.user_data['signal_timeframe_backup'] = signal_timeframe_str # Store the parsed string timeframe
-                    
-                    # Flag to indicate this is part of the signal flow
-                    context.user_data['from_signal'] = True
-                    context.user_data['is_signals_context'] = True
-                    
-                    # Also store info from the actual signal if available (for current context, backups are priority)
-                    user_signals_key = str(update.effective_user.id)
-                    if user_signals_key in self.user_signals and signal_id in self.user_signals[user_signals_key]:
-                        signal = self.user_signals[user_signals_key][signal_id]
-                        if signal:
-                            # Store potentially more accurate/complete data for current use
-                            context.user_data['signal_direction'] = signal.get('direction')
-                            context.user_data['signal_timeframe'] = signal.get('timeframe') # <<< Use timeframe
-                            logger.info(f"Stored signal details from cache: direction={signal.get('direction')}, timeframe={signal.get('timeframe')}")
-                        else:
-                            # Use parsed values if cache lookup fails
-                            context.user_data['signal_direction'] = signal_direction
-                            context.user_data['signal_timeframe'] = signal_timeframe_str
-                    else:
-                         # Use parsed values if not in cache
-                         context.user_data['signal_direction'] = signal_direction
-                         context.user_data['signal_timeframe'] = signal_timeframe_str
-                         logger.warning(f"Signal ID {signal_id} not found in user_signals cache for user {user_signals_key}. Using parsed values.")
-
-                    # Log context after setting backups
-                    logger.info(f"Context user_data after setting backups in analyze_from_signal: {context.user_data}")
-            
-            # >>> SLA ORIGINELE BERICHT OP <<<
-            original_message = query.message.text or query.message.caption
-            if original_message and context and hasattr(context, 'user_data'):
-                context.user_data['original_signal_message'] = original_message
-                logger.info("Saved original signal message to context.")
-                
-                # Try to extract instrument from original message as an additional fallback
-                if not context.user_data.get('instrument'):
-                    match = re.search(r'Instrument:\s*([A-Za-z0-9]+)', original_message)
-                    if match:
-                        extracted_instrument = match.group(1)
-                        logger.info(f"Extracted instrument from original message: {extracted_instrument}")
-                        context.user_data['instrument'] = extracted_instrument
-                        context.user_data['signal_instrument'] = extracted_instrument
-                        context.user_data['signal_instrument_backup'] = extracted_instrument
-            else:
-                logger.warning("Could not retrieve original signal message text/caption to save.")
-            
-            # Show analysis options for this instrument
-            # Format message
-            # Use the SIGNAL_ANALYSIS_KEYBOARD for consistency
-            keyboard = SIGNAL_ANALYSIS_KEYBOARD
-            
-            # Try to edit the message text
-            try:
-                await query.edit_message_text(
-                    text=f"Select your analysis type:",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception as e:
-                logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
-                # Fall back to sending a new message
-                await query.message.reply_text(
-                    text=f"Select your analysis type:",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            
-            return CHOOSE_ANALYSIS
-        
-        except Exception as e:
-            logger.error(f"Error in analyze_from_signal_callback: {str(e)}")
-            logger.exception(e)
-            
-            try:
-                await query.edit_message_text(
-                    text="An error occurred. Please try again from the main menu.",
-                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
-                )
-            except Exception:
-                pass
-            
             return MENU
 
     async def button_callback(self, update: Update, context=None) -> int:
@@ -3290,3 +3169,195 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 )
             
             return CHOOSE_ANALYSIS if context.user_data.get('from_signal', False) else INSTRUMENT_ANALYSIS
+
+    # Add the missing signals_add_callback method
+    async def signals_add_callback(self, update: Update, context=None) -> int:
+        """Handle signals_add button press"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("signals_add_callback called")
+        
+        # Make sure we're in the signals flow context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['is_signals_context'] = True
+            context.user_data['from_signal'] = False
+            
+            logger.info(f"Updated context in signals_add_callback: {context.user_data}")
+        
+        # Create keyboard for market selection (similar to the one in menu_analyse_callback)
+        keyboard = []
+        
+        # Add market buttons
+        for market in MARKETS:
+            button_text = market.get('emoji', '') + ' ' + market.get('name', 'Unknown')
+            callback_data = f"market_{market.get('id', 'unknown')}_signals"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+        
+        # Add back button
+        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_signals")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Update the message
+        await self.update_message(
+            query=query,
+            text="<b>📊 Add Signal</b>\n\nSelect a market to add signals for:",
+            keyboard=reply_markup
+        )
+        
+        return SIGNALS
+        
+    async def market_signals_callback(self, update: Update, context=None) -> int:
+        """Handle market selection for signals"""
+        query = update.callback_query
+        callback_data = query.data
+        await query.answer()
+        
+        logger.info(f"market_signals_callback called with data: {callback_data}")
+        
+        # Extract market ID from callback data (format: "market_{market_id}_signals")
+        market_id = callback_data.split('_')[1]
+        
+        # Store the selected market in user_data
+        if context and hasattr(context, 'user_data'):
+            context.user_data['selected_market'] = market_id
+            context.user_data['is_signals_context'] = True
+            logger.info(f"Selected market for signals: {market_id}")
+        
+        # Get instruments for the selected market
+        instruments = []
+        for market in MARKETS:
+            if market.get('id') == market_id:
+                instruments = market.get('instruments', [])
+                break
+        
+        # Create keyboard with instruments
+        keyboard = []
+        
+        # Add instrument buttons (in groups of 2 for better layout)
+        row = []
+        for i, instrument in enumerate(instruments):
+            button_text = instrument.get('name', 'Unknown')
+            callback_data = f"instrument_{instrument.get('id', 'unknown')}_signals"
+            
+            row.append(InlineKeyboardButton(button_text, callback_data=callback_data))
+            
+            # Add row after every 2 instruments or at the end
+            if (i + 1) % 2 == 0 or i == len(instruments) - 1:
+                if row:
+                    keyboard.append(row)
+                    row = []
+        
+        # Add back button
+        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_signals_markets")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Get the selected market name for better UX
+        market_name = "Unknown"
+        market_emoji = ""
+        for market in MARKETS:
+            if market.get('id') == market_id:
+                market_name = market.get('name', 'Unknown')
+                market_emoji = market.get('emoji', '')
+                break
+        
+        # Update the message
+        await self.update_message(
+            query=query,
+            text=f"<b>📊 Add Signal: {market_emoji} {market_name}</b>\n\nSelect an instrument to add signals for:",
+            keyboard=reply_markup
+        )
+        
+        return SIGNALS
+        
+    async def instrument_signals_callback(self, update: Update, context=None) -> int:
+        """Handle instrument selection for signals"""
+        query = update.callback_query
+        callback_data = query.data
+        await query.answer()
+        
+        logger.info(f"instrument_signals_callback called with data: {callback_data}")
+        
+        # Extract instrument ID from callback data (format: "instrument_{instrument_id}_signals")
+        instrument_id = callback_data.split('_')[1]
+        
+        # Store the selected instrument in user_data
+        if context and hasattr(context, 'user_data'):
+            context.user_data['selected_instrument'] = instrument_id
+            context.user_data['is_signals_context'] = True
+            logger.info(f"Selected instrument for signals: {instrument_id}")
+        
+        # Get the instrument and market details
+        instrument_name = "Unknown"
+        market_id = context.user_data.get('selected_market', 'unknown')
+        market_name = "Unknown"
+        market_emoji = ""
+        
+        for market in MARKETS:
+            if market.get('id') == market_id:
+                market_name = market.get('name', 'Unknown')
+                market_emoji = market.get('emoji', '')
+                
+                # Find the instrument within this market
+                for instrument in market.get('instruments', []):
+                    if instrument.get('id') == instrument_id:
+                        instrument_name = instrument.get('name', 'Unknown')
+                        break
+                break
+        
+        # Create keyboard with timeframe options
+        keyboard = [
+            [
+                InlineKeyboardButton("5m", callback_data=f"timeframe_5m_signals"),
+                InlineKeyboardButton("15m", callback_data=f"timeframe_15m_signals"),
+                InlineKeyboardButton("30m", callback_data=f"timeframe_30m_signals")
+            ],
+            [
+                InlineKeyboardButton("1h", callback_data=f"timeframe_1h_signals"),
+                InlineKeyboardButton("4h", callback_data=f"timeframe_4h_signals"),
+                InlineKeyboardButton("1d", callback_data=f"timeframe_1d_signals")
+            ],
+            [
+                InlineKeyboardButton("⬅️ Back", callback_data="back_to_instruments_signals")
+            ]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Update the message
+        await self.update_message(
+            query=query,
+            text=f"<b>📊 Add Signal: {market_emoji} {market_name} - {instrument_name}</b>\n\nSelect a timeframe for the signal:",
+            keyboard=reply_markup
+        )
+        
+        return SIGNALS
+        
+    async def back_to_signals_markets_callback(self, update: Update, context=None) -> int:
+        """Handle back button from instrument selection to market selection in signals flow"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("back_to_signals_markets_callback called")
+        
+        # Make sure we're in the signals flow context
+        if context and hasattr(context, 'user_data'):
+            context.user_data['is_signals_context'] = True
+            context.user_data['from_signal'] = False
+            
+            # Clear the selected instrument but keep the market
+            if 'selected_instrument' in context.user_data:
+                del context.user_data['selected_instrument']
+                
+            logger.info(f"Updated context in back_to_signals_markets_callback: {context.user_data}")
+            
+            # Get the selected market if available
+            market_id = context.user_data.get('selected_market')
+            if market_id:
+                # We need to show instruments for this market
+                return await self.market_signals_callback(update, context)
+            
+        # If no market was selected or context is missing, return to market selection
+        return await self.signals_add_callback(update, context)
