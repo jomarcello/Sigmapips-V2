@@ -30,7 +30,7 @@ python-json-logger==2.0.7
 
 # Browser automation
 selenium==4.10.0
-pillow==9.5.0
+pillow
 webdriver-manager==3.8.6
 playwright==1.40.0
 
@@ -55,3 +55,6 @@ tavily-python==0.2.2  # for web search via Tavily API - REQUIRED for sentiment a
 
 # Added from the code block
 twelvedata>=1.2.10
+
+# Added for Telegram bot functionality
+aiogram==2.25.2
