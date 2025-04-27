@@ -74,35 +74,6 @@ except ImportError:
         async def get_technical_analysis(self, instrument, timeframe=None):
             return f"Technical analysis for {instrument} not available"
 
-# Helper functions voor instrument management
-def get_markets_for_instrument(instrument):
-    """Get available markets for a given instrument"""
-    # Eenvoudige implementatie
-    forex_instruments = ["EURUSD", "GBPUSD", "USDJPY", "USDCHF", "EURGBP"]
-    crypto_instruments = ["BTCUSD", "ETHUSD", "XRPUSD"]
-    indices_instruments = ["US30", "US500", "US100"]
-    commodities_instruments = ["XAUUSD", "XAGUSD", "USOIL"]
-    
-    if instrument in forex_instruments:
-        return ["forex"]
-    elif instrument in crypto_instruments:
-        return ["crypto"]
-    elif instrument in indices_instruments:
-        return ["indices"]
-    elif instrument in commodities_instruments:
-        return ["commodities"]
-    else:
-        return []
-
-def get_instruments():
-    """Get all available instruments"""
-    return [
-        "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "EURGBP",
-        "BTCUSD", "ETHUSD", "XRPUSD",
-        "US30", "US500", "US100",
-        "XAUUSD", "XAGUSD", "USOIL"
-    ]
-
 # Overige imports met fallbacks
 try:
     from ..database.db import Database
@@ -243,6 +214,36 @@ INSTRUMENT_CURRENCY_MAP = {
     "XRPUSD": ["USD", "XRP"]
 }
 
+# Mapping of analysis styles to their available timeframes
+STYLE_TIMEFRAME_MAP = {
+    "Technical Analysis": ["1m", "5m", "15m", "1h", "4h", "1D", "1W", "1M"],
+    "Sentiment Analysis": ["1D"],  # Sentiment is typically daily
+    "Economic Calendar": ["1D"],  # Calendar events are daily
+}
+
+# Mapping of specific instruments to their typically relevant timeframes
+# This can override or supplement the style-based timeframes if needed
+INSTRUMENT_TIMEFRAME_MAP = {
+    # Example: Maybe US30 is better analyzed on slightly longer short-term frames
+    "US30": ["5m", "15m", "1h", "4h", "1D", "1W"],
+    # Example: FX majors might include 1m for scalping perspective
+    "EURUSD": ["1m", "5m", "15m", "1h", "4h", "1D", "1W", "1M"],
+    "GBPUSD": ["1m", "5m", "15m", "1h", "4h", "1D", "1W", "1M"],
+    # Default can be inferred from STYLE_TIMEFRAME_MAP if not specified
+}
+
+# Mapping of internal timeframe codes to display names
+TIMEFRAME_DISPLAY_MAP = {
+    "1m": "1 Minute",
+    "5m": "5 Minutes",
+    "15m": "15 Minutes",
+    "1h": "1 Hour",
+    "4h": "4 Hours",
+    "1D": "Daily",
+    "1W": "Weekly",
+    "1M": "Monthly",
+}
+
 # Callback data constants
 CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
 CALLBACK_ANALYSIS_SENTIMENT = "analysis_sentiment"
@@ -283,17 +284,13 @@ Choose an option to access advanced trading support:
 
 📊 Services:
 • <b>Technical Analysis</b> – Real-time chart analysis and key levels
-
 • <b>Market Sentiment</b> – Understand market trends and sentiment
-
 • <b>Economic Calendar</b> – Stay updated on market-moving events
-
 • <b>Trading Signals</b> – Get precise entry/exit points for your favorite pairs
 
 Select your option to continue:
 """
 
-# Abonnementsbericht voor nieuwe gebruikers
 SUBSCRIPTION_WELCOME_MESSAGE = """
 🚀 <b>Welcome to Sigmapips AI!</b> 🚀
 
@@ -323,7 +320,7 @@ Need help? Use /help to see all available commands.
 
 HELP_MESSAGE = """
 Available commands:
-/menu - Show the main menu
+/menu - Show main menu
 /start - Set up new trading pairs
 /help - Show this help message
 """
@@ -433,9 +430,9 @@ CRYPTO_KEYBOARD = [
 
 # Signal analysis keyboard
 SIGNAL_ANALYSIS_KEYBOARD = [
-    [InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")],
-    [InlineKeyboardButton("🧠 Market Sentiment", callback_data="signal_sentiment")],
-    [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")],
+    [InlineKeyboardButton("📈 Technical Analysis", callback_data=CALLBACK_SIGNAL_TECHNICAL)],
+    [InlineKeyboardButton("🧠 Market Sentiment", callback_data=CALLBACK_SIGNAL_SENTIMENT)],
+    [InlineKeyboardButton("📅 Economic Calendar", callback_data=CALLBACK_SIGNAL_CALENDAR)],
     [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
 ]
 
@@ -1548,7 +1545,7 @@ CALLBACK_SIGNAL_TECHNICAL = "signal_technical"
 CALLBACK_SIGNAL_SENTIMENT = "signal_sentiment"
 CALLBACK_SIGNAL_CALENDAR = "signal_calendar"
 CALLBACK_BACK_MENU = "back_menu"
-CALLBACK_BACK_ANALYSIS = "back_analysis"
+CALLBACK_BACK_ANALYSIS = "back_to_analysis"
 CALLBACK_BACK_MARKET = "back_market"
 CALLBACK_BACK_INSTRUMENT = "back_instrument"
 CALLBACK_BACK_SIGNALS = "back_signals"
@@ -1566,7 +1563,7 @@ ANALYSIS_KEYBOARD = [
     [InlineKeyboardButton("📈 Technical Analysis", callback_data=CALLBACK_ANALYSIS_TECHNICAL)],
     [InlineKeyboardButton("🧠 Market Sentiment", callback_data=CALLBACK_ANALYSIS_SENTIMENT)],
     [InlineKeyboardButton("📅 Economic Calendar", callback_data=CALLBACK_ANALYSIS_CALENDAR)],
-    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)] # Ensure BACK_MENU handler works
+    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
 ]
 
 SIGNALS_KEYBOARD = [
@@ -1603,5 +1600,13 @@ MARKET_KEYBOARD_SIGNALS = [ # Example for signals
 WELCOME_MESSAGE = """
 🚀 <b>Sigmapips AI - Main Menu</b> 🚀
 
-Choose an option:
-""" # Simplified, use full message from original
+Choose an option to access advanced trading support:
+
+📊 Services:
+• <b>Technical Analysis</b> – Real-time chart analysis and key levels
+• <b>Market Sentiment</b> – Understand market trends and sentiment
+• <b>Economic Calendar</b> – Stay updated on market-moving events
+• <b>Trading Signals</b> – Get precise entry/exit points for your favorite pairs
+
+Select your option to continue:
+"""
