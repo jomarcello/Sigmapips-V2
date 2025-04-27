@@ -2886,7 +2886,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 
         except Exception as e:
             logger.error(f"Error processing button callback '{callback_data}': {str(e)}")
-            logger.exception(e)
+            logger.exception(e) # <<< CORRECTE INDENTATIE
             # Attempt to notify the user about the error
             try:
                 await update.effective_message.reply_text("An error occurred while processing your request. Please try again later.")
