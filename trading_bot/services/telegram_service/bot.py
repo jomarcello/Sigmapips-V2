@@ -1240,9 +1240,9 @@ class TelegramService:
                 logger.warning("[_format_signal_message] No sentiment_verdict found in signal_data.")
                 message += "AI analysis could not be completed." # Fallback message
 
-            # <<< ADDED DISCLAIMER >>>
-            message += "\\n\\n<i>Disclaimer: Trading involves substantial risk of loss and is not suitable for all investors. Past performance is not indicative of future results.</i>"
-            # <<< END ADDED DISCLAIMER >>>
+            # <<< UPDATED DISCLAIMER >>>
+            message += f"\n\n⚠️ <b>Disclaimer:</b> <i>Trading involves substantial risk of loss and is not suitable for all investors. Past performance is not indicative of future results.</i>"
+            # <<< END UPDATED DISCLAIMER >>>
 
             return message
             
