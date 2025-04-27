@@ -1217,6 +1217,7 @@ class TelegramService:
             message += f"\n{timeframe}\n"
             message += f"{signal_data.get('strategy', 'TradingView Signal')}\n\n"
             message += "————————————————————\n\n"
+            message += "<b>Risk Management:</b>\n\n"
             message += "• Position size: 1-2% max\n"
             message += "• Use proper stop loss\n"
             message += "• Follow your trading plan\n\n"
