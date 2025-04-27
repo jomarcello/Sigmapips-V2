@@ -1078,7 +1078,7 @@ class TelegramService:
             
             # Store the full signal data for reference
             normalized_data['id'] = signal_id
-            normalized_data['timestamp'] = datetime.now(timezone.utc).isoformat() # Added timezone.utc for consistency
+            normalized_data['timestamp'] = datetime.datetime.now(timezone.utc).isoformat() # Explicitly reference datetime class
             normalized_data['message'] = message
             normalized_data['market'] = market_type
             
