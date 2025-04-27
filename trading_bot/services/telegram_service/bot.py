@@ -769,7 +769,9 @@ class TelegramService:
         self._chart_service = None
         self._sentiment_service = None
         self._calendar_service = None
-        
+        self.application = None # Added application attribute initialization
+        self.polling_started = False # Added polling_started attribute
+
         # Initialize the bot instance
         if self.bot_token:
             request_settings = {}
@@ -805,5 +807,801 @@ class TelegramService:
         """Initialize services asynchronously"""
         logger.info("Initializing services asynchronously")
         # Implement async initialization here
+        # Example: Initialize chart service if not already done
+        if not self._chart_service:
+             self._chart_service = ChartService()
+             logger.info("Chart service initialized asynchronously.")
+        # Initialize sentiment service
+        if not self._sentiment_service:
+            # Assuming MarketSentimentService can be initialized without args here
+            # Or pass necessary args if required
+            self._sentiment_service = MarketSentimentService()
+            logger.info("Market sentiment service initialized asynchronously.")
+        # Initialize calendar service
+        if not self._calendar_service:
+            # Assuming EconomicCalendarService can be initialized without args here
+            self._calendar_service = EconomicCalendarService()
+            logger.info("Economic calendar service initialized asynchronously.")
+
+    # --- Added Command Handlers and Helpers ---
+
+    async def show_main_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None, skip_gif=False) -> None:
+        """Show the main menu when /menu command is used"""
+        # Use context.bot if available, otherwise use self.bot
+        bot = context.bot if context is not None and hasattr(context, 'bot') else self.bot
+        if not bot:
+             logger.error("Bot instance not found in show_main_menu")
+             return
+
+        # Check if the user has a subscription
+        user_id = update.effective_user.id
+        try:
+            is_subscribed = await self.db.is_user_subscribed(user_id)
+            payment_failed = await self.db.has_payment_failed(user_id)
+        except Exception as db_error:
+            logger.error(f"Database error in show_main_menu for user {user_id}: {db_error}")
+            await update.effective_message.reply_text("Could not retrieve subscription status. Please try again later.")
+            return
+
+
+        if is_subscribed and not payment_failed:
+            # Show the main menu for subscribed users
+            reply_markup = InlineKeyboardMarkup(START_KEYBOARD)
+
+            # Forceer altijd de welkomst GIF
+            gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+
+            # If we should show the GIF
+            if not skip_gif:
+                try:
+                    current_message = update.effective_message
+                    # For message commands or if no current message to edit
+                    if isinstance(update, Update) and update.message:
+                         # Send the GIF using regular animation method
+                        await update.message.reply_animation(
+                            animation=gif_url,
+                            caption=WELCOME_MESSAGE,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=reply_markup
+                        )
+                    # For callback queries, try to edit the existing message
+                    elif isinstance(update, Update) and update.callback_query and update.callback_query.message:
+                         query = update.callback_query
+                         try:
+                            await query.edit_message_media(
+                                media=InputMediaAnimation(media=gif_url, caption=WELCOME_MESSAGE, parse_mode=ParseMode.HTML),
+                                reply_markup=reply_markup
+                            )
+                         except telegram.error.BadRequest as e:
+                             if "message is not modified" in str(e):
+                                 logger.warning("Menu message already shown (not modified).")
+                             elif "message can't be edited" in str(e) or "there is no media in the message to edit" in str(e):
+                                 logger.warning(f"Cannot edit message media ({e}), sending new message.")
+                                 # Delete old and send new
+                                 try: await query.message.delete()
+                                 except Exception: pass
+                                 await bot.send_animation(
+                                     chat_id=update.effective_chat.id,
+                                     animation=gif_url,
+                                     caption=WELCOME_MESSAGE,
+                                     parse_mode=ParseMode.HTML,
+                                     reply_markup=reply_markup
+                                 )
+                             else:
+                                 raise # Re-raise other BadRequest errors
+                         except Exception as e:
+                             logger.error(f"Error editing message for menu GIF: {e}")
+                             # Fallback: delete old and send new
+                             try: await query.message.delete()
+                             except Exception: pass
+                             await bot.send_animation(
+                                 chat_id=update.effective_chat.id,
+                                 animation=gif_url,
+                                 caption=WELCOME_MESSAGE,
+                                 parse_mode=ParseMode.HTML,
+                                 reply_markup=reply_markup
+                             )
+                    else:
+                         # Fallback if no message or callback_query context
+                        await bot.send_animation(
+                            chat_id=update.effective_chat.id,
+                            animation=gif_url,
+                            caption=WELCOME_MESSAGE,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=reply_markup
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to send menu GIF: {str(e)}")
+                    # Fallback to text-only approach
+                    try:
+                        if update.callback_query:
+                             await update.callback_query.edit_message_text(text=WELCOME_MESSAGE, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+                        elif update.message:
+                             await update.message.reply_text(text=WELCOME_MESSAGE, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+                        else:
+                             await bot.send_message(chat_id=update.effective_chat.id, text=WELCOME_MESSAGE, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+                    except Exception as send_error:
+                         logger.error(f"Failed to send text menu: {str(send_error)}")
+            else:
+                # Skip GIF mode - just send text
+                try:
+                    if update.callback_query:
+                         await update.callback_query.edit_message_text(text=WELCOME_MESSAGE, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+                    elif update.message:
+                         await update.message.reply_text(text=WELCOME_MESSAGE, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+                    else:
+                         await bot.send_message(chat_id=update.effective_chat.id, text=WELCOME_MESSAGE, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+                except Exception as send_error:
+                     logger.error(f"Failed to send text menu (skip_gif): {str(send_error)}")
+        else:
+            # Handle non-subscribed users or payment failed
+            await self.start_command(update, context) # Calls start_command logic
+
+
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Send a welcome message when the bot is started."""
+        user = update.effective_user
+        user_id = user.id
+        first_name = user.first_name
+        username = user.username
+
+        # Try to add the user to the database if they don't exist yet
+        try:
+            # Check if user exists (assuming a method like get_user exists)
+            # If not, use get_user_subscription as a proxy check
+            existing_subscription = await self.db.get_user_subscription(user_id)
+
+            if not existing_subscription:
+                # Add new user
+                logger.info(f"New user started: {user_id}, {first_name}, @{username}")
+                # Make sure save_user can handle potential None for last_name
+                await self.db.save_user(user_id, first_name, user.last_name, username)
+            else:
+                logger.info(f"Existing user started: {user_id}, {first_name}, @{username}")
+
+        except Exception as e:
+            logger.error(f"Error registering user {user_id}: {str(e)}")
+
+        # Check subscription status again after potential registration
+        is_subscribed = False
+        payment_failed = False
+        try:
+            is_subscribed = await self.db.is_user_subscribed(user_id)
+            payment_failed = await self.db.has_payment_failed(user_id)
+        except Exception as e:
+             logger.error(f"Error checking subscription status for user {user_id}: {str(e)}")
+             await update.message.reply_text("Could not check your subscription status. Please try again later.")
+             return
+
+
+        if is_subscribed and not payment_failed:
+            # For subscribed users, direct them to use the /menu command instead
+            await update.message.reply_text(
+                text="Welcome back! Please use the /menu command to access all features.",
+                parse_mode=ParseMode.HTML
+            )
+            return
+        elif payment_failed:
+            # Show payment failure message
+            failed_payment_text = f"""
+❗ <b>Subscription Payment Failed</b> ❗
+
+Your subscription payment could not be processed and your service has been deactivated.
+
+To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
+            """
+
+            # Use direct URL link for reactivation (ensure this is the correct link)
+            reactivation_url = os.getenv("STRIPE_REACTIVATION_LINK", "https://buy.stripe.com/9AQcPf3j63HL5JS145") # Get from env or use default
+
+            # Create button for reactivation
+            keyboard = [
+                [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
+            ]
+
+            await update.message.reply_text(
+                text=failed_payment_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            # Show the welcome message with trial option
+            welcome_text = """
+🚀 Welcome to Sigmapips AI! 🚀
+
+Discover powerful trading signals for various markets:
+• Forex - Major and minor currency pairs
+• Crypto - Bitcoin, Ethereum and other top cryptocurrencies
+• Indices - Global market indices
+• Commodities - Gold, silver and oil
+
+Features:
+✅ Real-time trading signals
+✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
+✅ Advanced chart analysis
+✅ Sentiment indicators
+✅ Economic calendar integration
+
+Start today with a FREE 14-day trial!
+            """
+
+            # Use direct URL link instead of callback for the trial button (ensure this is correct)
+            checkout_url = os.getenv("STRIPE_TRIAL_CHECKOUT_LINK", "https://buy.stripe.com/3cs3eF9Hu9256NW9AA") # Get from env or use default
+
+            # Create buttons - Trial button goes straight to Stripe checkout
+            keyboard = [
+                [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=checkout_url)]
+            ]
+
+            # Gebruik de juiste welkomst-GIF URL
+            welcome_gif_url = "https://media.giphy.com/media/gSzIKNrqtotEYrZv7i/giphy.gif"
+
+            try:
+                # Send the GIF with caption containing the welcome message
+                await update.message.reply_animation(
+                    animation=welcome_gif_url,
+                    caption=welcome_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as e:
+                logger.error(f"Error sending welcome GIF with caption: {str(e)}")
+                # Fallback to text-only message if GIF fails
+                await update.message.reply_text(
+                    text=welcome_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+
+    async def set_subscription_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Secret command to manually set subscription status for a user"""
+        # Add admin check here if needed
+        # e.g., if update.effective_user.id not in ADMIN_IDS: return
+
+        if not context.args or len(context.args) < 3:
+            await update.message.reply_text("Usage: /set_subscription [chat_id] [active|inactive] [days]")
+            return
+
+        try:
+            chat_id = int(context.args[0])
+            status = context.args[1].lower()
+            days = int(context.args[2])
+
+            if status not in ["active", "inactive"]:
+                await update.message.reply_text("Status must be 'active' or 'inactive'")
+                return
+
+            now = datetime.now(timezone.utc) # Use timezone aware datetime
+
+            if status == "active":
+                start_date = now
+                end_date = now + timedelta(days=days)
+                # Plan type might need to be configurable or fetched
+                plan_type = "basic" # Example plan type
+                await self.db.save_user_subscription(chat_id, plan_type, start_date, end_date)
+                # Also ensure payment failed is false
+                await self.db.set_payment_failed(chat_id, status=False)
+                await update.message.reply_text(f"✅ Subscription set to ACTIVE for user {chat_id} for {days} days.")
+            else: # inactive
+                start_date = now - timedelta(days=30) # Arbitrary past date
+                end_date = now - timedelta(days=1)   # Expired date
+                plan_type = "basic" # Example plan type
+                await self.db.save_user_subscription(chat_id, plan_type, start_date, end_date)
+                # Optionally set payment failed to False as well if they are explicitly made inactive
+                await self.db.set_payment_failed(chat_id, status=False)
+                await update.message.reply_text(f"✅ Subscription set to INACTIVE for user {chat_id}.")
+
+            logger.info(f"Manually set subscription status to {status} for user {chat_id}")
+
+        except ValueError:
+            await update.message.reply_text("Invalid arguments. Chat ID and days must be numbers.")
+        except Exception as e:
+            logger.error(f"Error in set_subscription_command for {context.args}: {str(e)}")
+            await update.message.reply_text(f"An error occurred: {str(e)}")
+
+    async def set_payment_failed_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Secret command to set a user's subscription to the payment failed state"""
+        # Add admin check here if needed
+        logger.info(f"set_payment_failed command received: {update.message.text}")
+
+        try:
+            if not context.args or len(context.args) < 2:
+                 await update.message.reply_text("Usage: /set_payment_failed [chat_id] [true|false]")
+                 return
+
+            chat_id = int(context.args[0])
+            failed_status_str = context.args[1].lower()
+
+            if failed_status_str not in ["true", "false"]:
+                await update.message.reply_text("Status must be 'true' or 'false'")
+                return
+
+            failed_status = failed_status_str == "true"
+
+            # Call database function to set the status
+            # Assuming db.set_payment_failed takes status argument
+            success = await self.db.set_payment_failed(chat_id, status=failed_status)
+
+            if success:
+                status_text = "FAILED" if failed_status else "NOT FAILED"
+                message = f"✅ Payment status set to {status_text} for user {chat_id}"
+                logger.info(f"Manually set payment failed status to {failed_status} for user {chat_id}")
+                await update.message.reply_text(message)
+
+                # If setting to failed, show the notification message
+                if failed_status:
+                    failed_payment_text = f"""
+❗ <b>Subscription Payment Failed</b> ❗
+
+Your subscription payment could not be processed and your service has been deactivated.
+
+To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
+                    """
+                    reactivation_url = os.getenv("STRIPE_REACTIVATION_LINK", "https://buy.stripe.com/9AQcPf3j63HL5JS145")
+                    keyboard = [[InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]]
+                    # Send the notification as a new message
+                    await context.bot.send_message( # Use context.bot to send to the target chat_id
+                         chat_id=chat_id,
+                         text=failed_payment_text,
+                         reply_markup=InlineKeyboardMarkup(keyboard),
+                         parse_mode=ParseMode.HTML
+                     )
+            else:
+                status_text = "FAILED" if failed_status else "NOT FAILED"
+                message = f"❌ Could not set payment status to {status_text} for user {chat_id}"
+                logger.error(f"Database returned failure for set_payment_failed for user {chat_id}")
+                await update.message.reply_text(message)
+
+        except ValueError:
+            await update.message.reply_text("Invalid arguments. Chat ID must be a number.")
+        except Exception as e:
+            error_msg = f"Error setting payment failed status for {context.args}: {str(e)}"
+            logger.error(error_msg)
+            await update.message.reply_text(error_msg)
+
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Send a message when the command /help is issued."""
+        # Consider sending a specific help message instead of just the menu
+        # await update.message.reply_text(HELP_MESSAGE, parse_mode=ParseMode.HTML)
+        # For now, showing the main menu as per original file structure
+        await self.show_main_menu(update, context)
+
+    async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> None:
+        """Send a message when the command /menu is issued."""
+        await self.show_main_menu(update, context)
+
+    async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> Optional[int]:
+        """Handle button callback queries by routing to specific handlers."""
+        query = update.callback_query
+        # Ensure query and message exist
+        if not query or not query.message:
+            logger.warning("button_callback received without query or message.")
+            return None
+
+        callback_data = query.data
+        logger.info(f"Button callback received: {callback_data} from user {update.effective_user.id}")
+
+        # Answer the callback query immediately
+        try:
+            await query.answer()
+        except Exception as answer_err:
+            logger.warning(f"Failed to answer callback query: {answer_err}")
+
+        try:
+            # --- Route to specific handlers ---
+            if callback_data == CALLBACK_MENU_ANALYSE:
+                return await self.menu_analyse_callback(update, context)
+            elif callback_data == CALLBACK_MENU_SIGNALS:
+                return await self.menu_signals_callback(update, context)
+            elif callback_data == CALLBACK_ANALYSIS_TECHNICAL:
+                return await self.analysis_technical_callback(update, context)
+            elif callback_data == CALLBACK_ANALYSIS_SENTIMENT:
+                return await self.analysis_sentiment_callback(update, context)
+            elif callback_data == CALLBACK_ANALYSIS_CALENDAR:
+                return await self.analysis_calendar_callback(update, context)
+            elif callback_data == CALLBACK_SIGNAL_TECHNICAL:
+                return await self.signal_technical_callback(update, context)
+            elif callback_data == CALLBACK_SIGNAL_SENTIMENT:
+                return await self.signal_sentiment_callback(update, context)
+            elif callback_data == CALLBACK_SIGNAL_CALENDAR:
+                return await self.signal_calendar_callback(update, context)
+            elif callback_data.startswith("analyze_from_signal_"):
+                 return await self.analyze_from_signal_callback(update, context)
+            elif callback_data.startswith("market_"):
+                 # Separate handlers for analysis and signals context
+                 if context and context.user_data.get('is_signals_context'):
+                     return await self.market_signals_callback(update, context)
+                 else:
+                     return await self.market_callback(update, context) # Needs market_callback implementation
+            elif callback_data.startswith("instrument_"):
+                 # Separate handlers for analysis and signals context
+                 if context and context.user_data.get('is_signals_context'):
+                     return await self.instrument_signals_callback(update, context)
+                 else:
+                     return await self.instrument_callback(update, context) # Needs instrument_callback implementation
+            elif callback_data.startswith("back_"):
+                 return await self.handle_back_button(update, context) # Centralized back handler
+            elif callback_data == CALLBACK_SIGNALS_ADD:
+                return await self.signals_add_callback(update, context)
+            elif callback_data == CALLBACK_SIGNALS_MANAGE:
+                return await self.signals_manage_callback(update, context)
+            elif callback_data.startswith("timeframe_"):
+                return await self.timeframe_callback(update, context) # Needs timeframe_callback implementation
+            elif callback_data == "subscribe_now":
+                return await self.handle_subscription_callback(update, context) # Needs handle_subscription_callback
+
+            # Fallback for unhandled callbacks
+            else:
+                logger.warning(f"Unhandled callback data in button_callback: {callback_data}")
+                try:
+                    await query.answer("Action not recognized.") # Notify user
+                except Exception: pass
+                return None # Return None or a default state if using ConversationHandler
+
+        except Exception as e:
+            logger.error(f"Error processing button callback '{callback_data}': {str(e)}")
+            logger.exception(e)
+            try:
+                 # Use query.edit_message_text if possible, otherwise reply
+                 # await query.edit_message_text("An error occurred processing your request. Please try again.")
+                 await update.effective_message.reply_text("An error occurred processing your request. Please try again.")
+            except Exception as notify_error:
+                logger.error(f"Could not notify user about callback error: {notify_error}")
+            return None # Return None or a default state
+
+    # --- Placeholder methods needed by button_callback ---
+    # These need full implementation from .original file later
+
+    async def menu_analyse_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: menu_analyse_callback called.")
+        query = update.callback_query
+        await query.answer()
+        # Needs ANALYSIS_KEYBOARD defined
+        try:
+             # Assume ANALYSIS_KEYBOARD is defined globally
+             await query.edit_message_text(
+                  text="Select analysis type:",
+                  reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                  parse_mode=ParseMode.HTML
+             )
+             # Return state if using ConversationHandler, otherwise None
+             return states.CHOOSE_ANALYSIS if hasattr(states, 'CHOOSE_ANALYSIS') else None
+        except Exception as e:
+             logger.error(f"Error in placeholder menu_analyse_callback: {e}")
+             await query.message.reply_text("Error showing analysis menu.")
+             return None
+
+    async def menu_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: menu_signals_callback called.")
+        query = update.callback_query
+        await query.answer()
+         # Needs SIGNALS_KEYBOARD defined
+        try:
+             # Assume SIGNALS_KEYBOARD is defined globally
+             await query.edit_message_text(
+                  text="Select signal action:",
+                  reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
+                  parse_mode=ParseMode.HTML
+             )
+             # Return state if using ConversationHandler, otherwise None
+             return states.CHOOSE_SIGNALS if hasattr(states, 'CHOOSE_SIGNALS') else None
+        except Exception as e:
+             logger.error(f"Error in placeholder menu_signals_callback: {e}")
+             await query.message.reply_text("Error showing signals menu.")
+             return None
+
+
+    async def analysis_technical_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: analysis_technical_callback called.")
+        query = update.callback_query
+        await query.answer()
+        # Needs MARKET_KEYBOARD defined
+        try:
+             # Assume MARKET_KEYBOARD is defined globally
+             await query.edit_message_text(
+                 text="Select market for technical analysis:",
+                 reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD)
+             )
+             # Return state if using ConversationHandler, otherwise None
+             return states.CHOOSE_MARKET if hasattr(states, 'CHOOSE_MARKET') else None
+        except Exception as e:
+             logger.error(f"Error in placeholder analysis_technical_callback: {e}")
+             await query.message.reply_text("Error showing market selection.")
+             return None
+
+    async def analysis_sentiment_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: analysis_sentiment_callback called.")
+        query = update.callback_query
+        await query.answer()
+        # Needs MARKET_SENTIMENT_KEYBOARD defined
+        try:
+             # Assume MARKET_SENTIMENT_KEYBOARD is defined globally
+             await query.edit_message_text(
+                 text="Select market for sentiment analysis:",
+                 reply_markup=InlineKeyboardMarkup(MARKET_SENTIMENT_KEYBOARD)
+             )
+             return states.CHOOSE_MARKET if hasattr(states, 'CHOOSE_MARKET') else None
+        except Exception as e:
+             logger.error(f"Error in placeholder analysis_sentiment_callback: {e}")
+             await query.message.reply_text("Error showing market selection.")
+             return None
+
+
+    async def analysis_calendar_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: analysis_calendar_callback called. Needs implementation.")
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("Economic Calendar feature not fully implemented yet.")
+        # Should call show_calendar_analysis or show_economic_calendar
+        return None
+
+    async def signal_technical_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: signal_technical_callback called. Needs implementation.")
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("Signal Technical Analysis feature not fully implemented yet.")
+        # Should call show_technical_analysis with signal context
+        return None
+
+    async def signal_sentiment_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: signal_sentiment_callback called. Needs implementation.")
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("Signal Sentiment Analysis feature not fully implemented yet.")
+         # Should call show_sentiment_analysis with signal context
+        return None
+
+    async def signal_calendar_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: signal_calendar_callback called. Needs implementation.")
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("Signal Economic Calendar feature not fully implemented yet.")
+        # Should call show_calendar_analysis with signal context
+        return None
+
+    async def analyze_from_signal_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: analyze_from_signal_callback called. Needs implementation.")
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("Analyze from Signal feature not fully implemented yet.")
+        # Needs SIGNAL_ANALYSIS_KEYBOARD defined
+        # Should show analysis options for the specific signal instrument
+        return states.CHOOSE_ANALYSIS if hasattr(states, 'CHOOSE_ANALYSIS') else None
+
+
+    async def market_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: market_signals_callback called. Needs implementation.")
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("Market selection for signals not fully implemented yet.")
+        # Needs specific instrument keyboards (_SIGNALS versions)
+        return states.CHOOSE_INSTRUMENT if hasattr(states, 'CHOOSE_INSTRUMENT') else None
+
+    async def market_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: market_callback called. Needs implementation.")
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("Market selection for analysis not fully implemented yet.")
+        # Needs specific instrument keyboards (_chart, _sentiment versions)
+        return states.CHOOSE_INSTRUMENT if hasattr(states, 'CHOOSE_INSTRUMENT') else None
+
+    async def instrument_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: instrument_signals_callback called. Needs implementation.")
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("Instrument selection for signals not fully implemented yet.")
+        # Needs timeframe selection keyboard
+        return states.CHOOSE_TIMEFRAME if hasattr(states, 'CHOOSE_TIMEFRAME') else None
+
+
+    async def instrument_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: instrument_callback called. Needs implementation.")
+        query = update.callback_query
+        await query.answer()
+        # This needs to route to the correct analysis function based on user_data['analysis_type']
+        analysis_type = context.user_data.get('analysis_type', 'technical') # Default or get from context
+        await query.edit_message_text(f"Instrument selected. Showing {analysis_type} analysis (not implemented).")
+        # Should call show_technical_analysis, show_sentiment_analysis, etc.
+        return None # Or final state like SHOW_RESULT
+
+    async def handle_back_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        """Handles various back buttons by routing to appropriate menu."""
+        query = update.callback_query
+        callback_data = query.data
+        logger.info(f"Handling back button: {callback_data}")
+        await query.answer()
+
+        # Determine the target menu based on callback data or context
+        target_state = None
+        try:
+            if callback_data == CALLBACK_BACK_MENU:
+                await self.show_main_menu(update, context)
+                target_state = states.MENU if hasattr(states, 'MENU') else None
+            elif callback_data == CALLBACK_BACK_ANALYSIS:
+                # Go back to analysis type selection
+                await self.menu_analyse_callback(update, context)
+                target_state = states.CHOOSE_ANALYSIS if hasattr(states, 'CHOOSE_ANALYSIS') else None
+            elif callback_data == CALLBACK_BACK_MARKET:
+                 # Go back to market selection (depends on context: analysis or signals)
+                if context and context.user_data.get('is_signals_context'):
+                     await self.signals_add_callback(update, context) # Back to market selection for signals
+                     target_state = states.CHOOSE_MARKET if hasattr(states, 'CHOOSE_MARKET') else None # Or SIGNALS state?
+                else:
+                     await self.analysis_technical_callback(update, context) # Example: back to market for tech analysis
+                     # Need logic to go back to correct analysis type market selection
+                     target_state = states.CHOOSE_MARKET if hasattr(states, 'CHOOSE_MARKET') else None
+            elif callback_data == CALLBACK_BACK_INSTRUMENT:
+                 # Go back to instrument selection (depends on context)
+                 if context and context.user_data.get('is_signals_context'):
+                      await self.market_signals_callback(update, context) # Back to instrument list for signals
+                      target_state = states.CHOOSE_INSTRUMENT if hasattr(states, 'CHOOSE_INSTRUMENT') else None
+                 else:
+                      await self.market_callback(update, context) # Back to instrument list for analysis
+                      target_state = states.CHOOSE_INSTRUMENT if hasattr(states, 'CHOOSE_INSTRUMENT') else None
+            elif callback_data == CALLBACK_BACK_SIGNALS:
+                 # Go back to signals add/manage menu
+                 await self.menu_signals_callback(update, context)
+                 target_state = states.CHOOSE_SIGNALS if hasattr(states, 'CHOOSE_SIGNALS') else None # Or SIGNALS state?
+            elif callback_data == "back_to_signal_analysis":
+                 # Needs back_to_signal_analysis_callback implementation
+                 logger.warning("Placeholder: back_to_signal_analysis called. Needs implementation.")
+                 await query.edit_message_text("Back to Signal Analysis (not implemented).")
+                 target_state = states.CHOOSE_ANALYSIS if hasattr(states, 'CHOOSE_ANALYSIS') else None
+            elif callback_data == "back_to_signal":
+                 # Needs back_to_signal_callback implementation
+                 logger.warning("Placeholder: back_to_signal called. Needs implementation.")
+                 await query.edit_message_text("Back to Signal Details (not implemented).")
+                 target_state = states.SIGNAL_DETAILS if hasattr(states, 'SIGNAL_DETAILS') else None
+            else:
+                 logger.warning(f"Unhandled back button: {callback_data}")
+                 await self.show_main_menu(update, context) # Default to main menu
+                 target_state = states.MENU if hasattr(states, 'MENU') else None
+
+            return target_state
+
+        except Exception as e:
+             logger.error(f"Error handling back button {callback_data}: {e}")
+             await query.message.reply_text("Error going back. Returning to main menu.")
+             await self.show_main_menu(update, context)
+             return states.MENU if hasattr(states, 'MENU') else None
+
+
+    async def signals_add_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: signals_add_callback called.")
+        query = update.callback_query
+        await query.answer()
+         # Needs MARKET_KEYBOARD_SIGNALS defined
+        try:
+             # Assume MARKET_KEYBOARD_SIGNALS is defined globally
+             await query.edit_message_text(
+                  text="Select market to add signals for:",
+                  reply_markup=InlineKeyboardMarkup(MARKET_KEYBOARD_SIGNALS),
+                  parse_mode=ParseMode.HTML
+             )
+             return states.CHOOSE_MARKET if hasattr(states, 'CHOOSE_MARKET') else None
+        except Exception as e:
+             logger.error(f"Error in placeholder signals_add_callback: {e}")
+             await query.message.reply_text("Error showing market selection for signals.")
+             return None
+
+
+    async def signals_manage_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: signals_manage_callback called. Needs implementation.")
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("Signal Management feature not fully implemented yet.")
+        return None
+
+    async def timeframe_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+        logger.warning("Placeholder: timeframe_callback called. Needs implementation.")
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text("Timeframe selection processing not fully implemented yet.")
+        # Should save selection and confirm or show results
+        return None
+
+    async def handle_subscription_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
+         logger.warning("Placeholder: handle_subscription_callback called. Needs implementation.")
+         query = update.callback_query
+         await query.answer()
+         await query.edit_message_text("Subscription handling not fully implemented yet.")
+         # Should likely show Stripe link or process subscription
+         return None
+
+    # Add other placeholder methods as needed...
+
+    # --- End Added Command Handlers ---
 
     # Add more methods as needed from the original implementation
+
+# Assume constants like START_KEYBOARD, WELCOME_MESSAGE, ANALYSIS_KEYBOARD, etc.
+# are defined globally in this file or imported correctly.
+# Assume the 'states' object/enum is also available.
+
+# Example definitions (replace with actual ones from the original file)
+# These need to be outside the class if they are used directly by handlers
+# Or passed into the class instance if preferred design
+
+# Define states if not imported
+class states:
+    MENU = 0
+    CHOOSE_ANALYSIS = 1
+    CHOOSE_SIGNALS = 2
+    CHOOSE_MARKET = 3
+    CHOOSE_INSTRUMENT = 4
+    CHOOSE_STYLE = 5
+    SHOW_RESULT = 6
+    CHOOSE_TIMEFRAME = 7
+    SIGNAL_DETAILS = 8
+    SIGNAL = 9
+    SUBSCRIBE = 10
+    BACK_TO_MENU = 11
+    INSTRUMENT_ANALYSIS = 12
+
+# Define callback data constants
+CALLBACK_MENU_ANALYSE = "menu_analyse"
+CALLBACK_MENU_SIGNALS = "menu_signals"
+CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
+CALLBACK_ANALYSIS_SENTIMENT = "analysis_sentiment"
+CALLBACK_ANALYSIS_CALENDAR = "analysis_calendar"
+CALLBACK_SIGNAL_TECHNICAL = "signal_technical"
+CALLBACK_SIGNAL_SENTIMENT = "signal_sentiment"
+CALLBACK_SIGNAL_CALENDAR = "signal_calendar"
+CALLBACK_BACK_MENU = "back_menu"
+CALLBACK_BACK_ANALYSIS = "back_analysis"
+CALLBACK_BACK_MARKET = "back_market"
+CALLBACK_BACK_INSTRUMENT = "back_instrument"
+CALLBACK_BACK_SIGNALS = "back_signals"
+CALLBACK_SIGNALS_ADD = "signals_add"
+CALLBACK_SIGNALS_MANAGE = "signals_manage"
+
+
+# Define Keyboards (ensure these match the callbacks used)
+START_KEYBOARD = [
+    [InlineKeyboardButton("🔍 Analyze Market", callback_data=CALLBACK_MENU_ANALYSE)],
+    [InlineKeyboardButton("📊 Trading Signals", callback_data=CALLBACK_MENU_SIGNALS)]
+]
+
+ANALYSIS_KEYBOARD = [
+    [InlineKeyboardButton("📈 Technical Analysis", callback_data=CALLBACK_ANALYSIS_TECHNICAL)],
+    [InlineKeyboardButton("🧠 Market Sentiment", callback_data=CALLBACK_ANALYSIS_SENTIMENT)],
+    [InlineKeyboardButton("📅 Economic Calendar", callback_data=CALLBACK_ANALYSIS_CALENDAR)],
+    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)] # Ensure BACK_MENU handler works
+]
+
+SIGNALS_KEYBOARD = [
+    [InlineKeyboardButton("➕ Add New Pairs", callback_data=CALLBACK_SIGNALS_ADD)],
+    [InlineKeyboardButton("⚙️ Manage Signals", callback_data=CALLBACK_SIGNALS_MANAGE)],
+    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
+]
+
+MARKET_KEYBOARD = [ # Example for technical analysis
+    [InlineKeyboardButton("Forex", callback_data="market_forex")],
+    [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
+    [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
+    [InlineKeyboardButton("Indices", callback_data="market_indices")],
+    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_ANALYSIS)] # Back to analysis type selection
+]
+
+MARKET_SENTIMENT_KEYBOARD = [ # Example for sentiment
+    [InlineKeyboardButton("Forex", callback_data="market_forex_sentiment")],
+    [InlineKeyboardButton("Crypto", callback_data="market_crypto_sentiment")],
+    [InlineKeyboardButton("Commodities", callback_data="market_commodities_sentiment")],
+    [InlineKeyboardButton("Indices", callback_data="market_indices_sentiment")],
+    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_ANALYSIS)]
+]
+
+MARKET_KEYBOARD_SIGNALS = [ # Example for signals
+    [InlineKeyboardButton("Forex", callback_data="market_forex_signals")],
+    [InlineKeyboardButton("Crypto", callback_data="market_crypto_signals")],
+    [InlineKeyboardButton("Commodities", callback_data="market_commodities_signals")],
+    [InlineKeyboardButton("Indices", callback_data="market_indices_signals")],
+    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_SIGNALS)] # Back to signals menu
+]
+
+# Define Welcome Message
+WELCOME_MESSAGE = """
+🚀 <b>Sigmapips AI - Main Menu</b> 🚀
+
+Choose an option:
+""" # Simplified, use full message from original
