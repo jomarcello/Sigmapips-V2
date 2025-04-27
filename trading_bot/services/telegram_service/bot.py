@@ -770,6 +770,19 @@ class TelegramService:
         self._sentiment_service = None
         self._calendar_service = None
         
+        # Initialize the bot instance
+        if self.bot_token:
+            request_settings = {}
+            if self.proxy_url:
+                request_settings['proxy_url'] = self.proxy_url
+            
+            request = HTTPXRequest(**request_settings) if request_settings else None
+            self.bot = Bot(token=self.bot_token, request=request)
+            logger.info(f"Telegram Bot instance created with token: {self.bot_token[:4]}...{self.bot_token[-4:]}")
+        else:
+            logger.error("TELEGRAM_BOT_TOKEN not provided. Cannot initialize bot.")
+            self.bot = None  # Ensure self.bot exists even if initialization fails
+        
         # Only initialize services if not lazy_init
         if not lazy_init:
             self._initialize_services()
