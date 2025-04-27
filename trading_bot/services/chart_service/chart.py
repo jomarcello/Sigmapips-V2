@@ -142,10 +142,12 @@ class ChartService:
             logging.error(f"Error initializing chart service: {str(e)}")
             raise
 
-    async def get_chart(self, instrument: str, timeframe: str = "1h", fullscreen: bool = False) -> bytes:
-        """Get chart image for instrument and timeframe (Uses TradingView Screenshotting)"""
+    async def get_chart(self, instrument: str, fullscreen: bool = False) -> bytes:
+        """Get chart image for instrument (Uses TradingView Screenshotting on H1 timeframe)."""
+        fixed_timeframe = "H1"
+
         try:
-            logger.info(f"Getting chart screenshot for {instrument} ({timeframe}) fullscreen: {fullscreen}")
+            logger.info(f"Getting chart screenshot for {instrument} ({fixed_timeframe}) fullscreen: {fullscreen}")
             
             # Zorg ervoor dat de services zijn geïnitialiseerd
             if not hasattr(self, 'analysis_cache'):
@@ -164,7 +166,7 @@ class ChartService:
                 
                 # Probeer een screenshot te maken met TradingView
                 logger.info(f"Trying to take screenshot for {instrument} using TradingView")
-                screenshot = await self.tradingview_service.take_screenshot(instrument, timeframe, fullscreen)
+                screenshot = await self.tradingview_service.take_screenshot(instrument, fixed_timeframe, fullscreen)
                 
                 if screenshot:
                     logger.info(f"Successfully captured {instrument} chart with TradingView")
@@ -173,17 +175,17 @@ class ChartService:
                     # Belangrijk: Niet terugvallen op matplotlib als screenshot faalt, geef fout aan
                     logger.error(f"Failed to capture {instrument} chart with TradingView screenshot service.")
                     # Optioneel: genereer een foutafbeelding of None
-                    return await self._create_emergency_chart(instrument, timeframe) # Fallback naar emergency chart
+                    return await self._create_emergency_chart(instrument, fixed_timeframe) # Fallback naar emergency chart
             except Exception as e:
                 logger.error(f"Error using TradingView screenshot service: {str(e)}", exc_info=True) # Added exc_info
-                return await self._create_emergency_chart(instrument, timeframe) # Fallback naar emergency chart
+                return await self._create_emergency_chart(instrument, fixed_timeframe) # Fallback naar emergency chart
             
         except Exception as e:
             logger.error(f"Error getting chart screenshot: {str(e)}", exc_info=True) # Added exc_info
             # Generate a simple emergency chart
-            return await self._create_emergency_chart(instrument, timeframe)
+            return await self._create_emergency_chart(instrument, fixed_timeframe)
 
-    async def _create_emergency_chart(self, instrument: str, timeframe: str = "1h") -> bytes:
+    async def _create_emergency_chart(self, instrument: str, timeframe: str = "H1") -> bytes:
         """Create an emergency simple chart when all else fails"""
         try:
             import matplotlib.pyplot as plt
@@ -228,19 +230,19 @@ class ChartService:
         except Exception as e:
             logger.error(f"Error cleaning up chart service: {str(e)}")
 
-    async def _fallback_chart(self, instrument, timeframe="1h"):
-        """Fallback method to get chart"""
+    async def _fallback_chart(self, instrument):
+        """Fallback method to get chart (uses fixed H1 timeframe)"""
         try:
-            # Genereer een chart met matplotlib
-            return await self._generate_random_chart(instrument, timeframe)
+            # Genereer een chart met matplotlib using the fixed H1 timeframe
+            return await self._generate_random_chart(instrument, "H1")
             
         except Exception as e:
             logging.error(f"Error in fallback chart: {str(e)}")
             return None
 
-    async def generate_chart(self, instrument, timeframe="1h"):
-        """Alias for get_chart for backward compatibility"""
-        return await self.get_chart(instrument, timeframe)
+    async def generate_chart(self, instrument, fullscreen=False):
+        """Alias for get_chart (uses fixed H1 timeframe)"""
+        return await self.get_chart(instrument, fullscreen)
 
     async def initialize(self):
         """Initialize the chart service"""
@@ -304,7 +306,7 @@ class ChartService:
         
         return rsi
         
-    async def _generate_random_chart(self, instrument: str, timeframe: str = "1h") -> bytes:
+    async def _generate_random_chart(self, instrument: str, timeframe: str = "H1") -> bytes:
         """Generate a chart with random data as fallback"""
         try:
             import matplotlib.pyplot as plt
@@ -402,10 +404,12 @@ class ChartService:
             logger.error(traceback.format_exc())
             return b''
 
-    async def get_technical_analysis(self, instrument: str, timeframe: str = "1h") -> str:
-        """Get technical analysis summary calculated from Binance/Yahoo data."""
-        logger.info(f"Calculating technical analysis for {instrument} ({timeframe}) using provider data.")
-        cache_key = f"analysis_{instrument}_{timeframe}"
+    async def get_technical_analysis(self, instrument: str) -> str:
+        """Get technical analysis summary calculated from provider data (Fixed H1 Timeframe)."""
+        fixed_timeframe = "H1"
+
+        logger.info(f"Calculating technical analysis for {instrument} ({fixed_timeframe}) using provider data.")
+        cache_key = f"analysis_{instrument}_{fixed_timeframe}"
         current_time = time.time()
         ANALYSIS_CACHE_TTL = 1800 # 30 minuten cache
 
@@ -417,7 +421,7 @@ class ChartService:
 
         # Normalize instrument
         instrument_normalized = instrument.upper().replace("/", "")
-        analysis_text = f"⚠️ Analysis currently unavailable for {instrument} ({timeframe}). Please try again later."
+        analysis_text = f"⚠️ Analysis currently unavailable for {instrument} ({fixed_timeframe}). Please try again later."
 
         try:
             # 1. Detect market type and select provider
@@ -434,22 +438,20 @@ class ChartService:
                 logger.error(f"No suitable provider found for {instrument_normalized} (market: {market_type})")
                 return analysis_text # Return default error
 
-            # 2. Fetch historical data and analysis from the provider
-            logger.info(f"Fetching market data for {instrument_normalized} ({timeframe}) via {provider.__class__.__name__}")
-            # Determine appropriate period/limit based on timeframe for calculations
-            # Need enough data for EMA 200 etc. Let's aim for ~300 candles
-            limit = 300
-            market_data_result = await provider.get_market_data(instrument_normalized, timeframe, limit=limit)
+            # 2. Fetch historical data and analysis from the provider (pass only instrument and limit)
+            logger.info(f"Fetching market data for {instrument_normalized} ({fixed_timeframe}) via {provider.__class__.__name__}")
+            limit = 300 # Keep limit, timeframe is fixed in provider
+            market_data_result = await provider.get_market_data(instrument_normalized, limit=limit)
 
-            if market_data_result is None:
-                logger.warning(f"Could not fetch market data for {instrument_normalized} ({timeframe}) from {provider.__class__.__name__}")
-                return f"⚠️ Could not fetch data for {instrument} ({timeframe}). Analysis unavailable."
+            if market_data_result is None or not isinstance(market_data_result, tuple) or len(market_data_result) != 2:
+                 logger.warning(f"Could not fetch market data for {instrument_normalized} ({fixed_timeframe}) from {provider.__class__.__name__} or result format is wrong.")
+                 return f"⚠️ Could not fetch data for {instrument} ({fixed_timeframe}). Analysis unavailable."
 
             df, analysis_dict = market_data_result
 
             if df is None or df.empty:
-                logger.warning(f"Provider returned empty DataFrame for {instrument_normalized} ({timeframe})")
-                return f"⚠️ No data available for {instrument} ({timeframe}). Analysis unavailable."
+                logger.warning(f"Provider returned empty DataFrame for {instrument_normalized} ({fixed_timeframe})")
+                return f"⚠️ No data available for {instrument} ({fixed_timeframe}). Analysis unavailable."
 
             logger.info(f"Successfully fetched {len(df)} data points and analysis for {instrument_normalized}.")
 
@@ -467,7 +469,7 @@ class ChartService:
             # Check if essential values are present
             if current_price is None or pd.isna(current_price):
                 logger.error(f"Could not extract latest close price for {instrument_normalized}")
-                return f"⚠️ Could not process data for {instrument} ({timeframe}). Analysis unavailable."
+                return f"⚠️ Could not process data for {instrument} ({fixed_timeframe}). Analysis unavailable."
 
             # 4. Calculate Daily & Weekly High/Low from the fetched data
             daily_high, daily_low, weekly_high, weekly_low = None, None, None, None
@@ -505,7 +507,7 @@ class ChartService:
 
             # Build the analysis string
             analysis_lines = []
-            analysis_lines.append(f"<b>📊 Technical Analysis: {display_name} ({timeframe})</b>")
+            analysis_lines.append(f"<b>📊 Technical Analysis: {display_name} ({fixed_timeframe})</b>")
             analysis_lines.append("") # Newline
 
             analysis_lines.append(f"Price: {current_price:.{precision}f}")
@@ -571,7 +573,7 @@ class ChartService:
             analysis_text = "\n".join(analysis_lines)
 
         except Exception as e:
-            logger.error(f"Error calculating technical analysis for {instrument_normalized} ({timeframe}): {e}", exc_info=True)
+            logger.error(f"Error calculating technical analysis for {instrument_normalized} ({fixed_timeframe}): {e}", exc_info=True)
             # Keep the default error message initialized above
 
         # Cache the result (even if it's an error message, to avoid repeated failures)
