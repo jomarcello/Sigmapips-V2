@@ -10,7 +10,6 @@ import re
 import time
 import random
 import base64
-import datetime
 import socket
 import sys
 import tempfile
@@ -1026,7 +1025,8 @@ class TelegramService:
                     'entry': price,
                     'stop_loss': sl,
                     'take_profit': tp1,  # Use first take profit level
-                    'timeframe': interval
+                    'timeframe': interval,
+                    'sentiment_verdict': signal_data.get('sentiment_verdict') # Copy verdict here
                 }
                 
                 # Add optional fields if present
@@ -1049,7 +1049,8 @@ class TelegramService:
                     'entry': entry,
                     'stop_loss': stop_loss,
                     'take_profit': take_profit,
-                    'timeframe': timeframe
+                    'timeframe': timeframe,
+                    'sentiment_verdict': signal_data.get('sentiment_verdict') # Also copy verdict here
                 }
             else:
                 logger.error(f"Missing required signal data")
@@ -1060,14 +1061,7 @@ class TelegramService:
                 logger.error(f"Missing required fields in normalized signal data: {normalized_data}")
                 return False
                 
-            # >>> ADD: Copy sentiment_verdict from input signal_data to normalized_data <<<
-            if 'sentiment_verdict' in signal_data:
-                normalized_data['sentiment_verdict'] = signal_data['sentiment_verdict']
-            else:
-                logger.warning("'sentiment_verdict' key not found in incoming signal_data for process_signal")
-
             # Create signal ID for tracking
-            # >>> FIX: Use imported datetime correctly <<<
             signal_id = f"{normalized_data['instrument']}_{normalized_data['direction']}_{normalized_data['timeframe']}_{int(time.time())}"
             
             # Format the signal message
@@ -1078,7 +1072,7 @@ class TelegramService:
             
             # Store the full signal data for reference
             normalized_data['id'] = signal_id
-            normalized_data['timestamp'] = datetime.datetime.now(timezone.utc).isoformat() # Explicitly reference datetime class
+            normalized_data['timestamp'] = datetime.now(timezone.utc).isoformat() # Use imported class directly
             normalized_data['message'] = message
             normalized_data['market'] = market_type
             
@@ -4419,7 +4413,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     'entry': price,
                     'stop_loss': sl,
                     'take_profit': tp1,  # Use first take profit level
-                    'timeframe': interval
+                    'timeframe': interval,
+                    'sentiment_verdict': signal_data.get('sentiment_verdict') # Copy verdict here
                 }
                 
                 # Add optional fields if present
@@ -4442,7 +4437,8 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                     'entry': entry,
                     'stop_loss': stop_loss,
                     'take_profit': take_profit,
-                    'timeframe': timeframe
+                    'timeframe': timeframe,
+                    'sentiment_verdict': signal_data.get('sentiment_verdict') # Also copy verdict here
                 }
             else:
                 logger.error(f"Missing required signal data")
@@ -4464,7 +4460,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             
             # Store the full signal data for reference
             normalized_data['id'] = signal_id
-            normalized_data['timestamp'] = datetime.now(timezone.utc).isoformat() # Added timezone.utc for consistency
+            normalized_data['timestamp'] = datetime.now(timezone.utc).isoformat() # Use imported class directly
             normalized_data['message'] = message
             normalized_data['market'] = market_type
             
