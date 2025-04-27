@@ -143,9 +143,9 @@ class ChartService:
             raise
 
     async def get_chart(self, instrument: str, timeframe: str = "1h", fullscreen: bool = False) -> bytes:
-        """Get chart image for instrument and timeframe"""
+        """Get chart image for instrument and timeframe (Uses TradingView Screenshotting)"""
         try:
-            logger.info(f"Getting chart for {instrument} ({timeframe}) fullscreen: {fullscreen}")
+            logger.info(f"Getting chart screenshot for {instrument} ({timeframe}) fullscreen: {fullscreen}")
             
             # Zorg ervoor dat de services zijn geïnitialiseerd
             if not hasattr(self, 'analysis_cache'):
@@ -155,7 +155,7 @@ class ChartService:
             # Normaliseer instrument (verwijder /)
             instrument = instrument.upper().replace("/", "")
             
-            # Probeer eerst TradingView screenshot
+            # Probeer TradingView screenshot
             try:
                 # Initialiseer TradingView service als dat nog niet is gedaan
                 if not self.tradingview_service.is_initialized:
@@ -170,21 +170,18 @@ class ChartService:
                     logger.info(f"Successfully captured {instrument} chart with TradingView")
                     return screenshot
                 else:
-                    logger.warning(f"Failed to capture {instrument} chart with TradingView, falling back to matplotlib")
+                    # Belangrijk: Niet terugvallen op matplotlib als screenshot faalt, geef fout aan
+                    logger.error(f"Failed to capture {instrument} chart with TradingView screenshot service.")
+                    # Optioneel: genereer een foutafbeelding of None
+                    return await self._create_emergency_chart(instrument, timeframe) # Fallback naar emergency chart
             except Exception as e:
-                logger.error(f"Error using TradingView screenshot service: {str(e)}")
-                logger.error(traceback.format_exc())
-            
-            # Als TradingView faalt, gebruik matplotlib fallback
-            logger.info(f"Generating fallback chart image for {instrument} using matplotlib")
-            return await self._generate_random_chart(instrument, timeframe)
+                logger.error(f"Error using TradingView screenshot service: {str(e)}", exc_info=True) # Added exc_info
+                return await self._create_emergency_chart(instrument, timeframe) # Fallback naar emergency chart
             
         except Exception as e:
-            logger.error(f"Error getting chart: {str(e)}")
-            logger.error(traceback.format_exc())
-            
-            # Generate a simple random chart
-            return await self._generate_random_chart(instrument, timeframe)
+            logger.error(f"Error getting chart screenshot: {str(e)}", exc_info=True) # Added exc_info
+            # Generate a simple emergency chart
+            return await self._create_emergency_chart(instrument, timeframe)
 
     async def _create_emergency_chart(self, instrument: str, timeframe: str = "1h") -> bytes:
         """Create an emergency simple chart when all else fails"""
@@ -406,553 +403,188 @@ class ChartService:
             return b''
 
     async def get_technical_analysis(self, instrument: str, timeframe: str = "1h") -> str:
-        """Get technical analysis summary for instrument and timeframe"""
-        logger.info(f"Getting technical analysis for {instrument} ({timeframe})")
+        """Get technical analysis summary calculated from Binance/Yahoo data."""
+        logger.info(f"Calculating technical analysis for {instrument} ({timeframe}) using provider data.")
         cache_key = f"analysis_{instrument}_{timeframe}"
         current_time = time.time()
+        ANALYSIS_CACHE_TTL = 1800 # 30 minuten cache
 
-        # Check cache first
+        # Check cache
         if cache_key in self.analysis_cache and \
-           (current_time - self.analysis_cache[cache_key]['timestamp']) < self.analysis_cache_ttl:
+           (current_time - self.analysis_cache[cache_key]['timestamp']) < ANALYSIS_CACHE_TTL:
             logger.info(f"Returning cached analysis for {cache_key}")
             return self.analysis_cache[cache_key]['analysis']
 
         # Normalize instrument
         instrument_normalized = instrument.upper().replace("/", "")
+        analysis_text = f"⚠️ Analysis currently unavailable for {instrument} ({timeframe}). Please try again later."
 
-        # <<< MODIFIED CODE START >>>
-        analysis_text = None
         try:
-            # Try to get analysis directly from TradingView via Playwright service first
-            if hasattr(self, 'tradingview_service') and self.tradingview_service:
-                 logger.info(f"Attempting to get analysis from TradingViewNodeService for {instrument_normalized} ({timeframe})")
-                 logger.info("[CHART.PY] >> Calling tradingview_service.get_analysis")
-                 analysis_text = await self.tradingview_service.get_analysis(instrument_normalized, timeframe)
-                 logger.info(f"[CHART.PY] << tradingview_service.get_analysis returned (type: {type(analysis_text)}, len: {len(analysis_text) if analysis_text else 0})")
-                 if analysis_text:
-                      logger.info(f"Successfully retrieved analysis from TradingViewNodeService.")
-                 else:
-                      logger.info("TradingViewNodeService did not return analysis text.")
+            # 1. Detect market type and select provider
+            market_type = await self._detect_market_type(instrument_normalized)
+            provider = None
+            if market_type == 'crypto':
+                provider = next((p for p in self.chart_providers if isinstance(p, BinanceProvider)), None)
+                logger.info(f"Using BinanceProvider for {instrument_normalized}")
             else:
-                 logger.warning("TradingViewNodeService not available.")
-        except Exception as tv_error:
-             logger.error(f"Error getting analysis from TradingViewNodeService: {tv_error}")
-             analysis_text = None # Ensure it falls back
+                provider = next((p for p in self.chart_providers if isinstance(p, YahooFinanceProvider)), None)
+                logger.info(f"Using YahooFinanceProvider for {instrument_normalized}")
 
-        # If TradingView analysis failed or is empty, fall back to generating default analysis
-        if not analysis_text:
-             logger.info("[CHART.PY] Condition 'if not analysis_text' is TRUE. Falling back to _generate_default_analysis.")
-             logger.info(f"Falling back to generating default analysis for {instrument_normalized} ({timeframe})")
-             try:
-                  logger.info("[CHART.PY] >> Calling _generate_default_analysis")
-                  analysis_text = await self._generate_default_analysis(instrument_normalized, timeframe)
-                  logger.info(f"[CHART.PY] << _generate_default_analysis returned (type: {type(analysis_text)}, len: {len(analysis_text) if analysis_text else 0})")
-             except Exception as gen_error:
-                  logger.error(f"Error generating default analysis: {gen_error}", exc_info=True)
-                  analysis_text = f"⚠️ Could not generate technical analysis for {instrument} ({timeframe})."
-        # <<< MODIFIED CODE END >>>
+            if not provider:
+                logger.error(f"No suitable provider found for {instrument_normalized} (market: {market_type})")
+                return analysis_text # Return default error
 
-        # Cache the result
-        if analysis_text:
-            self.analysis_cache[cache_key] = {
-                'analysis': analysis_text,
-                'timestamp': current_time
-            }
-            logger.info(f"Cached analysis for {cache_key}")
-        else:
-             # Return a default message if everything failed
-             analysis_text = f"⚠️ Analysis currently unavailable for {instrument} ({timeframe}). Please try again later."
+            # 2. Fetch historical data and analysis from the provider
+            logger.info(f"Fetching market data for {instrument_normalized} ({timeframe}) via {provider.__class__.__name__}")
+            # Determine appropriate period/limit based on timeframe for calculations
+            # Need enough data for EMA 200 etc. Let's aim for ~300 candles
+            limit = 300
+            market_data_result = await provider.get_market_data(instrument_normalized, timeframe, limit=limit)
+
+            if market_data_result is None:
+                logger.warning(f"Could not fetch market data for {instrument_normalized} ({timeframe}) from {provider.__class__.__name__}")
+                return f"⚠️ Could not fetch data for {instrument} ({timeframe}). Analysis unavailable."
+
+            df, analysis_dict = market_data_result
+
+            if df is None or df.empty:
+                logger.warning(f"Provider returned empty DataFrame for {instrument_normalized} ({timeframe})")
+                return f"⚠️ No data available for {instrument} ({timeframe}). Analysis unavailable."
+
+            logger.info(f"Successfully fetched {len(df)} data points and analysis for {instrument_normalized}.")
+
+            # 3. Extract latest indicator values from DataFrame
+            # The provider should have already calculated indicators
+            latest_data = df.iloc[-1]
+            current_price = latest_data.get('Close') # Adjust column name if needed (check provider output)
+            ema_20 = latest_data.get('EMA_20')
+            ema_50 = latest_data.get('EMA_50')
+            ema_200 = latest_data.get('EMA_200')
+            rsi = latest_data.get('RSI_14')
+            macd_line = latest_data.get('MACD_12_26_9')
+            macd_signal = latest_data.get('MACDs_12_26_9')
+
+            # Check if essential values are present
+            if current_price is None or pd.isna(current_price):
+                logger.error(f"Could not extract latest close price for {instrument_normalized}")
+                return f"⚠️ Could not process data for {instrument} ({timeframe}). Analysis unavailable."
+
+            # 4. Calculate Daily & Weekly High/Low from the fetched data
+            daily_high, daily_low, weekly_high, weekly_low = None, None, None, None
+            try:
+                if isinstance(df.index, pd.DatetimeIndex):
+                    last_timestamp = df.index[-1]
+                    
+                    # Daily High/Low (last 24 hours from last data point)
+                    daily_start_time = last_timestamp - timedelta(hours=24)
+                    daily_df = df[df.index >= daily_start_time]
+                    if not daily_df.empty:
+                        daily_high = daily_df['High'].max()
+                        daily_low = daily_df['Low'].min()
+
+                    # Weekly High/Low (last 7 days from last data point)
+                    weekly_start_time = last_timestamp - timedelta(days=7)
+                    weekly_df = df[df.index >= weekly_start_time]
+                    if not weekly_df.empty:
+                        weekly_high = weekly_df['High'].max()
+                        weekly_low = weekly_df['Low'].min()
+                    logger.info(f"Calculated approx Daily/Weekly H/L for {instrument_normalized}: D({daily_low:.{self._get_instrument_precision(instrument_normalized)}f}-{daily_high:.{self._get_instrument_precision(instrument_normalized)}f}) W({weekly_low:.{self._get_instrument_precision(instrument_normalized)}f}-{weekly_high:.{self._get_instrument_precision(instrument_normalized)}f})")
+                else:
+                    logger.warning(f"Cannot calculate Daily/Weekly H/L for {instrument_normalized} because index is not DatetimeIndex.")
+            except Exception as hl_error:
+                logger.error(f"Error calculating Daily/Weekly H/L for {instrument_normalized}: {hl_error}", exc_info=True)
+
+            # 5. Format the analysis string
+            display_name = instrument # Default
+            # Simple formatting (e.g., EURUSD -> EUR/USD)
+            if len(instrument) == 6 and market_type != 'crypto':
+                display_name = f"{instrument[:3]}/{instrument[3:]}"
+
+            # Get precision for formatting
+            precision = self._get_instrument_precision(instrument_normalized)
+
+            # Build the analysis string
+            analysis_lines = []
+            analysis_lines.append(f"<b>📊 Technical Analysis: {display_name} ({timeframe})</b>")
+            analysis_lines.append("") # Newline
+
+            analysis_lines.append(f"Price: {current_price:.{precision}f}")
+            analysis_lines.append("")
+
+            analysis_lines.append("🔑 <b>Key Levels (Approx. based on H1 data):</b>")
+            if daily_low is not None and not pd.isna(daily_low):
+                analysis_lines.append(f"Daily Low:   {daily_low:.{precision}f}")
+            else: analysis_lines.append("Daily Low:   N/A")
+            if daily_high is not None and not pd.isna(daily_high):
+                analysis_lines.append(f"Daily High:  {daily_high:.{precision}f}")
+            else: analysis_lines.append("Daily High:  N/A")
+            if weekly_low is not None and not pd.isna(weekly_low):
+                analysis_lines.append(f"Weekly Low:  {weekly_low:.{precision}f}")
+            else: analysis_lines.append("Weekly Low:  N/A")
+            if weekly_high is not None and not pd.isna(weekly_high):
+                analysis_lines.append(f"Weekly High: {weekly_high:.{precision}f}")
+            else: analysis_lines.append("Weekly High: N/A")
+            analysis_lines.append("")
+
+            analysis_lines.append("📈 <b>Technical Indicators:</b>")
+            if rsi is not None and not pd.isna(rsi):
+                rsi_status = "Overbought" if rsi > 70 else "Oversold" if rsi < 30 else "Neutral"
+                analysis_lines.append(f"RSI(14): {rsi:.2f} ({rsi_status})")
+            else: analysis_lines.append("RSI(14): N/A")
+
+            if macd_line is not None and macd_signal is not None and not pd.isna(macd_line) and not pd.isna(macd_signal):
+                macd_cross = "Bullish" if macd_line > macd_signal else "Bearish"
+                analysis_lines.append(f"MACD(12,26,9): {macd_line:.{precision+1}f} / Signal: {macd_signal:.{precision+1}f} ({macd_cross})") # Use more precision for MACD
+            else: analysis_lines.append("MACD(12,26,9): N/A")
+
+            analysis_lines.append("")
+            analysis_lines.append("📉 <b>Moving Averages:</b>")
+            if ema_20 is not None and not pd.isna(ema_20):
+                analysis_lines.append(f"EMA(20): {ema_20:.{precision}f} {'(Above Price)' if current_price > ema_20 else '(Below Price)' if current_price < ema_20 else ''}\n")
+            else: analysis_lines.append("EMA(20): N/A\n")
+            if ema_50 is not None and not pd.isna(ema_50):
+                analysis_lines.append(f"EMA(50): {ema_50:.{precision}f} {'(Above Price)' if current_price > ema_50 else '(Below Price)' if current_price < ema_50 else ''}\n")
+            else: analysis_lines.append("EMA(50): N/A\n")
+            if ema_200 is not None and not pd.isna(ema_200):
+                analysis_lines.append(f"EMA(200): {ema_200:.{precision}f} {'(Above Price)' if current_price > ema_200 else '(Below Price)' if current_price < ema_200 else ''}\n")
+            else: analysis_lines.append("EMA(200): N/A\n")
+
+            # Simple Trend Suggestion based on EMAs
+            trend_suggestion = "Neutral"
+            if ema_20 is not None and ema_50 is not None and ema_200 is not None:
+                if current_price > ema_20 > ema_50 > ema_200:
+                    trend_suggestion = "Strong Bullish"
+                elif current_price > ema_50 > ema_200:
+                    trend_suggestion = "Bullish"
+                elif current_price < ema_20 < ema_50 < ema_200:
+                    trend_suggestion = "Strong Bearish"
+                elif current_price < ema_50 < ema_200:
+                    trend_suggestion = "Bearish"
+                else:
+                    trend_suggestion = "Mixed/Sideways"
+            analysis_lines.append("")
+            analysis_lines.append(f"📊 <b>Trend Suggestion:</b> {trend_suggestion}")
+
+            analysis_lines.append("")
+            analysis_lines.append("⚠️ <i>Disclaimer: Calculated analysis. Not financial advice.</i>")
+
+            analysis_text = "\n".join(analysis_lines)
+
+        except Exception as e:
+            logger.error(f"Error calculating technical analysis for {instrument_normalized} ({timeframe}): {e}", exc_info=True)
+            # Keep the default error message initialized above
+
+        # Cache the result (even if it's an error message, to avoid repeated failures)
+        self.analysis_cache[cache_key] = {
+            'analysis': analysis_text,
+            'timestamp': current_time
+        }
+        logger.info(f"Cached analysis result for {cache_key}")
 
         return analysis_text
 
-    async def _generate_default_analysis(self, instrument: str, timeframe: str) -> str:
-        """Generate a fallback analysis when the API fails"""
-        logger.info(f"[CHART.PY] Entered _generate_default_analysis for {instrument} ({timeframe})")
-        try:
-            # Default values
-            current_price = 0.0
-            trend = "NEUTRAL"
-            
-            # Try to get a reasonable price estimate for the instrument
-            if instrument.startswith("EUR"):
-                current_price = 1.08 + random.uniform(-0.02, 0.02)
-            elif instrument.startswith("GBP"):
-                current_price = 1.26 + random.uniform(-0.03, 0.03)
-            elif instrument.startswith("USD"):
-                current_price = 0.95 + random.uniform(-0.02, 0.02)
-            elif instrument == "BTCUSD":
-                # Use a more realistic price for Bitcoin (updated value)
-                current_price = 68000 + random.uniform(-2000, 2000)
-            elif instrument == "ETHUSD":
-                # Use a more realistic price for Ethereum (updated value)
-                current_price = 3500 + random.uniform(-200, 200)
-            elif instrument == "SOLUSD":
-                # Use a more realistic price for Solana
-                current_price = 180 + random.uniform(-10, 10)
-            elif instrument == "BNBUSD":
-                # Use a more realistic price for BNB
-                current_price = 600 + random.uniform(-20, 20)
-            elif instrument.startswith("BTC"):
-                current_price = 68000 + random.uniform(-2000, 2000)
-            elif instrument.startswith("ETH"):
-                current_price = 3500 + random.uniform(-200, 200)
-            elif instrument.startswith("XAU"):
-                current_price = 2350 + random.uniform(-50, 50)
-            # Add realistic defaults for indices
-            elif instrument == "US30":  # Dow Jones
-                current_price = 38500 + random.uniform(-500, 500)
-            elif instrument == "US500":  # S&P 500
-                current_price = 5200 + random.uniform(-100, 100)
-            elif instrument == "US100":  # Nasdaq 100
-                current_price = 18200 + random.uniform(-200, 200)
-            elif instrument == "UK100":  # FTSE 100
-                current_price = 8200 + random.uniform(-100, 100)
-            elif instrument == "DE40":  # DAX
-                current_price = 17800 + random.uniform(-200, 200)
-            elif instrument == "JP225":  # Nikkei 225
-                current_price = 38000 + random.uniform(-400, 400)
-            elif instrument == "AU200":  # ASX 200
-                current_price = 7700 + random.uniform(-100, 100)
-            elif instrument == "EU50":  # Euro Stoxx 50
-                current_price = 4900 + random.uniform(-50, 50)
-            # Add realistic defaults for commodities
-            elif instrument == "XAGUSD":  # Silver
-                current_price = 27.5 + random.uniform(-1, 1)
-            elif instrument in ["WTIUSD", "XTIUSD"]:  # Crude oil
-                current_price = 78 + random.uniform(-2, 2)
-            else:
-                current_price = 100 + random.uniform(-5, 5)
-            
-            # Generate random but reasonable values for price variations
-            # For crypto, use higher volatility
-            if any(crypto in instrument for crypto in ["BTC", "ETH", "XRP", "SOL", "BNB"]):
-                # Crypto has higher volatility
-                daily_variation = random.uniform(0.01, 0.03)  # 1-3% daily variation
-                weekly_variation = random.uniform(0.03, 0.08)  # 3-8% weekly variation
-            elif any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40", "JP225"]):
-                # Indices have moderate volatility
-                daily_variation = random.uniform(0.005, 0.015)  # 0.5-1.5% daily variation
-                weekly_variation = random.uniform(0.01, 0.04)  # 1-4% weekly variation
-            elif any(commodity in instrument for commodity in ["XAUUSD", "XAGUSD", "WTIUSD", "XTIUSD"]):
-                # Commodities have higher volatility than forex but lower than crypto
-                daily_variation = random.uniform(0.008, 0.02)  # 0.8-2% daily variation
-                weekly_variation = random.uniform(0.02, 0.06)  # 2-6% weekly variation
-            else:
-                # Standard forex volatility
-                daily_variation = random.uniform(0.003, 0.01)
-                weekly_variation = random.uniform(0.01, 0.03)
-            
-            daily_high = current_price * (1 + daily_variation/2)
-            daily_low = current_price * (1 - daily_variation/2)
-            weekly_high = current_price * (1 + weekly_variation/2)
-            weekly_low = current_price * (1 - weekly_variation/2)
-            
-            # Adjust RSI based on instrument and current market conditions
-            if instrument == "BTCUSD":
-                # Slightly bullish RSI for BTC as default
-                rsi = random.uniform(45, 65)
-            elif any(index in instrument for index in ["US30", "US500", "US100"]):
-                # US indices often have higher RSI values in bull markets
-                rsi = random.uniform(50, 65)
-            elif instrument in ["XAUUSD", "XAGUSD"]:
-                # Commodities like gold and silver - slightly bullish in uncertain markets
-                rsi = random.uniform(48, 62)
-            else:
-                rsi = random.uniform(40, 60)
-            
-            # Adjust trend probabilities based on instrument
-            if instrument == "BTCUSD":
-                # Slightly higher chance of a bullish trend for BTC
-                trends = ["BUY", "BUY", "NEUTRAL", "SELL"]
-            elif any(index in instrument for index in ["US30", "US500", "US100"]):
-                # US indices trend slightly bullish
-                trends = ["BUY", "BUY", "NEUTRAL", "SELL"]
-            elif instrument == "XAUUSD":
-                # Gold often serves as a safe haven
-                trends = ["BUY", "NEUTRAL", "NEUTRAL", "SELL"]
-            else:
-                trends = ["BUY", "SELL", "NEUTRAL"]
-            trend = random.choice(trends)
-            
-            # Zone strength (1-5 stars)
-            zone_strength = random.randint(3, 5)
-            zone_stars = "★" * zone_strength + "☆" * (5 - zone_strength)
-            
-            # Determine the appropriate price formatting based on instrument type
-            if any(crypto in instrument for crypto in ["BTC", "ETH", "LTC", "XRP"]):
-                if instrument == "BTCUSD":
-                    # Bitcoin usually shows fewer decimal places
-                    precision = 2
-                else:
-                    # Other crypto might need more precision
-                    precision = 4
-            elif any(index in instrument for index in ["US30", "US500", "US100", "UK100", "DE40", "JP225"]):
-                # Indices typically show 1-2 decimal places
-                precision = 2
-            elif any(commodity in instrument for commodity in ["XAUUSD", "XAGUSD"]):
-                # Gold and silver typically show 2 decimal places
-                precision = 2
-            elif instrument in ["WTIUSD", "XTIUSD"]:
-                # Oil typically shows 2 decimal places
-                precision = 2
-            else:
-                # Default format for forex pairs with 5 decimal places
-                precision = 5
-            
-            # EMA values with more realistic relationships to price
-            if trend == "BUY":
-                ema_50 = current_price * (1 - random.uniform(0.005, 0.015))  # EMA50 slightly below price
-                ema_200 = current_price * (1 - random.uniform(0.02, 0.05))   # EMA200 further below price
-            elif trend == "SELL":
-                ema_50 = current_price * (1 + random.uniform(0.005, 0.015))  # EMA50 slightly above price
-                ema_200 = current_price * (1 + random.uniform(0.01, 0.03))   # EMA200 further above price
-            else:
-                # Neutral trend - EMAs close to price
-                ema_50 = current_price * (1 + random.uniform(-0.01, 0.01))
-                ema_200 = current_price * (1 + random.uniform(-0.02, 0.02))
-            
-            # Format the analysis using the same format as the main method
-            if timeframe == "1d":
-                # Daily analysis with more data
-                analysis_text = f"{instrument} - Daily Analysis\n\n"
-            else:
-                analysis_text = f"{instrument} - {timeframe}\n\n"
-            
-            analysis_text += f"<b>Zone Strength:</b> {zone_stars}\n\n"
-            
-            # Market overview section
-            analysis_text += f"📊 <b>Market Overview</b>\n"
-            if instrument == "XAUUSD":
-                # Format gold price with comma after first digit
-                price_first_digit = str(int(current_price))[0]
-                price_rest_digits = f"{current_price:.3f}".split('.')[0][1:] + "." + f"{current_price:.3f}".split('.')[1]
-                formatted_price = f"{price_first_digit},{price_rest_digits}"
-                
-                analysis_text += f"Price is currently trading near current price of {formatted_price}, "
-            elif instrument == "US30":
-                # Format US30 price with comma after second digit
-                price_digits = str(int(current_price))
-                formatted_price = f"{price_digits[:2]},{price_digits[2:]}.{f'{current_price:.2f}'.split('.')[1]}"
-                
-                analysis_text += f"Price is currently trading near current price of {formatted_price}, "
-            elif instrument == "US500":
-                # Format US500 price with comma after first digit
-                price_digits = str(int(current_price))
-                formatted_price = f"{price_digits[0]},{price_digits[1:]}.{f'{current_price:.2f}'.split('.')[1]}"
-                
-                analysis_text += f"Price is currently trading near current price of {formatted_price}, "
-            elif instrument == "US100":
-                # Format US100 price with comma after second digit
-                price_digits = str(int(current_price))
-                formatted_price = f"{price_digits[:2]},{price_digits[2:]}.{f'{current_price:.2f}'.split('.')[1]}"
-                
-                analysis_text += f"Price is currently trading near current price of {formatted_price}, "
-            else:
-                analysis_text += f"Price is currently trading near current price of {current_price:.{precision}f}, "
-                
-            analysis_text += f"showing {'bullish' if trend == 'BUY' else 'bearish' if trend == 'SELL' else 'mixed'} momentum. "
-            analysis_text += f"The pair remains {'above' if current_price > ema_50 else 'below'} key EMAs, "
-            analysis_text += f"indicating a {'strong uptrend' if trend == 'BUY' else 'strong downtrend' if trend == 'SELL' else 'consolidation phase'}. "
-            analysis_text += f"Volume is moderate, supporting the current price action.\n\n"
-            
-            # Key levels section
-            analysis_text += f"🔑 <b>Key Levels</b>\n"
-            if instrument == "XAUUSD":
-                # Format gold support/resistance levels with comma after first digit
-                daily_low_first_digit = str(int(daily_low))[0]
-                daily_low_rest_digits = f"{daily_low:.3f}".split('.')[0][1:] + "." + f"{daily_low:.3f}".split('.')[1]
-                formatted_daily_low = f"{daily_low_first_digit},{daily_low_rest_digits}"
-                
-                weekly_low_first_digit = str(int(weekly_low))[0]
-                weekly_low_rest_digits = f"{weekly_low:.3f}".split('.')[0][1:] + "." + f"{weekly_low:.3f}".split('.')[1]
-                formatted_weekly_low = f"{weekly_low_first_digit},{weekly_low_rest_digits}"
-                
-                daily_high_first_digit = str(int(daily_high))[0]
-                daily_high_rest_digits = f"{daily_high:.3f}".split('.')[0][1:] + "." + f"{daily_high:.3f}".split('.')[1]
-                formatted_daily_high = f"{daily_high_first_digit},{daily_high_rest_digits}"
-                
-                weekly_high_first_digit = str(int(weekly_high))[0]
-                weekly_high_rest_digits = f"{weekly_high:.3f}".split('.')[0][1:] + "." + f"{weekly_high:.3f}".split('.')[1]
-                formatted_weekly_high = f"{weekly_high_first_digit},{weekly_high_rest_digits}"
-                
-                analysis_text += f"Support: {formatted_daily_low} (daily low), {formatted_weekly_low} (weekly low)\n"
-                analysis_text += f"Resistance: {formatted_daily_high} (daily high), {formatted_weekly_high} (weekly high)\n\n"
-            elif instrument == "US30":
-                # Format US30 support/resistance with comma after second digit
-                daily_low_digits = str(int(daily_low))
-                formatted_daily_low = f"{daily_low_digits[:2]},{daily_low_digits[2:]}.{f'{daily_low:.2f}'.split('.')[1]}"
-                
-                weekly_low_digits = str(int(weekly_low))
-                formatted_weekly_low = f"{weekly_low_digits[:2]},{weekly_low_digits[2:]}.{f'{weekly_low:.2f}'.split('.')[1]}"
-                
-                daily_high_digits = str(int(daily_high))
-                formatted_daily_high = f"{daily_high_digits[:2]},{daily_high_digits[2:]}.{f'{daily_high:.2f}'.split('.')[1]}"
-                
-                weekly_high_digits = str(int(weekly_high))
-                formatted_weekly_high = f"{weekly_high_digits[:2]},{weekly_high_digits[2:]}.{f'{weekly_high:.2f}'.split('.')[1]}"
-                
-                analysis_text += f"Support: {formatted_daily_low} (daily low), {formatted_weekly_low} (weekly low)\n"
-                analysis_text += f"Resistance: {formatted_daily_high} (daily high), {formatted_weekly_high} (weekly high)\n\n"
-            elif instrument == "US500":
-                # Format US500 support/resistance with comma after first digit
-                daily_low_digits = str(int(daily_low))
-                formatted_daily_low = f"{daily_low_digits[0]},{daily_low_digits[1:]}.{f'{daily_low:.2f}'.split('.')[1]}"
-                
-                weekly_low_digits = str(int(weekly_low))
-                formatted_weekly_low = f"{weekly_low_digits[0]},{weekly_low_digits[1:]}.{f'{weekly_low:.2f}'.split('.')[1]}"
-                
-                daily_high_digits = str(int(daily_high))
-                formatted_daily_high = f"{daily_high_digits[0]},{daily_high_digits[1:]}.{f'{daily_high:.2f}'.split('.')[1]}"
-                
-                weekly_high_digits = str(int(weekly_high))
-                formatted_weekly_high = f"{weekly_high_digits[0]},{weekly_high_digits[1:]}.{f'{weekly_high:.2f}'.split('.')[1]}"
-                
-                analysis_text += f"Support: {formatted_daily_low} (daily low), {formatted_weekly_low} (weekly low)\n"
-                analysis_text += f"Resistance: {formatted_daily_high} (daily high), {formatted_weekly_high} (weekly high)\n\n"
-            elif instrument == "US100":
-                # Format US100 support/resistance with comma after second digit
-                daily_low_digits = str(int(daily_low))
-                formatted_daily_low = f"{daily_low_digits[:2]},{daily_low_digits[2:]}.{f'{daily_low:.2f}'.split('.')[1]}"
-                
-                weekly_low_digits = str(int(weekly_low))
-                formatted_weekly_low = f"{weekly_low_digits[:2]},{weekly_low_digits[2:]}.{f'{weekly_low:.2f}'.split('.')[1]}"
-                
-                daily_high_digits = str(int(daily_high))
-                formatted_daily_high = f"{daily_high_digits[:2]},{daily_high_digits[2:]}.{f'{daily_high:.2f}'.split('.')[1]}"
-                
-                weekly_high_digits = str(int(weekly_high))
-                formatted_weekly_high = f"{weekly_high_digits[:2]},{weekly_high_digits[2:]}.{f'{weekly_high:.2f}'.split('.')[1]}"
-                
-                analysis_text += f"Support: {formatted_daily_low} (daily low), {formatted_weekly_low} (weekly low)\n"
-                analysis_text += f"Resistance: {formatted_daily_high} (daily high), {formatted_weekly_high} (weekly high)\n\n"
-            else:
-                analysis_text += f"Support: {daily_low:.{precision}f} (daily low), {weekly_low:.{precision}f} (weekly low)\n"
-                analysis_text += f"Resistance: {daily_high:.{precision}f} (daily high), {weekly_high:.{precision}f} (weekly high)\n\n"
-            
-            # Technical indicators section
-            analysis_text += f"📈 <b>Technical Indicators</b>\n"
-            analysis_text += f"RSI: {rsi:.2f} (neutral)\n"
-            
-            macd_value = random.uniform(-0.001, 0.001)
-            macd_signal = random.uniform(-0.001, 0.001)
-            macd_status = "bullish" if macd_value > macd_signal else "bearish"
-            analysis_text += f"MACD: {macd_status} ({macd_value:.5f} is {'above' if macd_value > macd_signal else 'below'} signal {macd_signal:.5f})\n"
-            
-            ma_status = "bullish" if trend == "BUY" else "bearish" if trend == "SELL" else "mixed"
-            if instrument == "XAUUSD":
-                # Format gold EMAs with comma after first digit
-                ema50_first_digit = str(int(ema_50))[0]
-                ema50_rest_digits = f"{ema_50:.3f}".split('.')[0][1:] + "." + f"{ema_50:.3f}".split('.')[1]
-                formatted_ema50 = f"{ema50_first_digit},{ema50_rest_digits}"
-                
-                ema200_first_digit = str(int(ema_200))[0]
-                ema200_rest_digits = f"{ema_200:.3f}".split('.')[0][1:] + "." + f"{ema_200:.3f}".split('.')[1]
-                formatted_ema200 = f"{ema200_first_digit},{ema200_rest_digits}"
-                
-                analysis_text += f"Moving Averages: Price {'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 50 ({formatted_ema50}) and "
-                analysis_text += f"{'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 200 ({formatted_ema200}), confirming {ma_status} bias.\n\n"
-            elif instrument == "US30":
-                # Format US30 EMAs with comma after second digit
-                ema50_digits = str(int(ema_50))
-                ema50_formatted = f"{ema50_digits[:2]},{ema50_digits[2:]}.{f'{ema_50:.2f}'.split('.')[1]}"
-                
-                ema200_digits = str(int(ema_200))
-                ema200_formatted = f"{ema200_digits[:2]},{ema200_digits[2:]}.{f'{ema_200:.2f}'.split('.')[1]}"
-                
-                analysis_text += f"Moving Averages: Price {'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 50 ({ema50_formatted}) and "
-                analysis_text += f"{'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 200 ({ema200_formatted}), confirming {ma_status} bias.\n\n"
-            elif instrument == "US500":
-                # Format US500 EMAs with comma after first digit
-                ema50_digits = str(int(ema_50))
-                ema50_formatted = f"{ema50_digits[0]},{ema50_digits[1:]}.{f'{ema_50:.2f}'.split('.')[1]}"
-                
-                ema200_digits = str(int(ema_200))
-                ema200_formatted = f"{ema200_digits[0]},{ema200_digits[1:]}.{f'{ema_200:.2f}'.split('.')[1]}"
-                
-                analysis_text += f"Moving Averages: Price {'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 50 ({ema50_formatted}) and "
-                analysis_text += f"{'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 200 ({ema200_formatted}), confirming {ma_status} bias.\n\n"
-            elif instrument == "US100":
-                # Format US100 EMAs with comma after second digit
-                ema50_digits = str(int(ema_50))
-                ema50_formatted = f"{ema50_digits[:2]},{ema50_digits[2:]}.{f'{ema_50:.2f}'.split('.')[1]}"
-                
-                ema200_digits = str(int(ema_200))
-                ema200_formatted = f"{ema200_digits[:2]},{ema200_digits[2:]}.{f'{ema_200:.2f}'.split('.')[1]}"
-                
-                analysis_text += f"Moving Averages: Price {'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 50 ({ema50_formatted}) and "
-                analysis_text += f"{'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 200 ({ema200_formatted}), confirming {ma_status} bias.\n\n"
-            else:
-                analysis_text += f"Moving Averages: Price {'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 50 ({ema_50:.{precision}f}) and "
-                analysis_text += f"{'above' if trend == 'BUY' else 'below' if trend == 'SELL' else 'near'} EMA 200 ({ema_200:.{precision}f}), confirming {ma_status} bias.\n\n"
-            
-            # AI recommendation
-            analysis_text += f"🤖 <b>Sigmapips AI Recommendation</b>\n"
-            if trend == "BUY":
-                if instrument == "XAUUSD":
-                    # Format gold prices with comma after first digit
-                    daily_high_first_digit = str(int(daily_high))[0]
-                    daily_high_rest_digits = f"{daily_high:.3f}".split('.')[0][1:] + "." + f"{daily_high:.3f}".split('.')[1]
-                    formatted_daily_high = f"{daily_high_first_digit},{daily_high_rest_digits}"
-                    
-                    daily_low_first_digit = str(int(daily_low))[0]
-                    daily_low_rest_digits = f"{daily_low:.3f}".split('.')[0][1:] + "." + f"{daily_low:.3f}".split('.')[1]
-                    formatted_daily_low = f"{daily_low_first_digit},{daily_low_rest_digits}"
-                    
-                    analysis_text += f"Watch for a breakout above {formatted_daily_high} for further upside. "
-                    analysis_text += f"Maintain a buy bias while price holds above {formatted_daily_low}. "
-                    analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
-                elif instrument == "US30":
-                    # Format US30 prices with comma after second digit
-                    daily_high_digits = str(int(daily_high))
-                    formatted_daily_high = f"{daily_high_digits[:2]},{daily_high_digits[2:]}.{f'{daily_high:.2f}'.split('.')[1]}"
-                    
-                    daily_low_digits = str(int(daily_low))
-                    formatted_daily_low = f"{daily_low_digits[:2]},{daily_low_digits[2:]}.{f'{daily_low:.2f}'.split('.')[1]}"
-                    
-                    analysis_text += f"Watch for a breakout above {formatted_daily_high} for further upside. "
-                    analysis_text += f"Maintain a buy bias while price holds above {formatted_daily_low}. "
-                    analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
-                elif instrument == "US500":
-                    # Format US500 prices with comma after first digit
-                    daily_high_digits = str(int(daily_high))
-                    formatted_daily_high = f"{daily_high_digits[0]},{daily_high_digits[1:]}.{f'{daily_high:.2f}'.split('.')[1]}"
-                    
-                    daily_low_digits = str(int(daily_low))
-                    formatted_daily_low = f"{daily_low_digits[0]},{daily_low_digits[1:]}.{f'{daily_low:.2f}'.split('.')[1]}"
-                    
-                    analysis_text += f"Watch for a breakout above {formatted_daily_high} for further upside. "
-                    analysis_text += f"Maintain a buy bias while price holds above {formatted_daily_low}. "
-                    analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
-                elif instrument == "US100":
-                    # Format US100 prices with comma after second digit
-                    daily_high_digits = str(int(daily_high))
-                    formatted_daily_high = f"{daily_high_digits[:2]},{daily_high_digits[2:]}.{f'{daily_high:.2f}'.split('.')[1]}"
-                    
-                    daily_low_digits = str(int(daily_low))
-                    formatted_daily_low = f"{daily_low_digits[:2]},{daily_low_digits[2:]}.{f'{daily_low:.2f}'.split('.')[1]}"
-                    
-                    analysis_text += f"Watch for a breakout above {formatted_daily_high} for further upside. "
-                    analysis_text += f"Maintain a buy bias while price holds above {formatted_daily_low}. "
-                    analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
-                else:
-                    analysis_text += f"Watch for a breakout above {daily_high:.{precision}f} for further upside. "
-                    analysis_text += f"Maintain a buy bias while price holds above {daily_low:.{precision}f}. "
-                    analysis_text += f"Be cautious of overbought conditions if RSI approaches 70.\n\n"
-            elif trend == "SELL":
-                if instrument == "XAUUSD":
-                    # Format gold prices with comma after first digit
-                    daily_low_first_digit = str(int(daily_low))[0]
-                    daily_low_rest_digits = f"{daily_low:.3f}".split('.')[0][1:] + "." + f"{daily_low:.3f}".split('.')[1]
-                    formatted_daily_low = f"{daily_low_first_digit},{daily_low_rest_digits}"
-                    
-                    daily_high_first_digit = str(int(daily_high))[0]
-                    daily_high_rest_digits = f"{daily_high:.3f}".split('.')[0][1:] + "." + f"{daily_high:.3f}".split('.')[1]
-                    formatted_daily_high = f"{daily_high_first_digit},{daily_high_rest_digits}"
-                    
-                    analysis_text += f"Watch for a breakdown below {formatted_daily_low} for further downside. "
-                    analysis_text += f"Maintain a sell bias while price holds below {formatted_daily_high}. "
-                    analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
-                elif instrument == "US30":
-                    # Format US30 prices with comma after second digit
-                    daily_low_digits = str(int(daily_low))
-                    formatted_daily_low = f"{daily_low_digits[:2]},{daily_low_digits[2:]}.{f'{daily_low:.2f}'.split('.')[1]}"
-                    
-                    daily_high_digits = str(int(daily_high))
-                    formatted_daily_high = f"{daily_high_digits[:2]},{daily_high_digits[2:]}.{f'{daily_high:.2f}'.split('.')[1]}"
-                    
-                    analysis_text += f"Watch for a breakdown below {formatted_daily_low} for further downside. "
-                    analysis_text += f"Maintain a sell bias while price holds below {formatted_daily_high}. "
-                    analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
-                elif instrument == "US500":
-                    # Format US500 prices with comma after first digit
-                    daily_low_digits = str(int(daily_low))
-                    formatted_daily_low = f"{daily_low_digits[0]},{daily_low_digits[1:]}.{f'{daily_low:.2f}'.split('.')[1]}"
-                    
-                    daily_high_digits = str(int(daily_high))
-                    formatted_daily_high = f"{daily_high_digits[0]},{daily_high_digits[1:]}.{f'{daily_high:.2f}'.split('.')[1]}"
-                    
-                    analysis_text += f"Watch for a breakdown below {formatted_daily_low} for further downside. "
-                    analysis_text += f"Maintain a sell bias while price holds below {formatted_daily_high}. "
-                    analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
-                elif instrument == "US100":
-                    # Format US100 prices with comma after second digit
-                    daily_low_digits = str(int(daily_low))
-                    formatted_daily_low = f"{daily_low_digits[:2]},{daily_low_digits[2:]}.{f'{daily_low:.2f}'.split('.')[1]}"
-                    
-                    daily_high_digits = str(int(daily_high))
-                    formatted_daily_high = f"{daily_high_digits[:2]},{daily_high_digits[2:]}.{f'{daily_high:.2f}'.split('.')[1]}"
-                    
-                    analysis_text += f"Watch for a breakdown below {formatted_daily_low} for further downside. "
-                    analysis_text += f"Maintain a sell bias while price holds below {formatted_daily_high}. "
-                    analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
-                else:
-                    analysis_text += f"Watch for a breakdown below {daily_low:.{precision}f} for further downside. "
-                    analysis_text += f"Maintain a sell bias while price holds below {daily_high:.{precision}f}. "
-                    analysis_text += f"Be cautious of oversold conditions if RSI approaches 30.\n\n"
-            else:
-                if instrument == "XAUUSD":
-                    # Format gold prices with comma after first digit
-                    daily_low_first_digit = str(int(daily_low))[0]
-                    daily_low_rest_digits = f"{daily_low:.3f}".split('.')[0][1:] + "." + f"{daily_low:.3f}".split('.')[1]
-                    formatted_daily_low = f"{daily_low_first_digit},{daily_low_rest_digits}"
-                    
-                    daily_high_first_digit = str(int(daily_high))[0]
-                    daily_high_rest_digits = f"{daily_high:.3f}".split('.')[0][1:] + "." + f"{daily_high:.3f}".split('.')[1]
-                    formatted_daily_high = f"{daily_high_first_digit},{daily_high_rest_digits}"
-                    
-                    analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {formatted_daily_low} "
-                    analysis_text += f"and selling opportunities near {formatted_daily_high}. "
-                    analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
-                elif instrument == "US30":
-                    # Format US30 prices with comma after second digit
-                    low_digits = str(int(daily_low))
-                    formatted_low = f"{low_digits[:2]},{low_digits[2:]}.{f'{daily_low:.2f}'.split('.')[1]}"
-                    
-                    high_digits = str(int(daily_high))
-                    formatted_high = f"{high_digits[:2]},{high_digits[2:]}.{f'{daily_high:.2f}'.split('.')[1]}"
-                    
-                    analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {formatted_low} "
-                    analysis_text += f"and selling opportunities near {formatted_high}. "
-                    analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
-                elif instrument == "US500":
-                    # Format US500 prices with comma after first digit
-                    low_digits = str(int(daily_low))
-                    formatted_low = f"{low_digits[0]},{low_digits[1:]}.{f'{daily_low:.2f}'.split('.')[1]}"
-                    
-                    high_digits = str(int(daily_high))
-                    formatted_high = f"{high_digits[0]},{high_digits[1:]}.{f'{daily_high:.2f}'.split('.')[1]}"
-                    
-                    analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {formatted_low} "
-                    analysis_text += f"and selling opportunities near {formatted_high}. "
-                    analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
-                elif instrument == "US100":
-                    # Format US100 prices with comma after second digit
-                    low_digits = str(int(daily_low))
-                    formatted_low = f"{low_digits[:2]},{low_digits[2:]}.{f'{daily_low:.2f}'.split('.')[1]}"
-                    
-                    high_digits = str(int(daily_high))
-                    formatted_high = f"{high_digits[:2]},{high_digits[2:]}.{f'{daily_high:.2f}'.split('.')[1]}"
-                    
-                    analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {formatted_low} "
-                    analysis_text += f"and selling opportunities near {formatted_high}. "
-                    analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
-                else:
-                    analysis_text += f"Range-bound conditions persist. Look for buying opportunities near {daily_low:.{precision}f} "
-                    analysis_text += f"and selling opportunities near {daily_high:.{precision}f}. "
-                    analysis_text += f"Wait for a clear breakout before establishing a directional bias.\n\n"
-            
-            # Disclaimer
-            analysis_text += f"⚠️ <b>Disclaimer:</b> For educational purposes only."
-            
-            return analysis_text
-        
-        except Exception as e:
-            logger.error(f"Error generating default analysis: {str(e)}")
-            # Return a very basic message if all else fails
-            return f"Analysis for {instrument} on {timeframe} timeframe is not available at this time. Please try again later."
-
     async def get_sentiment_analysis(self, instrument: str) -> str:
-        """Generate sentiment analysis for an instrument"""
+        """Placeholder for sentiment analysis"""
         # This method is intentionally left empty to prevent duplicate sentiment analysis
         # Sentiment analysis is now directly handled by the TelegramService using MarketSentimentService
         logger.info(f"ChartService.get_sentiment_analysis called for {instrument} but is now disabled")
