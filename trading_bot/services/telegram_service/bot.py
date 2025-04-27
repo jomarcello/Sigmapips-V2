@@ -1060,7 +1060,7 @@ class TelegramService:
             if not normalized_data.get('instrument') or not normalized_data.get('direction') or not normalized_data.get('entry'):
                 logger.error(f"Missing required fields in normalized signal data: {normalized_data}")
                 return False
-                
+
             # Create signal ID for tracking
             signal_id = f"{normalized_data['instrument']}_{normalized_data['direction']}_{normalized_data['timeframe']}_{int(time.time())}"
             
@@ -1175,137 +1175,93 @@ class TelegramService:
             stop_loss = signal_data.get('stop_loss')
             take_profit = signal_data.get('take_profit')
             timeframe = signal_data.get('timeframe', '1h')
-            
-            # Get multiple take profit levels if available
             tp1 = signal_data.get('tp1', take_profit)
             tp2 = signal_data.get('tp2')
             tp3 = signal_data.get('tp3')
-            
-            # Add emoji based on direction
             direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴"
-            
-            # Format the message with the exact structure from photos
+
+            # --- Basic message structure --- 
             message = f"<b>🎯 New Trading Signal 🎯</b>\n\n"
             message += f"<b>Instrument:</b> {instrument}\n"
             message += f"<b>Action:</b> {direction.upper()} {direction_emoji}\n\n"
             message += f"<b>Entry Price:</b> {entry}\n"
-            
             if stop_loss:
                 message += f"<b>Stop Loss:</b> {stop_loss} 🔴\n"
-            
-            # Add take profit levels
             if tp1:
                 message += f"<b>Take Profit 1:</b> {tp1} 🎯\n"
             if tp2:
                 message += f"<b>Take Profit 2:</b> {tp2} 🎯\n"
             if tp3:
                 message += f"<b>Take Profit 3:</b> {tp3} 🎯\n"
-            
-            # Add timeframe and strategy without labels, with proper spacing
             message += f"\n{timeframe}\n"
             message += f"{signal_data.get('strategy', 'TradingView Signal')}\n\n"
-            
-            # Add separator line exactly as in photos
             message += "————————————————————\n\n"
-            
-            # Risk management bullets exactly as shown in photos
             message += "• Position size: 1-2% max\n"
             message += "• Use proper stop loss\n"
             message += "• Follow your trading plan\n\n"
-            
-            # Add second separator line
             message += "————————————————————\n\n"
-            
-            # AI Verdict section exactly as shown
             message += "<b>🤖 SigmaPips AI Verdict:</b>\n\n"
-            
-            # Check if sentiment_verdict is provided
+
+            # --- Construct AI Verdict --- 
+            ai_verdict_parts = [] # Build the verdict in parts
+            ai_verdict_parts.append(f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. ")
+
+            # Add sentiment analysis result if available
             sentiment_verdict = signal_data.get('sentiment_verdict')
-            
             if sentiment_verdict:
-                # Use the sentiment verdict from the sentiment analysis
-                ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. "
-                
-                # Add sentiment information
                 if "neutral" in sentiment_verdict.lower():
-                    ai_verdict += "Market sentiment is currently neutral. "
+                    ai_verdict_parts.append("Market sentiment is currently neutral. ")
                 elif "bullish" in sentiment_verdict.lower() and direction.upper() == "BUY":
-                    ai_verdict += "This aligns well with the currently bullish market sentiment. "
+                    ai_verdict_parts.append("This aligns well with the currently bullish market sentiment. ")
                 elif "bearish" in sentiment_verdict.lower() and direction.upper() == "SELL":
-                    ai_verdict += "This aligns well with the currently bearish market sentiment. "
+                    ai_verdict_parts.append("This aligns well with the currently bearish market sentiment. ")
                 elif "bullish" in sentiment_verdict.lower() and direction.upper() == "SELL":
-                    ai_verdict += "Note that this contradicts the current bullish market sentiment. "
+                    ai_verdict_parts.append("Note that this contradicts the current bullish market sentiment. ")
                 elif "bearish" in sentiment_verdict.lower() and direction.upper() == "BUY":
-                    ai_verdict += "Note that this contradicts the current bearish market sentiment. "
+                    ai_verdict_parts.append("Note that this contradicts the current bearish market sentiment. ")
                 else:
-                    # Fallback for other patterns
-                    ai_verdict += sentiment_verdict + " "
-                
-                # Add take profit analysis
-                if tp2 or tp3:
-                    ai_verdict += "Multiple take profit levels provide opportunities for partial profit taking."
-                else:
-                    # Calculate risk:reward if we have the necessary data
-                    if stop_loss and tp1:
-                        try:
-                            entry_float = float(entry)
-                            sl_float = float(stop_loss)
-                            tp_float = float(tp1)
-                            
-                            # Calculate risk:reward
-                            risk = abs(entry_float - sl_float)
-                            reward = abs(tp_float - entry_float)
-                            ratio = reward/risk
-                            
-                            if ratio >= 2:
-                                ai_verdict += f"The risk-reward ratio is excellent at {ratio:.2f}:1."
-                            elif ratio >= 1.5:
-                                ai_verdict += f"The risk-reward ratio is good at {ratio:.2f}:1."
-                            elif ratio >= 1:
-                                ai_verdict += f"The risk-reward ratio is reasonable at {ratio:.2f}:1."
-                            else:
-                                ai_verdict += f"The risk-reward ratio is {ratio:.2f}:1, consider your trading plan carefully."
-                        except:
-                            ai_verdict += "Manage your risk according to your trading plan."
-            else:
-                # Fallback to our custom generated verdict if no sentiment is available
-                # Generate verdict based on signal data
-                risk_reward = "favorable"
-                if stop_loss and tp1:
-                    try:
-                        entry_float = float(entry)
-                        sl_float = float(stop_loss)
-                        tp_float = float(tp1)
-                        
-                        # Calculate risk:reward
-                        risk = abs(entry_float - sl_float)
-                        reward = abs(tp_float - entry_float)
-                        
-                        if reward/risk >= 2:
-                            risk_reward = "excellent"
-                        elif reward/risk >= 1.5:
-                            risk_reward = "good"
-                        elif reward/risk >= 1:
-                            risk_reward = "reasonable"
+                    ai_verdict_parts.append(sentiment_verdict + " ")
+
+            # Calculate and add Risk/Reward analysis
+            risk_reward_text = "Manage your risk according to your trading plan."
+            if stop_loss and tp1:
+                try:
+                    entry_float = float(entry)
+                    sl_float = float(stop_loss)
+                    tp_float = float(tp1)
+                    risk = abs(entry_float - sl_float)
+                    reward = abs(tp_float - entry_float)
+                    if risk > 0:
+                        ratio = reward / risk
+                        if ratio >= 2:
+                            risk_reward_text = f"The risk-reward ratio is excellent at {ratio:.2f}:1."
+                        elif ratio >= 1.5:
+                            risk_reward_text = f"The risk-reward ratio is good at {ratio:.2f}:1."
+                        elif ratio >= 1:
+                            risk_reward_text = f"The risk-reward ratio is reasonable at {ratio:.2f}:1."
                         else:
-                            risk_reward = "moderate"
-                    except:
-                        # Fallback if conversion fails
-                        risk_reward = "balanced"
-                    
-                    # Create verdict text with proper newlines and structure
-                    ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. "
-                    ai_verdict += f"The risk-reward ratio is {risk_reward}. "
-                    
-                    if tp2 or tp3:
-                        ai_verdict += f"Multiple take profit levels provide opportunities for partial profit taking."
+                            risk_reward_text = f"The risk-reward ratio is {ratio:.2f}:1, consider your trading plan carefully."
                     else:
-                        ai_verdict += f"This setup aligns with current market conditions and trend direction."
-                
-                message += ai_verdict
+                        risk_reward_text = "Stop loss is at the entry price, risk cannot be calculated."
+                except (ValueError, TypeError):
+                    logger.warning("Could not calculate risk/reward due to invalid number format.")
+
+            # Add Take Profit info OR Risk/Reward text
+            if tp2 or tp3:
+                ai_verdict_parts.append("Multiple take profit levels provide opportunities for partial profit taking. ")
+                ai_verdict_parts.append(risk_reward_text)
+            else:
+                ai_verdict_parts.append(risk_reward_text)
+
+            # Add generic closing if no sentiment was provided
+            if not sentiment_verdict:
+                ai_verdict_parts.append(" This setup aligns with current market conditions and trend direction.")
+
+            # Join all parts of the verdict and add to the message
+            message += "".join(ai_verdict_parts)
 
             return message
-            
+
         except Exception as e:
             logger.error(f"Error formatting signal message: {str(e)}")
             # Return simple message on error
@@ -2930,7 +2886,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
 
         except Exception as e:
             logger.error(f"Error processing button callback '{callback_data}': {str(e)}")
-            logger.exception(e)
+                logger.exception(e)
             # Attempt to notify the user about the error
             try:
                 await update.effective_message.reply_text("An error occurred while processing your request. Please try again later.")
@@ -2944,9 +2900,9 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         """Handle menu_signals button press"""
         query = update.callback_query
         await query.answer()
-
+        
         logger.info("menu_signals_callback called")
-
+        
         # Set context for signals flow
         if context and hasattr(context, 'user_data'):
             context.user_data.clear() # Clear previous context
@@ -2961,63 +2917,63 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
         # Try to update the message with the GIF and caption
         try:
             # First, try deleting the old message and sending a new one with the GIF
-            await query.message.delete()
+                    await query.message.delete()
             await context.bot.send_animation(
-                chat_id=update.effective_chat.id,
+                        chat_id=update.effective_chat.id,
                 animation=signals_gif_url,
                 caption=signals_caption,
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.HTML
             )
-        except Exception as delete_error:
+                except Exception as delete_error:
             logger.warning(f"Could not delete message, trying media update: {delete_error}")
             # If deletion fails, try editing the media
-            try:
-                await query.edit_message_media(
+                    try:
+                            await query.edit_message_media(
                     media=InputMediaAnimation(
                         media=signals_gif_url,
                         caption=signals_caption,
-                        parse_mode=ParseMode.HTML
-                    ),
-                    reply_markup=reply_markup
-                )
-            except Exception as media_error:
+                                    parse_mode=ParseMode.HTML
+                                ),
+                                reply_markup=reply_markup
+                            )
+                    except Exception as media_error:
                 logger.warning(f"Could not update media, trying text update: {media_error}")
                 # If media edit fails, try editing text/caption
-                try:
-                    await query.edit_message_text(
+            try:
+                await query.edit_message_text(
                         text=signals_caption,
                         reply_markup=reply_markup,
                         parse_mode=ParseMode.HTML
                     )
                 except Exception as text_error:
                     if "There is no text in the message to edit" in str(text_error):
-                        try:
-                            await query.edit_message_caption(
+                    try:
+                        await query.edit_message_caption(
                                 caption=signals_caption,
                                 reply_markup=reply_markup,
-                                parse_mode=ParseMode.HTML
-                            )
-                        except Exception as caption_error:
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception as caption_error:
                             logger.error(f"Failed to update caption either: {caption_error}")
                             # Last resort: Send a new message if all else fails
-                            await context.bot.send_animation(
-                                chat_id=update.effective_chat.id,
+                await context.bot.send_animation(
+                    chat_id=update.effective_chat.id,
                                 animation=signals_gif_url,
                                 caption=signals_caption,
                                 reply_markup=reply_markup,
                                 parse_mode=ParseMode.HTML
-                            )
+                        )
                     else:
                          logger.error(f"Failed to update text message: {text_error}")
                          # Last resort: Send a new message
-                         await context.bot.send_animation(
-                             chat_id=update.effective_chat.id,
-                             animation=signals_gif_url,
+                await context.bot.send_animation(
+                    chat_id=update.effective_chat.id,
+                    animation=signals_gif_url,
                              caption=signals_caption,
                              reply_markup=reply_markup,
-                             parse_mode=ParseMode.HTML
-                         )
-
+            parse_mode=ParseMode.HTML
+        )
+        
         return SIGNALS # Return the signals menu state
     # <<< END ADDED METHOD >>>
