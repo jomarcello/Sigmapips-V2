@@ -1,8 +1,42 @@
+from aiogram import Bot, Dispatcher
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputFile, ParseMode
+from io import BytesIO
+import logging
+from trading_bot.utils.config_manager import ConfigManager
+from trading_bot.services.chart_service import ChartService
+from trading_bot.utils.instrument_manager import get_markets_for_instrument, get_instruments
+
+# Load configuration
+config = ConfigManager()
+logger = logging.getLogger(__name__)
+
+# Initialize ChartService
+# TODO: Make this initialization potentially async if needed
+chart_service = ChartService()
+
+# Initialize bot and dispatcher
 bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
 dp = Dispatcher(bot)
 
-# Initialize services
-# ... existing code ...
+# Function to show instrument selection
+async def show_instrument_selection(chat_id: int, message_id: int = None):
+    logger.debug(f"Showing instrument selection in chat {chat_id}")
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    instruments = get_instruments()
+
+    if not instruments:
+        await bot.send_message(chat_id, "No supported instruments found. Please try again later.")
+        return
+
+    buttons = [InlineKeyboardButton(instrument.upper(), callback_data=f"select_instrument_{instrument}") for instrument in instruments]
+    keyboard.add(*buttons)
+    keyboard.add(InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main_menu"))
+
+    text = "Please select the instrument:"
+    if message_id:
+        await bot.edit_message_text(text, chat_id, message_id, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    else:
+        await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
 # Function to show market selection
 async def show_market_selection(chat_id: int, instrument: str, message_id: int = None):
