@@ -1201,36 +1201,43 @@ class TelegramService:
             if tp3:
                 message += f"<b>Take Profit 3:</b> {tp3} 🎯\n"
             
-            message += f"\n<b>Timeframe:</b> {timeframe}\n"
-            message += f"<b>Strategy:</b> TradingView Signal\n\n"
+            message += f"\\n<b>Timeframe:</b> {timeframe}\\n"
+            message += f"<b>Strategy:</b> TradingView Signal\\n\\n"
             
-            message += "————————————————————\\n\\n"
-            message += "<b>Risk Management:</b>\n"
-            message += "• Position size: 1-2% max\n"
-            message += "• Use proper stop loss\n"
-            message += "• Follow your trading plan\n\n"
+            # Use single newline after separator
+            message += "————————————————————\\n" 
+            message += "<b>Risk Management:</b>\\n"
+            message += "• Position size: 1-2% max\\n"
+            message += "• Use proper stop loss\\n"
+            message += "• Follow your trading plan\\n\\n" 
             
-            message += "————————————————————\\n\\n"
+            # Use single newline after separator
+            message += "————————————————————\\n" 
             
-            # >>> USE SENTIMENT VERDICT FROM SIGNAL DATA IF AVAILABLE <<<
-            sentiment_verdict = signal_data.get('sentiment_verdict')
+            # Use fixed AI Verdict format
+            message += "<b>🤖 SigmaPips AI Verdict:</b>\\n"
+            message += "The signal aligns with market sentiment (check emoji)"
             
-            if sentiment_verdict:
-                # Use the verdict provided by the backend
-                # Determine emoji based on verdict content
-                if "aligns" in sentiment_verdict.lower():
-                    verdict_emoji = "✅"
-                elif "does not align" in sentiment_verdict.lower():
-                    verdict_emoji = "❌"
-                else:
-                    verdict_emoji = "⚠️" # Default emoji for other cases
-                message += f"<b>{verdict_emoji} Sentiment Verdict:</b>\n{sentiment_verdict}"
-            else:
-                # Fallback to the old hardcoded AI verdict if 'sentiment_verdict' is not provided
-                logger.warning("'sentiment_verdict' not found in signal_data. Using default AI verdict.")
-                ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
-                message += f"<b>🤖 SigmaPips AI Verdict:</b>\n{ai_verdict}"
-            
+            # --- REMOVED OLD SENTIMENT VERDICT LOGIC ---
+            # sentiment_verdict = signal_data.get('sentiment_verdict')
+            # 
+            # if sentiment_verdict:
+            #     # Use the verdict provided by the backend
+            #     # Determine emoji based on verdict content
+            #     if "aligns" in sentiment_verdict.lower():
+            #         verdict_emoji = "✅"
+            #     elif "does not align" in sentiment_verdict.lower():
+            #         verdict_emoji = "❌"
+            #     else:
+            #         verdict_emoji = "⚠️" # Default emoji for other cases
+            #     message += f"<b>{verdict_emoji} Sentiment Verdict:</b>\\n{sentiment_verdict}"
+            # else:
+            #     # Fallback to the old hardcoded AI verdict if 'sentiment_verdict' is not provided
+            #     logger.warning("'sentiment_verdict' not found in signal_data. Using default AI verdict.")
+            #     ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
+            #     message += f"<b>🤖 SigmaPips AI Verdict:</b>\\n{ai_verdict}"
+            # --- END REMOVED OLD LOGIC ---
+
             return message
             
         except Exception as e:
@@ -4589,36 +4596,43 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if tp3:
                 message += f"<b>Take Profit 3:</b> {tp3} 🎯\n"
             
-            message += f"\n<b>Timeframe:</b> {timeframe}\n"
-            message += f"<b>Strategy:</b> TradingView Signal\n\n"
+            message += f"\\n<b>Timeframe:</b> {timeframe}\\n"
+            message += f"<b>Strategy:</b> TradingView Signal\\n\\n"
             
-            message += "————————————————————\\n\\n"
-            message += "<b>Risk Management:</b>\n"
-            message += "• Position size: 1-2% max\n"
-            message += "• Use proper stop loss\n"
-            message += "• Follow your trading plan\n\n"
+            # Use single newline after separator
+            message += "————————————————————\\n" 
+            message += "<b>Risk Management:</b>\\n"
+            message += "• Position size: 1-2% max\\n"
+            message += "• Use proper stop loss\\n"
+            message += "• Follow your trading plan\\n\\n" 
             
-            message += "————————————————————\\n\\n"
+            # Use single newline after separator
+            message += "————————————————————\\n" 
             
-            # >>> USE SENTIMENT VERDICT FROM SIGNAL DATA IF AVAILABLE <<<
-            sentiment_verdict = signal_data.get('sentiment_verdict')
+            # Use fixed AI Verdict format
+            message += "<b>🤖 SigmaPips AI Verdict:</b>\\n"
+            message += "The signal aligns with market sentiment (check emoji)"
             
-            if sentiment_verdict:
-                # Use the verdict provided by the backend
-                # Determine emoji based on verdict content
-                if "aligns" in sentiment_verdict.lower():
-                    verdict_emoji = "✅"
-                elif "does not align" in sentiment_verdict.lower():
-                    verdict_emoji = "❌"
-                else:
-                    verdict_emoji = "⚠️" # Default emoji for other cases
-                message += f"<b>{verdict_emoji} Sentiment Verdict:</b>\n{sentiment_verdict}"
-            else:
-                # Fallback to the old hardcoded AI verdict if 'sentiment_verdict' is not provided
-                logger.warning("'sentiment_verdict' not found in signal_data. Using default AI verdict.")
-                ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
-                message += f"<b>🤖 SigmaPips AI Verdict:</b>\n{ai_verdict}"
-            
+            # --- REMOVED OLD SENTIMENT VERDICT LOGIC ---
+            # sentiment_verdict = signal_data.get('sentiment_verdict')
+            # 
+            # if sentiment_verdict:
+            #     # Use the verdict provided by the backend
+            #     # Determine emoji based on verdict content
+            #     if "aligns" in sentiment_verdict.lower():
+            #         verdict_emoji = "✅"
+            #     elif "does not align" in sentiment_verdict.lower():
+            #         verdict_emoji = "❌"
+            #     else:
+            #         verdict_emoji = "⚠️" # Default emoji for other cases
+            #     message += f"<b>{verdict_emoji} Sentiment Verdict:</b>\\n{sentiment_verdict}"
+            # else:
+            #     # Fallback to the old hardcoded AI verdict if 'sentiment_verdict' is not provided
+            #     logger.warning("'sentiment_verdict' not found in signal_data. Using default AI verdict.")
+            #     ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
+            #     message += f"<b>🤖 SigmaPips AI Verdict:</b>\\n{ai_verdict}"
+            # --- END REMOVED OLD LOGIC ---
+
             return message
             
         except Exception as e:
