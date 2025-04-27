@@ -120,17 +120,28 @@ class YahooFinanceProvider:
         wait=wait_exponential(multiplier=1, min=2, max=30), # Adjusted retry wait
         reraise=True
     )
-    async def _download_data(symbol: str, start_date: datetime, end_date: datetime, interval: str, timeout: int = 30, original_symbol: str = None) -> pd.DataFrame:
+    async def _download_data(symbol: str, start_date: datetime, end_date: datetime, interval: str, timeout: int = 30, original_symbol: str = None, period: str = None) -> pd.DataFrame:
         """Download data using yfinance with retry logic and caching."""
         # --- Caching Logic ---
-        cache_key = (symbol, interval, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+        # Cache key should ideally represent the actual request made
+        if period:
+            # Use period and interval for intraday caching
+            cache_key = (symbol, interval, period)
+        elif start_date and end_date:
+            # Use start/end date and interval for daily+ caching
+            cache_key = (symbol, interval, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+        else:
+            # Fallback cache key if parameters are weird (should not happen often)
+            logger.warning("Could not determine proper cache key, using fallback.")
+            cache_key = (symbol, interval, datetime.now().strftime('%Y-%m-%d'))
+
         if cache_key in data_download_cache:
-            logger.info(f"[Yahoo Cache] HIT for download: {symbol} interval {interval}")
+            logger.info(f"[Yahoo Cache] HIT for download: Key={cache_key}")
             return data_download_cache[cache_key].copy() # Return a copy to prevent mutation
-        logger.info(f"[Yahoo Cache] MISS for download: {symbol} interval {interval}")
+        logger.info(f"[Yahoo Cache] MISS for download: Key={cache_key}")
         # --- End Caching Logic ---
 
-        logger.info(f"[Yahoo] Attempting direct download method with yf.download for {symbol}")
+        logger.info(f"[Yahoo] Attempting direct download method with yf.download for {symbol} (Interval: {interval}, Period: {period}, Start: {start_date.date() if start_date else 'N/A'}, End: {end_date.date() if end_date else 'N/A'})")
         
         # Ensure session exists
         session = YahooFinanceProvider._get_session()
@@ -144,17 +155,24 @@ class YahooFinanceProvider:
                 else:
                      logger.warning("[Yahoo] Function set_tz_session_for_downloading not available in this yfinance version")
 
+                # Construct download arguments
+                download_kwargs = {
+                    'tickers': symbol,
+                    'interval': interval,
+                    'progress': False,
+                    'session': session,
+                    'timeout': timeout,
+                    'ignore_tz': False
+                }
+                # Use period OR start/end, not both
+                if period:
+                     download_kwargs['period'] = period
+                else:
+                     download_kwargs['start'] = start_date
+                     download_kwargs['end'] = end_date
+
                 # Download data
-                df = yf.download(
-                    tickers=symbol,
-                    start=start_date,
-                    end=end_date,
-                    interval=interval,
-                    progress=False, # Disable progress bar
-                    session=session,
-                    timeout=timeout,
-                    ignore_tz=False # Keep timezone info initially
-                )
+                df = yf.download(**download_kwargs)
                 return df
             except Exception as e:
                  logger.error(f"[Yahoo] Error during yf.download for {symbol}: {str(e)}")
@@ -400,6 +418,93 @@ class YahooFinanceProvider:
             return df # Return original df on validation error? Or None? Consider implications.
 
     @staticmethod
+    def _map_timeframe_to_yfinance(timeframe: str) -> Optional[str]:
+        """Maps internal timeframe notation (e.g., H1, M15) to yfinance interval."""
+        mapping = {
+            # Intraday
+            'M1': '1m',
+            'M5': '5m',
+            'M15': '15m',
+            'M30': '30m',
+            'H1': '1h', # Correct mapping for 1 hour
+            'H4': '4h', # yfinance does not support 4h, needs resampling from 1h or 1d?
+                       # For now, let's try requesting 1h and maybe resample later if needed
+                       # Or fallback to 1d if 1h fails?
+                       # Simplest for now: map H4 to 1d, but log warning
+            # Daily/Weekly/Monthly
+            'D1': '1d',
+            'W1': '1wk',
+            'MN1': '1mo'
+        }
+        # Case-insensitive matching
+        input_tf_upper = timeframe.upper()
+
+        if input_tf_upper == 'H4':
+             logger.warning("yfinance does not directly support 4h interval. Mapping H4 to '1d'. Consider resampling 1h data if needed.")
+             return '1d' # Fallback H4 to 1d for now
+
+        # Try direct mapping first (e.g., '1h' -> '1h')
+        if timeframe in mapping.values():
+             return timeframe
+
+        # Try mapping from internal notation (e.g., 'H1' -> '1h')
+        yf_interval = mapping.get(input_tf_upper)
+
+        if not yf_interval:
+            logger.warning(f"Unsupported timeframe '{timeframe}' for Yahoo Finance. Defaulting to '1d'.")
+            return '1d' # Default to daily if mapping fails
+        
+        # Additional check for valid intraday intervals (max 60 days history)
+        # yfinance intraday intervals < 1d are limited to 60 days of history
+        # Longer intervals like 1h might be limited to 730 days.
+        # We might need to adjust start_date based on interval.
+        return yf_interval
+
+    @staticmethod
+    def _calculate_period_for_interval(interval: str, limit: int) -> str:
+         """Calculate appropriate yfinance period based on interval and limit."""
+         # Simple estimation: try to get slightly more than needed
+         days_needed = 1 # Default
+         try:
+             if 'm' in interval or 'h' in interval:
+                 minutes = 0
+                 if 'm' in interval:
+                     minutes = int(interval.replace('m', ''))
+                 elif 'h' in interval:
+                     minutes = int(interval.replace('h', '')) * 60
+                 
+                 if minutes > 0:
+                     # Estimate days needed, adding buffer
+                     days_needed = max(1, int((minutes * limit / (24 * 60)) * 1.5) + 2) # Buffer added
+                 else: # Default for 1h or invalid intraday
+                      days_needed = max(10, int(limit / 24 * 1.5) + 2) # e.g. 300/24 * 1.5 + 2 = ~21 days for 1h
+
+                 # Intraday data limits for yfinance
+                 # 1m: max 7 days
+                 # <1h: max 60 days
+                 # 1h: max 730 days
+                 if interval == '1m': days_needed = min(days_needed, 7)
+                 elif 'm' in interval: days_needed = min(days_needed, 60)
+                 elif interval == '1h': days_needed = min(days_needed, 730)
+
+             elif 'd' in interval:
+                  days_needed = int(limit * 1.5) + 5 # Need ~455 days for 300 limit
+             elif 'wk' in interval:
+                  days_needed = int(limit * 7 * 1.5) + 30
+             elif 'mo' in interval:
+                  days_needed = int(limit * 30 * 1.5) + 90
+             else: # Default case
+                  days_needed = 60
+
+         except Exception as e:
+             logger.warning(f"Error calculating days needed for interval {interval}: {e}. Defaulting to 60d.")
+             days_needed = 60
+
+         # Ensure minimum period
+         days_needed = max(days_needed, 2)
+         return str(days_needed)
+
+    @staticmethod
     async def get_market_data(symbol: str, timeframe: str = "1d", limit: int = 100) -> Optional[Tuple[pd.DataFrame, Dict]]:
         """
         Get market data for a symbol and timeframe using Yahoo Finance.
@@ -436,36 +541,32 @@ class YahooFinanceProvider:
             
             formatted_symbol = YahooFinanceProvider._format_symbol(symbol, is_crypto, is_commodity)
             
-            # Map timeframe to Yahoo Finance interval
-            interval_map = {
-                "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
-                "1h": "1h", "4h": "1h", # Fetch 1h for 4h resampling
-                "1d": "1d", "1w": "1wk", "1M": "1mo"
-            }
-            interval = interval_map.get(timeframe, "1d")
+            # Map timeframe to Yahoo Finance interval using the helper method
+            yf_interval = YahooFinanceProvider._map_timeframe_to_yfinance(timeframe)
+            logger.info(f"[Yahoo] Mapped internal timeframe '{timeframe}' to yfinance interval '{yf_interval}'")
             
             # --- Optimized Data Period Calculation ---
-            # Fetch slightly more data than limit + max indicator period (e.g., EMA200)
-            periods_needed = limit + 210 # Need ~200 for EMA200 + buffer
-            
-            # Estimate duration based on interval (simplified)
-            if interval == "1m": days_to_fetch = min(7, periods_needed / (60*24)) # Max 7 days for 1m
-            elif interval == "5m": days_to_fetch = min(60, periods_needed * 5 / (60*24)) # Max 60 days
-            elif interval == "15m": days_to_fetch = min(60, periods_needed * 15 / (60*24)) # Max 60 days
-            elif interval == "30m": days_to_fetch = min(60, periods_needed * 30 / (60*24)) # Max 60 days
-            elif interval == "1h": days_to_fetch = min(730, periods_needed / 24) # Max 730 days
-            elif interval == "1d": days_to_fetch = periods_needed * 1.5 # Add buffer for non-trading days
-            elif interval == "1wk": days_to_fetch = periods_needed * 7 * 1.2 # Add buffer
-            elif interval == "1mo": days_to_fetch = periods_needed * 31 * 1.1 # Add buffer
-            else: days_to_fetch = 365 # Default fallback
+            # Use 'period' for intraday intervals (< 1d) for better reliability
+            yf_period = None
+            start_date = None
+            end_date = datetime.now() # End date is always now
 
-            days_to_fetch = max(days_to_fetch, 2) # Ensure at least 2 days
-            
-            end_date = datetime.now()
-            # Add a small buffer (e.g., 1 day) to ensure enough data points are captured
-            start_date = end_date - timedelta(days=days_to_fetch + 1) 
-            
-            logger.info(f"[Yahoo] Requesting data for {formatted_symbol} from {start_date} to {end_date} with interval {interval} (estimated days: {days_to_fetch:.2f})")
+            if yf_interval and ('m' in yf_interval or 'h' in yf_interval):
+                yf_period = YahooFinanceProvider._calculate_period_for_interval(yf_interval, limit)
+                logger.info(f"[Yahoo] Using period='{yf_period}' for interval '{yf_interval}'")
+            elif yf_interval: # For daily or longer, use start/end date
+                approx_days_str = YahooFinanceProvider._calculate_period_for_interval(yf_interval, limit)
+                try:
+                     required_days = int(approx_days_str)
+                except ValueError:
+                     logger.warning(f"Could not parse days from {approx_days_str}, defaulting to 365")
+                     required_days = 365
+                start_date = end_date - timedelta(days=required_days)
+                logger.info(f"[Yahoo] Using start='{start_date.date()}', end='{end_date.date()}' for interval '{yf_interval}'")
+            else: # Fallback if interval mapping failed
+                 logger.error(f"[Yahoo] Invalid yfinance interval '{yf_interval}'. Cannot fetch data.")
+                 market_data_cache[market_cache_key] = None # Cache None result
+                 return None, None # Return tuple
             # --- End Optimized Data Period Calculation ---
 
             # Wait for rate limit
@@ -477,7 +578,7 @@ class YahooFinanceProvider:
                     formatted_symbol, 
                     start_date,
                     end_date,
-                    interval,
+                    yf_interval,
                     timeout=30,
                     original_symbol=symbol
                 )
@@ -499,7 +600,7 @@ class YahooFinanceProvider:
                      return None, None # Return tuple
 
                 # For 4h timeframe, resample from 1h
-                if timeframe == "4h" and interval == "1h": # Ensure we fetched 1h data
+                if timeframe == "4h" and yf_interval == "1h": # Ensure we fetched 1h data
                     logger.info(f"[Yahoo] Resampling 1h data to 4h for {symbol}")
                     try:
                         # Ensure index is datetime before resampling
@@ -538,8 +639,8 @@ class YahooFinanceProvider:
                         # Continue with 1h data (df_validated) if resampling fails
                 
                 # Ensure we have enough data *before* limiting for indicators
-                if len(df_validated) < periods_needed - limit: # Check if we have enough historical data
-                     logger.warning(f"[Yahoo] Insufficient data after cleaning/resampling for {symbol} (got {len(df_validated)}, needed ~{periods_needed}). Indicators might be inaccurate.")
+                if len(df_validated) < limit: # Check if we have enough historical data
+                     logger.warning(f"[Yahoo] Insufficient data after cleaning/resampling for {symbol} (got {len(df_validated)}, needed ~{limit}). Indicators might be inaccurate.")
                      # Potentially return None or handle differently if strict data requirement
                      # For now, proceed but log warning.
 
@@ -563,60 +664,34 @@ class YahooFinanceProvider:
                               'volume': float(last_row['Volume']) if 'Volume' in df_with_indicators.columns and pd.notna(last_row['Volume']) else 0
                          }
 
-                         min_len_ema20 = 20
-                         min_len_ema50 = 50
-                         min_len_ema200 = 200
-                         min_len_rsi = 15 # Need 14 periods + 1 for diff
-                         min_len_macd = 26 + 9 # Need 26 for slow EMA, 9 for signal line
+                         # 4. Calculate Technical Indicators using plain pandas
+                         logger.info(f"[Yahoo] Calculating indicators for {symbol} manually using pandas")
+                         try:
+                             close = df_with_indicators['Close'] # Use validated column name
 
-                         if len(df_with_indicators) >= min_len_ema20:
-                              df_with_indicators['EMA20'] = df_with_indicators['Close'].ewm(span=20, adjust=False).mean()
-                              indicators['EMA20'] = float(df_with_indicators['EMA20'].iloc[-1])
-                         
-                         if len(df_with_indicators) >= min_len_ema50:
-                              df_with_indicators['EMA50'] = df_with_indicators['Close'].ewm(span=50, adjust=False).mean()
-                              indicators['EMA50'] = float(df_with_indicators['EMA50'].iloc[-1])
-                              
-                         if len(df_with_indicators) >= min_len_ema200:
-                              df_with_indicators['EMA200'] = df_with_indicators['Close'].ewm(span=200, adjust=False).mean()
-                              indicators['EMA200'] = float(df_with_indicators['EMA200'].iloc[-1])
-                         
-                         # Calculate RSI safely
-                         if len(df_with_indicators) >= min_len_rsi:
-                              delta = df_with_indicators['Close'].diff()
-                              gain = delta.where(delta > 0, 0.0).fillna(0.0)
-                              loss = -delta.where(delta < 0, 0.0).fillna(0.0)
+                             # EMA
+                             df_with_indicators['EMA_20'] = close.ewm(span=20, adjust=False).mean()
+                             df_with_indicators['EMA_50'] = close.ewm(span=50, adjust=False).mean()
+                             df_with_indicators['EMA_200'] = close.ewm(span=200, adjust=False).mean()
 
-                              # Use simple moving average for initial values
-                              # avg_gain = gain.rolling(window=14, min_periods=14).mean()
-                              # avg_loss = loss.rolling(window=14, min_periods=14).mean()
+                             # RSI
+                             delta = close.diff()
+                             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                             rs = gain / loss
+                             df_with_indicators['RSI_14'] = 100 - (100 / (1 + rs))
 
-                              # Calculate Wilder's smoothing for subsequent values (alternative: use ewm)
-                              # Using ewm is often preferred and simpler
-                              avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
-                              avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+                             # MACD
+                             ema_12 = close.ewm(span=12, adjust=False).mean()
+                             ema_26 = close.ewm(span=26, adjust=False).mean()
+                             df_with_indicators['MACD_12_26_9'] = ema_12 - ema_26
+                             df_with_indicators['MACDs_12_26_9'] = df_with_indicators['MACD_12_26_9'].ewm(span=9, adjust=False).mean()
+                             df_with_indicators['MACDh_12_26_9'] = df_with_indicators['MACD_12_26_9'] - df_with_indicators['MACDs_12_26_9'] # Histogram
+                             logger.info(f"[Yahoo] Indicators calculated. DataFrame columns: {df_with_indicators.columns.tolist()}")
 
-                              rs = avg_gain / avg_loss.replace(0, np.nan) # Avoid division by zero, replace with NaN
-                              df_with_indicators['RSI'] = 100 - (100 / (1 + rs))
-                              # df_with_indicators['RSI'].fillna(method='bfill', inplace=True) # Backfill initial NaNs <- FIX WARNING
-                              df_with_indicators['RSI'] = df_with_indicators['RSI'].bfill() # Use direct method (FIXED WARNING)
-
-                              
-                              # Handle potential NaN in the last value if avg_loss was 0 persistently
-                              last_rsi = df_with_indicators['RSI'].iloc[-1]
-                              indicators['RSI'] = float(last_rsi) if pd.notna(last_rsi) else None
-
-                         # Calculate MACD safely
-                         if len(df_with_indicators) >= min_len_macd:
-                              df_with_indicators['EMA12'] = df_with_indicators['Close'].ewm(span=12, adjust=False).mean()
-                              df_with_indicators['EMA26'] = df_with_indicators['Close'].ewm(span=26, adjust=False).mean()
-                              df_with_indicators['MACD'] = df_with_indicators['EMA12'] - df_with_indicators['EMA26']
-                              df_with_indicators['MACD_signal'] = df_with_indicators['MACD'].ewm(span=9, adjust=False).mean()
-                              df_with_indicators['MACD_hist'] = df_with_indicators['MACD'] - df_with_indicators['MACD_signal']
-
-                              indicators['MACD'] = float(df_with_indicators['MACD'].iloc[-1])
-                              indicators['MACD_signal'] = float(df_with_indicators['MACD_signal'].iloc[-1])
-                              indicators['MACD_hist'] = float(df_with_indicators['MACD_hist'].iloc[-1])
+                         except Exception as ta_error:
+                             logger.error(f"[Yahoo] Error calculating technical indicators for {symbol}: {ta_error}", exc_info=True)
+                             # Return dataframe without indicators if calculation fails
 
                 except Exception as indicator_e:
                      logger.error(f"[Yahoo] Error calculating indicators for {symbol}: {indicator_e}")
