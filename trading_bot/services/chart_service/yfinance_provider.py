@@ -485,7 +485,7 @@ class YahooFinanceProvider:
                  # 1h: max 730 days
                  if interval == '1m': days_needed = min(days_needed, 7)
                  elif 'm' in interval: days_needed = min(days_needed, 60)
-                 elif interval == '1h': days_needed = min(days_needed, 730)
+                 elif interval == '1h': days_needed = min(days_needed, 729) # Limit to 729 days for 1h
 
              elif 'd' in interval:
                   days_needed = int(limit * 1.5) + 5 # Need ~455 days for 300 limit
@@ -502,62 +502,60 @@ class YahooFinanceProvider:
 
          # Ensure minimum period
          days_needed = max(days_needed, 2)
-         return str(days_needed)
+         # Return integer days for start/end calculation, or string period for yfinance period param
+         # Correction: Let's return the yfinance compatible period string directly
+         if 'm' in interval or 'h' in interval:
+              period_str = f"{days_needed}d"
+              logger.info(f"Calculated yfinance download period '{period_str}' for interval '{interval}' and limit {limit}")
+              return period_str
+         else: # For daily or longer, just return the number of days needed for start_date calculation
+              logger.info(f"Calculated days needed {days_needed} for interval '{interval}' and limit {limit} (for start_date)")
+              return str(days_needed) # Return as string for consistency before ValueError check
 
     @staticmethod
-    async def get_market_data(symbol: str, timeframe: str = "1d", limit: int = 100) -> Optional[Tuple[pd.DataFrame, Dict]]:
+    async def get_market_data(symbol: str, limit: int = 100) -> Optional[Tuple[pd.DataFrame, Dict]]:
         """
-        Get market data for a symbol and timeframe using Yahoo Finance.
-        Includes data fetching optimization and caching.
+        Fetches market data from Yahoo Finance for a FIXED timeframe (H1), validates it, and calculates indicators.
+        Returns a tuple: (DataFrame with indicators, analysis_info dictionary)
         """
-        # --- Caching Logic for Processed Data ---
-        market_cache_key = (symbol, timeframe, limit)
-        if market_cache_key in market_data_cache:
-            logger.info(f"[Yahoo Cache] HIT for market data: {symbol} timeframe {timeframe} limit {limit}")
-            # Return a copy to prevent modification of cached object
-            cached_result = market_data_cache[market_cache_key]
-            # Expecting a tuple (df, indicators_dict)
-            if isinstance(cached_result, tuple) and len(cached_result) == 2 and isinstance(cached_result[0], pd.DataFrame):
-                df_copy = cached_result[0].copy()
-                indicators_copy = cached_result[1].copy() if isinstance(cached_result[1], dict) else {}
-                return df_copy, indicators_copy
-            else: # Handle potential non-tuple cached items (e.g., None)
-                 # If None was cached, return (None, None)
-                 if cached_result is None:
-                     return None, None
-                 # Otherwise, log unexpected cache content
-                 logger.warning(f"[Yahoo Cache] Unexpected cached item type for {market_cache_key}: {type(cached_result)}")
-                 # Attempt to clear the invalid cache entry
-                 del market_data_cache[market_cache_key]
-                 # Fall through to re-fetch
+        # <<< FIXED TIMEFRAME >>>
+        fixed_timeframe = "H1" 
+        # <<< END FIXED TIMEFRAME >>>
 
-        logger.info(f"[Yahoo Cache] MISS for market data: {symbol} timeframe {timeframe} limit {limit}")
-        # --- End Caching Logic ---
+        cache_key = (symbol, fixed_timeframe, limit) # Use fixed_timeframe in cache key
+        if cache_key in market_data_cache:
+            logger.info(f"[Yahoo Cache] HIT for market data: {symbol} timeframe {fixed_timeframe} limit {limit}")
+            cached_df, cached_info = market_data_cache[cache_key]
+            return cached_df.copy(), cached_info.copy() # Return copies
+        logger.info(f"[Yahoo Cache] MISS for market data: {symbol} timeframe {fixed_timeframe} limit {limit}")
+
+        logger.info(f"[Yahoo] Getting market data for {symbol} on fixed {fixed_timeframe} timeframe") # Log fixed timeframe
+        df = None
+        analysis_info = {}
 
         try:
-            logger.info(f"[Yahoo] Getting market data for {symbol} on {timeframe} timeframe")
-            is_crypto = any(c in symbol for c in ["BTC", "ETH", "XRP", "SOL", "BNB", "ADA", "LTC", "DOGE", "DOT", "LINK", "XLM", "AVAX"])
-            is_commodity = any(c in symbol for c in ["XAU", "XAG", "CL", "NG", "ZC", "ZS", "ZW", "HG", "SI", "PL"]) or "OIL" in symbol
-            
-            formatted_symbol = YahooFinanceProvider._format_symbol(symbol, is_crypto, is_commodity)
-            
-            # Map timeframe to Yahoo Finance interval using the helper method
-            yf_interval = YahooFinanceProvider._map_timeframe_to_yfinance(timeframe)
-            logger.info(f"[Yahoo] Mapped internal timeframe '{timeframe}' to yfinance interval '{yf_interval}'")
-            
-            # --- Optimized Data Period Calculation ---
-            # Use 'period' for intraday intervals (< 1d) for better reliability
+            # 1. Format symbol and map timeframe
+            formatted_symbol = YahooFinanceProvider._format_symbol(symbol, is_crypto=False, is_commodity=False) # Assume not crypto/commodity unless detected
+            yf_interval = YahooFinanceProvider._map_timeframe_to_yfinance(fixed_timeframe) # Use fixed_timeframe
+
+            if not yf_interval:
+                 logger.error(f"[Yahoo] Could not map fixed timeframe '{fixed_timeframe}' to yfinance interval.")
+                 return None
+
+            # 2. Determine date range or period and download data
+            end_date = datetime.now()
             yf_period = None
             start_date = None
-            end_date = datetime.now() # End date is always now
 
-            if yf_interval and ('m' in yf_interval or 'h' in yf_interval):
+            # Use 'period' for intraday intervals (< 1d) for better reliability
+            if 'm' in yf_interval or 'h' in yf_interval:
+                # Calculate period string (e.g., '729d' for 1h to stay within limit)
                 yf_period = YahooFinanceProvider._calculate_period_for_interval(yf_interval, limit)
                 logger.info(f"[Yahoo] Using period='{yf_period}' for interval '{yf_interval}'")
             elif yf_interval: # For daily or longer, use start/end date
-                approx_days_str = YahooFinanceProvider._calculate_period_for_interval(yf_interval, limit)
+                approx_days_str = YahooFinanceProvider._calculate_period_for_interval(yf_interval, limit) # Use helper to get approx days needed
                 try:
-                     required_days = int(approx_days_str)
+                     required_days = int(approx_days_str) # Period calculation now returns days as int
                 except ValueError:
                      logger.warning(f"Could not parse days from {approx_days_str}, defaulting to 365")
                      required_days = 365
@@ -565,9 +563,8 @@ class YahooFinanceProvider:
                 logger.info(f"[Yahoo] Using start='{start_date.date()}', end='{end_date.date()}' for interval '{yf_interval}'")
             else: # Fallback if interval mapping failed
                  logger.error(f"[Yahoo] Invalid yfinance interval '{yf_interval}'. Cannot fetch data.")
-                 market_data_cache[market_cache_key] = None # Cache None result
+                 market_data_cache[cache_key] = None # Cache None result
                  return None, None # Return tuple
-            # --- End Optimized Data Period Calculation ---
 
             # Wait for rate limit
             await YahooFinanceProvider._wait_for_rate_limit()
@@ -585,7 +582,7 @@ class YahooFinanceProvider:
                 
                 if df is None or df.empty:
                     logger.warning(f"[Yahoo] No data returned for {symbol} ({formatted_symbol}) after download attempt.")
-                    market_data_cache[market_cache_key] = None # Cache None result
+                    market_data_cache[cache_key] = None # Cache None result
                     return None, None # Return tuple
                     
                 # Log success and data shape before validation
@@ -596,11 +593,11 @@ class YahooFinanceProvider:
 
                 if df_validated is None or df_validated.empty:
                      logger.warning(f"[Yahoo] Data validation failed or resulted in empty DataFrame for {symbol}")
-                     market_data_cache[market_cache_key] = None # Cache None result
+                     market_data_cache[cache_key] = None # Cache None result
                      return None, None # Return tuple
 
                 # For 4h timeframe, resample from 1h
-                if timeframe == "4h" and yf_interval == "1h": # Ensure we fetched 1h data
+                if fixed_timeframe == "4h" and yf_interval == "1h": # Ensure we fetched 1h data
                     logger.info(f"[Yahoo] Resampling 1h data to 4h for {symbol}")
                     try:
                         # Ensure index is datetime before resampling
@@ -707,7 +704,7 @@ class YahooFinanceProvider:
                 # REMOVED: result_df.indicators = indicators # Avoid UserWarning by not setting attribute (FIXED WARNING)
                 
                 # Cache the final result tuple (DataFrame, indicators_dict)
-                market_data_cache[market_cache_key] = (result_df.copy(), indicators.copy()) # Cache copies
+                market_data_cache[cache_key] = (result_df.copy(), indicators.copy()) # Cache copies
                 # Log the shape being returned
                 logger.info(f"[Yahoo] Returning market data for {symbol} with shape {result_df.shape}")
 
@@ -718,14 +715,14 @@ class YahooFinanceProvider:
                 if isinstance(download_e, KeyError) and 'Open' in str(download_e):
                      logger.error(f"[Yahoo] Likely issue with column names after download for {symbol}. Raw columns: {df.columns if 'df' in locals() and df is not None else 'N/A'}")
                 logger.error(traceback.format_exc()) # Log full traceback for download errors
-                market_data_cache[market_cache_key] = None # Cache None result on error
+                market_data_cache[cache_key] = None # Cache None result on error
                 raise download_e
                 
         except Exception as e:
             logger.error(f"[Yahoo] Unexpected error in get_market_data for {symbol}: {str(e)}")
             logger.error(traceback.format_exc()) # Log full traceback for unexpected errors
             # Ensure None is cached on unexpected error before returning
-            market_data_cache[market_cache_key] = None 
+            market_data_cache[cache_key] = None 
             return None, None # Return tuple
 
     @staticmethod
