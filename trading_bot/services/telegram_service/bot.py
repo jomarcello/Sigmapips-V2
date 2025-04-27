@@ -1039,7 +1039,7 @@ class TelegramService:
                 direction = signal_data.get('direction')
                 entry = signal_data.get('entry')
                 stop_loss = signal_data.get('stop_loss')
-                take_profit = signal_data.get('take_profit')
+                take_profit = signal_data.get('take_profit') # Default TP
                 timeframe = signal_data.get('timeframe', '1h')
                 
                 # Create normalized signal data
@@ -1048,10 +1048,21 @@ class TelegramService:
                     'direction': direction,
                     'entry': entry,
                     'stop_loss': stop_loss,
-                    'take_profit': take_profit,
+                    'take_profit': take_profit, # Store default TP
                     'timeframe': timeframe,
                     'sentiment_verdict': signal_data.get('sentiment_verdict') # Also copy verdict here
                 }
+
+                # <<< FIX: Explicitly add tp1, tp2, tp3 if they exist in the original signal data >>>
+                if 'tp1' in signal_data:
+                    normalized_data['tp1'] = signal_data['tp1']
+                elif take_profit: # Fallback to take_profit if tp1 missing but take_profit exists
+                     normalized_data['tp1'] = take_profit
+                if 'tp2' in signal_data:
+                    normalized_data['tp2'] = signal_data['tp2']
+                if 'tp3' in signal_data:
+                    normalized_data['tp3'] = signal_data['tp3']
+                # <<< END FIX >>>
             else:
                 logger.error(f"Missing required signal data")
                 return False
