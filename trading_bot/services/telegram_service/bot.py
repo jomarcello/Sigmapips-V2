@@ -1250,41 +1250,69 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
     # These need full implementation from .original file later
 
     async def menu_analyse_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
-        logger.warning("Placeholder: menu_analyse_callback called.")
+        logger.info("Handling analyse menu callback.") # Changed log level/message
         query = update.callback_query
         await query.answer()
         # Needs ANALYSIS_KEYBOARD defined
         try:
-             # Assume ANALYSIS_KEYBOARD is defined globally
-             await query.edit_message_text(
-                  text="Select analysis type:",
-                  reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
-                  parse_mode=ParseMode.HTML
-             )
-             # Return state if using ConversationHandler, otherwise None
-             return states.CHOOSE_ANALYSIS if hasattr(states, 'CHOOSE_ANALYSIS') else None
+            # Delete the previous message (which likely contains the GIF)
+            try:
+                await query.message.delete()
+            except Exception as delete_err:
+                logger.warning(f"Could not delete previous message in menu_analyse_callback: {delete_err}")
+
+            # Send a new message with the analysis options
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="📊 Select analysis type:", # Added emoji
+                reply_markup=InlineKeyboardMarkup(ANALYSIS_KEYBOARD),
+                parse_mode=ParseMode.HTML
+            )
+            # Return state if using ConversationHandler, otherwise None
+            return states.CHOOSE_ANALYSIS if hasattr(states, 'CHOOSE_ANALYSIS') else None
         except Exception as e:
-             logger.error(f"Error in placeholder menu_analyse_callback: {e}")
-             await query.message.reply_text("Error showing analysis menu.")
-             return None
+            logger.error(f"Error showing analysis menu: {e}")
+            # Send error as a new message if edit fails or wasn't possible
+            try:
+                 await context.bot.send_message(
+                      chat_id=update.effective_chat.id,
+                      text="❌ Error showing analysis menu. Please try again."
+                 )
+            except Exception as send_err:
+                 logger.error(f"Failed to send error message for analysis menu: {send_err}")
+            return None
 
     async def menu_signals_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> Optional[int]:
-        logger.warning("Placeholder: menu_signals_callback called.")
+        logger.info("Handling signals menu callback.") # Changed log level/message
         query = update.callback_query
         await query.answer()
          # Needs SIGNALS_KEYBOARD defined
         try:
-             # Assume SIGNALS_KEYBOARD is defined globally
-             await query.edit_message_text(
-                  text="Select signal action:",
-                  reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
-                  parse_mode=ParseMode.HTML
-             )
-             # Return state if using ConversationHandler, otherwise None
-             return states.CHOOSE_SIGNALS if hasattr(states, 'CHOOSE_SIGNALS') else None
+            # Delete the previous message (which likely contains the GIF)
+            try:
+                await query.message.delete()
+            except Exception as delete_err:
+                logger.warning(f"Could not delete previous message in menu_signals_callback: {delete_err}")
+
+            # Send a new message with the signal options
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="💡 Select signal action:", # Added emoji
+                reply_markup=InlineKeyboardMarkup(SIGNALS_KEYBOARD),
+                parse_mode=ParseMode.HTML
+            )
+            # Return state if using ConversationHandler, otherwise None
+            return states.CHOOSE_SIGNALS if hasattr(states, 'CHOOSE_SIGNALS') else None
         except Exception as e:
-             logger.error(f"Error in placeholder menu_signals_callback: {e}")
-             await query.message.reply_text("Error showing signals menu.")
+             logger.error(f"Error showing signals menu: {e}")
+             # Send error as a new message if edit fails or wasn't possible
+             try:
+                 await context.bot.send_message(
+                     chat_id=update.effective_chat.id,
+                     text="❌ Error showing signals menu. Please try again."
+                 )
+             except Exception as send_err:
+                 logger.error(f"Failed to send error message for signals menu: {send_err}")
              return None
 
 
