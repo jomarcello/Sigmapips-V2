@@ -3202,6 +3202,17 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
                 
                 self.logger.info(f"Successfully generated chart for {instrument}")
                 
+                # Get technical analysis text
+                # <<< ADDED LOGGING >>>
+                self.logger.info("[BOT.PY] Attempting to call chart_service.get_technical_analysis...")
+                technical_analysis = await chart_service.get_technical_analysis(instrument, timeframe)
+                # <<< ADDED LOGGING >>>
+                self.logger.info(f"[BOT.PY] chart_service.get_technical_analysis returned (type: {type(technical_analysis)}, len: {len(technical_analysis) if technical_analysis else 0})")
+                
+                # Update the caption with technical analysis
+                if technical_analysis:
+                    chart_caption = technical_analysis
+                
                 # --- Determine Keyboard ---
                 keyboard = self._get_back_keyboard(context)
                 
