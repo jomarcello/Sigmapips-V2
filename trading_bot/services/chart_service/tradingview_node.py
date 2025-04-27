@@ -315,7 +315,7 @@ class TradingViewNodeService(TradingViewService):
             await page.add_style_tag(content=HIDE_DIALOGS_CSS)
 
             # Wait briefly for the page to settle and scripts to run
-            await page.wait_for_timeout(2000) # 2 seconds
+            await page.wait_for_timeout(1000) # Reduced from 2000ms
 
             # Attempt to close common close buttons directly
             close_selectors = [
@@ -357,14 +357,14 @@ class TradingViewNodeService(TradingViewService):
                      { display: none !important; visibility: hidden !important; opacity: 0 !important; }
                     body { overflow: hidden !important; } /* Prevent scrollbars */
                 """)
-                await page.wait_for_timeout(500) # Short wait for basic CSS
+                await page.wait_for_timeout(300) # Reduced from 500ms
                 
                 # Simulate Shift+F
                 logger.info("Simulating Shift+F keyboard shortcut.")
                 await page.keyboard.press('Shift+F')
                 
                 # Wait specifically for the fullscreen transition
-                await page.wait_for_timeout(1500) # Reduced wait time after Shift+F
+                await page.wait_for_timeout(1000) # Reduced from 1500ms
 
             # Additional aggressive cleanup just before screenshot
             await page.evaluate("""
@@ -376,7 +376,7 @@ class TradingViewNodeService(TradingViewService):
                     });
                 }
             """)
-            await page.wait_for_timeout(500) # Short wait after final cleanup
+            await page.wait_for_timeout(300) # Reduced from 500ms
 
             logger.info("Taking screenshot with Playwright...")
             if fullscreen:
@@ -434,25 +434,34 @@ class TradingViewNodeService(TradingViewService):
             logger.info(f"Navigating to URL for analysis: {chart_url}")
             await page.goto(chart_url, wait_until='domcontentloaded', timeout=20000) # 20s timeout
 
+            # Allow slightly longer for page elements to render after load
+            await page.wait_for_timeout(1500) # Reduced from implicit wait/longer timeouts
+
             # Try to find the technical analysis summary element
-            # Common selectors for the summary widget or similar text areas
+            # Updated and expanded selectors for analysis text
             analysis_selectors = [
-                ".tv-symbol-financials-widget__container", # Financials sometimes has summary
-                ".tv-symbol-profile__description",        # Symbol profile description
-                "div[data-widget-name='Technical Analysis']", # Actual TA widget (might be complex to parse directly)
-                ".tv-feed-widget__description"             # Feed description if available
+                 "div[data-widget-name='Technical Analysis'] .container-zF547vzy", # Specific container within TA widget
+                 ".tv-symbol-technicals-widget__summary-text", # Summary text in dedicated widget
+                 ".tv-technicals-widget-summary-texts", # Another possible summary text container
+                 "div[data-widget-name='Symbol Overview'] .description-LCHoG88e", # Description in Overview widget
+                 ".tv-symbol-profile__description", # General symbol profile description
+                 ".tv-symbol-financials-widget__container", # Financials widget as fallback
+                 ".tv-feed-widget__description" # Feed description as last resort
             ]
 
             analysis_text = None
             for selector in analysis_selectors:
                 try:
                     element = page.locator(selector).first
-                    await element.wait_for(state="visible", timeout=3000) # 3s wait per selector
+                    # Use a shorter timeout per selector
+                    await element.wait_for(state="visible", timeout=1500) # Reduced from 3000ms
                     analysis_text = await element.inner_text()
-                    if analysis_text and len(analysis_text) > 50: # Basic check for meaningful text
+                    if analysis_text and len(analysis_text) > 30: # Reduced length check slightly
                         logger.info(f"Found analysis text using selector: {selector}")
                         # Basic Cleaning (remove excessive newlines, etc.)
                         analysis_text = '\n'.join([line.strip() for line in analysis_text.split('\n') if line.strip()])
+                        # Optional: Remove common boilerplate like "Technical Analysis for EURUSD" if needed
+                        # analysis_text = re.sub(r"^Technical Analysis for \w+\s*", "", analysis_text, flags=re.IGNORECASE).strip()
                         break # Use the first found text
                 except Exception:
                     logger.debug(f"Analysis selector not found or timed out: {selector}")
