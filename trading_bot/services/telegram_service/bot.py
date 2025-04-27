@@ -1228,18 +1228,7 @@ class TelegramService:
             # Add sentiment analysis result if available
             sentiment_verdict = signal_data.get('sentiment_verdict')
             if sentiment_verdict:
-                if "neutral" in sentiment_verdict.lower():
-                    ai_verdict_parts.append("Market sentiment is currently neutral. ")
-                elif "bullish" in sentiment_verdict.lower() and direction.upper() == "BUY":
-                    ai_verdict_parts.append("This aligns well with the currently bullish market sentiment. ")
-                elif "bearish" in sentiment_verdict.lower() and direction.upper() == "SELL":
-                    ai_verdict_parts.append("This aligns well with the currently bearish market sentiment. ")
-                elif "bullish" in sentiment_verdict.lower() and direction.upper() == "SELL":
-                    ai_verdict_parts.append("Note that this contradicts the current bullish market sentiment. ")
-                elif "bearish" in sentiment_verdict.lower() and direction.upper() == "BUY":
-                    ai_verdict_parts.append("Note that this contradicts the current bearish market sentiment. ")
-                else:
-                    ai_verdict_parts.append(sentiment_verdict + " ")
+                ai_verdict_parts.append(sentiment_verdict + " ")
 
             # Calculate and add Risk/Reward analysis
             risk_reward_text = "Manage your risk according to your trading plan."
@@ -2661,6 +2650,74 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             except Exception as recovery_error:
                 logger.error(f"Error during error recovery in back_to_signal_callback: {recovery_error}")
 
+            return MENU
+
+    async def back_to_signal_analysis_callback(self, update: Update, context=None) -> int:
+        """Handle back_to_signal_analysis button press - returns to analysis options for the signal"""
+        query = update.callback_query
+        await query.answer()
+        
+        logger.info("back_to_signal_analysis_callback called")
+        
+        try:
+            # Get or restore instrument from context
+            instrument = None
+            if context and hasattr(context, 'user_data'):
+                logger.info(f"Context at start of back_to_signal_analysis: {context.user_data}")
+                
+                # First try to get from backup values (most reliable)
+                instrument = context.user_data.get('signal_instrument_backup')
+                
+                # Fallback to current values if backup not available
+                if not instrument:
+                    instrument = context.user_data.get('signal_instrument')
+                
+                # Last resort - try the general instrument field
+                if not instrument:
+                    instrument = context.user_data.get('instrument')
+                
+                # Ensure we're still in signal flow
+                context.user_data['from_signal'] = True
+                context.user_data['is_signals_context'] = True
+                
+                logger.info(f"Selected instrument for signal analysis: {instrument}")
+            
+            # Show analysis options keyboard (SIGNAL_ANALYSIS_KEYBOARD)
+            keyboard = SIGNAL_ANALYSIS_KEYBOARD
+            
+            # Try to edit the message
+            try:
+                await query.edit_message_text(
+                    text=f"Select your analysis type for {instrument}:",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+                logger.info(f"Updated message with signal analysis options for {instrument}")
+            except Exception as e:
+                logger.error(f"Error updating message: {str(e)}")
+                # Fall back to new message
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"Select your analysis type for {instrument}:",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode=ParseMode.HTML
+                )
+            
+            return CHOOSE_ANALYSIS
+            
+        except Exception as e:
+            logger.error(f"Error in back_to_signal_analysis_callback: {str(e)}")
+            logger.exception(e)
+            
+            # Generic error handling
+            try:
+                await query.edit_message_text(
+                    text="An error occurred. Please try again from the main menu.",
+                    reply_markup=InlineKeyboardMarkup(START_KEYBOARD)
+                )
+            except Exception:
+                pass
+                
             return MENU
 
     async def analyze_from_signal_callback(self, update: Update, context=None) -> int:
