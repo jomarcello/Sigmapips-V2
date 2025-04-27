@@ -1184,7 +1184,7 @@ class TelegramService:
             # Add emoji based on direction
             direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴"
             
-            # Format the message with multiple take profits if available
+            # Format the message with the exact structure from photos
             message = f"<b>🎯 New Trading Signal 🎯</b>\n\n"
             message += f"<b>Instrument:</b> {instrument}\n"
             message += f"<b>Action:</b> {direction.upper()} {direction_emoji}\n\n"
@@ -1201,42 +1201,58 @@ class TelegramService:
             if tp3:
                 message += f"<b>Take Profit 3:</b> {tp3} 🎯\n"
             
-            message += f"\\n<b>Timeframe:</b> {timeframe}\\n"
-            message += f"<b>Strategy:</b> TradingView Signal\\n\\n"
+            # Add timeframe and strategy without labels, with proper spacing
+            message += f"\n{timeframe}\n"
+            message += f"{signal_data.get('strategy', 'TradingView Signal')}\n\n"
             
-            # Use single newline after separator
-            message += "————————————————————\\n" 
-            message += "<b>Risk Management:</b>\\n"
-            message += "• Position size: 1-2% max\\n"
-            message += "• Use proper stop loss\\n"
-            message += "• Follow your trading plan\\n\\n" 
+            # Add separator line exactly as in photos
+            message += "————————————————————\n\n"
             
-            # Use single newline after separator
-            message += "————————————————————\\n" 
+            # Risk management bullets exactly as shown in photos
+            message += "• Position size: 1-2% max\n"
+            message += "• Use proper stop loss\n"
+            message += "• Follow your trading plan\n\n"
             
-            # Use fixed AI Verdict format
-            message += "<b>🤖 SigmaPips AI Verdict:</b>\\n"
-            message += "The signal aligns with market sentiment (check emoji)"
+            # Add second separator line
+            message += "————————————————————\n\n"
             
-            # --- REMOVED OLD SENTIMENT VERDICT LOGIC ---
-            # sentiment_verdict = signal_data.get('sentiment_verdict')
-            # 
-            # if sentiment_verdict:
-            #     # Use the verdict provided by the backend
-            #     # Determine emoji based on verdict content
-            #     if "aligns" in sentiment_verdict.lower():
-            #         verdict_emoji = "✅"
-            #     elif "does not align" in sentiment_verdict.lower():
-            #         verdict_emoji = "❌"
-            #     else:
-            #         verdict_emoji = "⚠️" # Default emoji for other cases
-            #     message += f"<b>{verdict_emoji} Sentiment Verdict:</b>\\n{sentiment_verdict}"
-            # else:
-            #     # Fallback to the old hardcoded AI verdict if 'sentiment_verdict' is not provided
-            #     logger.warning("'sentiment_verdict' not found in signal_data. Using default AI verdict.")
-            #     ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
-            #     message += f"<b>🤖 SigmaPips AI Verdict:</b>\\n{ai_verdict}"
-            # --- END REMOVED OLD LOGIC ---
+            # AI Verdict section exactly as shown
+            message += "<b>🤖 SigmaPips AI Verdict:</b>\n\n"
+            
+            # Generate verdict based on signal data
+            risk_reward = "favorable"
+            if stop_loss and tp1:
+                try:
+                    entry_float = float(entry)
+                    sl_float = float(stop_loss)
+                    tp_float = float(tp1)
+                    
+                    # Calculate risk:reward
+                    risk = abs(entry_float - sl_float)
+                    reward = abs(tp_float - entry_float)
+                    
+                    if reward/risk >= 2:
+                        risk_reward = "excellent"
+                    elif reward/risk >= 1.5:
+                        risk_reward = "good"
+                    elif reward/risk >= 1:
+                        risk_reward = "reasonable"
+                    else:
+                        risk_reward = "moderate"
+                except:
+                    # Fallback if conversion fails
+                    risk_reward = "balanced"
+            
+            # Create verdict text with proper newlines and structure
+            ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. "
+            ai_verdict += f"The risk-reward ratio is {risk_reward}. "
+            
+            if tp2 or tp3:
+                ai_verdict += f"Multiple take profit levels provide opportunities for partial profit taking."
+            else:
+                ai_verdict += f"This setup aligns with current market conditions and trend direction."
+                
+            message += ai_verdict
 
             return message
             
@@ -4579,7 +4595,7 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             # Add emoji based on direction
             direction_emoji = "🟢" if direction.upper() == "BUY" else "🔴"
             
-            # Format the message with multiple take profits if available
+            # Format the message with the exact structure from photos
             message = f"<b>🎯 New Trading Signal 🎯</b>\n\n"
             message += f"<b>Instrument:</b> {instrument}\n"
             message += f"<b>Action:</b> {direction.upper()} {direction_emoji}\n\n"
@@ -4596,42 +4612,58 @@ To continue using Sigmapips AI and receive trading signals, please reactivate yo
             if tp3:
                 message += f"<b>Take Profit 3:</b> {tp3} 🎯\n"
             
-            message += f"\\n<b>Timeframe:</b> {timeframe}\\n"
-            message += f"<b>Strategy:</b> TradingView Signal\\n\\n"
+            # Add timeframe and strategy without labels, with proper spacing
+            message += f"\n{timeframe}\n"
+            message += f"{signal_data.get('strategy', 'TradingView Signal')}\n\n"
             
-            # Use single newline after separator
-            message += "————————————————————\\n" 
-            message += "<b>Risk Management:</b>\\n"
-            message += "• Position size: 1-2% max\\n"
-            message += "• Use proper stop loss\\n"
-            message += "• Follow your trading plan\\n\\n" 
+            # Add separator line exactly as in photos
+            message += "————————————————————\n\n"
             
-            # Use single newline after separator
-            message += "————————————————————\\n" 
+            # Risk management bullets exactly as shown in photos
+            message += "• Position size: 1-2% max\n"
+            message += "• Use proper stop loss\n"
+            message += "• Follow your trading plan\n\n"
             
-            # Use fixed AI Verdict format
-            message += "<b>🤖 SigmaPips AI Verdict:</b>\\n"
-            message += "The signal aligns with market sentiment (check emoji)"
+            # Add second separator line
+            message += "————————————————————\n\n"
             
-            # --- REMOVED OLD SENTIMENT VERDICT LOGIC ---
-            # sentiment_verdict = signal_data.get('sentiment_verdict')
-            # 
-            # if sentiment_verdict:
-            #     # Use the verdict provided by the backend
-            #     # Determine emoji based on verdict content
-            #     if "aligns" in sentiment_verdict.lower():
-            #         verdict_emoji = "✅"
-            #     elif "does not align" in sentiment_verdict.lower():
-            #         verdict_emoji = "❌"
-            #     else:
-            #         verdict_emoji = "⚠️" # Default emoji for other cases
-            #     message += f"<b>{verdict_emoji} Sentiment Verdict:</b>\\n{sentiment_verdict}"
-            # else:
-            #     # Fallback to the old hardcoded AI verdict if 'sentiment_verdict' is not provided
-            #     logger.warning("'sentiment_verdict' not found in signal_data. Using default AI verdict.")
-            #     ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. Multiple take profit levels provide opportunities for partial profit taking."
-            #     message += f"<b>🤖 SigmaPips AI Verdict:</b>\\n{ai_verdict}"
-            # --- END REMOVED OLD LOGIC ---
+            # AI Verdict section exactly as shown
+            message += "<b>🤖 SigmaPips AI Verdict:</b>\n\n"
+            
+            # Generate verdict based on signal data
+            risk_reward = "favorable"
+            if stop_loss and tp1:
+                try:
+                    entry_float = float(entry)
+                    sl_float = float(stop_loss)
+                    tp_float = float(tp1)
+                    
+                    # Calculate risk:reward
+                    risk = abs(entry_float - sl_float)
+                    reward = abs(tp_float - entry_float)
+                    
+                    if reward/risk >= 2:
+                        risk_reward = "excellent"
+                    elif reward/risk >= 1.5:
+                        risk_reward = "good"
+                    elif reward/risk >= 1:
+                        risk_reward = "reasonable"
+                    else:
+                        risk_reward = "moderate"
+                except:
+                    # Fallback if conversion fails
+                    risk_reward = "balanced"
+            
+            # Create verdict text with proper newlines and structure
+            ai_verdict = f"The {instrument} {direction.lower()} signal shows a promising setup with defined entry at {entry} and stop loss at {stop_loss}. "
+            ai_verdict += f"The risk-reward ratio is {risk_reward}. "
+            
+            if tp2 or tp3:
+                ai_verdict += f"Multiple take profit levels provide opportunities for partial profit taking."
+            else:
+                ai_verdict += f"This setup aligns with current market conditions and trend direction."
+                
+            message += ai_verdict
 
             return message
             
