@@ -1,668 +1,341 @@
-import os
-import json
-import asyncio
-import traceback
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta, timezone
+from aiogram import Bot, Dispatcher
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputFile, ParseMode
+from io import BytesIO
 import logging
-import copy
-import re
-import time
-import random
-import base64
-import socket
-import sys
-import tempfile
-
-from fastapi import FastAPI, Request, HTTPException, status
-from telegram import Bot, Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, InputMediaPhoto, InputMediaAnimation, InputMediaDocument, ReplyKeyboardMarkup, ReplyKeyboardRemove, InputFile
-from telegram.constants import ParseMode
-from telegram.request import HTTPXRequest
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    ConversationHandler,
-    ContextTypes,
-    CallbackContext,
-    MessageHandler,
-    filters,
-    PicklePersistence
-)
-from telegram.error import TelegramError, BadRequest
-import httpx
-import telegram.error  # Add this import for BadRequest error handling
-
-# Revert back to absolute imports
 from trading_bot.utils.config_manager import ConfigManager
-from trading_bot.services.chart_service.chart import ChartService # Corrected path
+from trading_bot.services.chart_service import ChartService
 from trading_bot.utils.instrument_manager import get_markets_for_instrument, get_instruments
 
-from trading_bot.services.database.db import Database # Keep original
-# ChartService already imported absolutely
-from trading_bot.services.sentiment_service.sentiment import MarketSentimentService
-from trading_bot.services.calendar_service.calendar import EconomicCalendarService
-from trading_bot.services.payment_service.stripe_service import StripeService
-from trading_bot.services.payment_service.stripe_config import get_subscription_features
-from trading_bot.services.telegram_service.states import (
-    MENU, ANALYSIS, SIGNALS, CHOOSE_MARKET, CHOOSE_INSTRUMENT, CHOOSE_STYLE,
-    CHOOSE_ANALYSIS, SIGNAL_DETAILS,
-    CALLBACK_MENU_ANALYSE, CALLBACK_MENU_SIGNALS, CALLBACK_ANALYSIS_TECHNICAL,
-    CALLBACK_ANALYSIS_SENTIMENT, CALLBACK_ANALYSIS_CALENDAR, CALLBACK_SIGNALS_ADD,
-    CALLBACK_SIGNALS_MANAGE, CALLBACK_BACK_MENU
-)
-# utils already imported absolutely
-import trading_bot.services.telegram_service.gif_utils as gif_utils
-from trading_bot.services.calendar_service.tradingview_calendar import TradingViewCalendarService
-from trading_bot.services.calendar_service.__init__ import debug_tradingview_api, get_all_calendar_events
-
-# Initialize logger
+# Load configuration
+config = ConfigManager()
 logger = logging.getLogger(__name__)
 
-# Major currencies to focus on
-MAJOR_CURRENCIES = ["USD", "EUR", "GBP", "JPY", "CHF", "AUD", "NZD", "CAD"]
+# Initialize ChartService
+# TODO: Make this initialization potentially async if needed
+chart_service = ChartService()
 
-# Currency to flag emoji mapping
-CURRENCY_FLAG = {
-    "USD": "🇺🇸",
-    "EUR": "🇪🇺",
-    "GBP": "🇬🇧",
-    "JPY": "🇯🇵",
-    "CHF": "🇨🇭",
-    "AUD": "🇦🇺",
-    "NZD": "🇳🇿",
-    "CAD": "🇨🇦"
-}
+# Initialize bot and dispatcher
+bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
+dp = Dispatcher(bot)
 
-# Map of instruments to their corresponding currencies
-INSTRUMENT_CURRENCY_MAP = {
-    # Special case for global view
-    "GLOBAL": MAJOR_CURRENCIES,
-    
-    # Forex
-    "EURUSD": ["EUR", "USD"],
-    "GBPUSD": ["GBP", "USD"],
-    "USDJPY": ["USD", "JPY"],
-    "USDCHF": ["USD", "CHF"],
-    "AUDUSD": ["AUD", "USD"],
-    "NZDUSD": ["NZD", "USD"],
-    "USDCAD": ["USD", "CAD"],
-    "EURGBP": ["EUR", "GBP"],
-    "EURJPY": ["EUR", "JPY"],
-    "GBPJPY": ["GBP", "JPY"],
-    
-    # Indices (mapped to their related currencies)
-    "US30": ["USD"],
-    "US100": ["USD"],
-    "US500": ["USD"],
-    "UK100": ["GBP"],
-    "GER40": ["EUR"],
-    "FRA40": ["EUR"],
-    "ESP35": ["EUR"],
-    "JP225": ["JPY"],
-    "AUS200": ["AUD"],
-    
-    # Commodities (mapped to USD primarily)
-    "XAUUSD": ["USD", "XAU"],  # Gold
-    "XAGUSD": ["USD", "XAG"],  # Silver
-    "USOIL": ["USD"],          # Oil (WTI)
-    "UKOIL": ["USD", "GBP"],   # Oil (Brent)
-    
-    # Crypto
-    "BTCUSD": ["USD", "BTC"],
-    "ETHUSD": ["USD", "ETH"],
-    "LTCUSD": ["USD", "LTC"],
-    "XRPUSD": ["USD", "XRP"]
-}
+# Function to show instrument selection
+async def show_instrument_selection(chat_id: int, message_id: int = None):
+    logger.debug(f"Showing instrument selection in chat {chat_id}")
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    instruments = get_instruments()
 
-# Callback data constants
-CALLBACK_ANALYSIS_TECHNICAL = "analysis_technical"
-CALLBACK_ANALYSIS_SENTIMENT = "analysis_sentiment"
-CALLBACK_ANALYSIS_CALENDAR = "analysis_calendar"
-CALLBACK_BACK_MENU = "back_menu"
-CALLBACK_BACK_ANALYSIS = "back_to_analysis"
-CALLBACK_BACK_MARKET = "back_market"
-CALLBACK_BACK_INSTRUMENT = "back_instrument"
-CALLBACK_BACK_SIGNALS = "back_signals"
-CALLBACK_SIGNALS_ADD = "signals_add"
-CALLBACK_SIGNALS_MANAGE = "signals_manage"
-CALLBACK_MENU_ANALYSE = "menu_analyse"
-CALLBACK_MENU_SIGNALS = "menu_signals"
-CALLBACK_SIGNAL_TECHNICAL = "signal_technical"
-CALLBACK_SIGNAL_SENTIMENT = "signal_sentiment"
-CALLBACK_SIGNAL_CALENDAR = "signal_calendar"
+    if not instruments:
+        await bot.send_message(chat_id, "No supported instruments found. Please try again later.")
+        return
 
-# States
-MENU = 0
-CHOOSE_ANALYSIS = 1
-CHOOSE_SIGNALS = 2
-CHOOSE_MARKET = 3
-CHOOSE_INSTRUMENT = 4
-CHOOSE_STYLE = 5
-SHOW_RESULT = 6
-CHOOSE_TIMEFRAME = 7
-SIGNAL_DETAILS = 8
-SIGNAL = 9
-SUBSCRIBE = 10
-BACK_TO_MENU = 11  # Add this line
-INSTRUMENT_ANALYSIS = 12  # Add this line for technical analysis flow
+    buttons = [InlineKeyboardButton(instrument.upper(), callback_data=f"select_instrument_{instrument}") for instrument in instruments]
+    keyboard.add(*buttons)
+    keyboard.add(InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main_menu"))
 
-# Messages
-WELCOME_MESSAGE = """
-🚀 <b>Sigmapips AI - Main Menu</b> 🚀
+    text = "Please select the instrument:"
+    if message_id:
+        await bot.edit_message_text(text, chat_id, message_id, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    else:
+        await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
-Choose an option to access advanced trading support:
+# Function to show market selection
+async def show_market_selection(chat_id: int, instrument: str, message_id: int = None):
+    logger.debug(f"Showing market selection for {instrument} in chat {chat_id}")
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    markets = get_markets_for_instrument(instrument)
 
-📊 Services:
-• <b>Technical Analysis</b> – Real-time chart analysis and key levels
+    if not markets:
+        await bot.send_message(chat_id, f"No supported markets found for {instrument}. Please choose another instrument.")
+        # Optionally, resend the instrument selection menu
+        await show_instrument_selection(chat_id)
+        return
 
-• <b>Market Sentiment</b> – Understand market trends and sentiment
+    buttons = [InlineKeyboardButton(market.upper(), callback_data=f"select_market_{instrument}_{market}") for market in markets]
+    keyboard.add(*buttons)
+    keyboard.add(InlineKeyboardButton("🔙 Back to Instruments", callback_data="back_to_instruments"))
 
-• <b>Economic Calendar</b> – Stay updated on market-moving events
+    text = f"Please select the market for <b>{instrument}</b>:"
+    if message_id:
+        await bot.edit_message_text(text, chat_id, message_id, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    else:
+        await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
-• <b>Trading Signals</b> – Get precise entry/exit points for your favorite pairs
-
-Select your option to continue:
-"""
-
-# Abonnementsbericht voor nieuwe gebruikers
-SUBSCRIPTION_WELCOME_MESSAGE = """
-🚀 <b>Welcome to Sigmapips AI!</b> 🚀
-
-To access all features, you need a subscription:
-
-📊 <b>Trading Signals Subscription - $29.99/month</b>
-• Access to all trading signals (Forex, Crypto, Commodities, Indices)
-• Advanced timeframe analysis (1m, 15m, 1h, 4h)
-• Detailed chart analysis for each signal
-
-Click the button below to subscribe:
-"""
-
-MENU_MESSAGE = """
-Welcome to Sigmapips AI!
-
-Choose a command:
-
-/start - Set up new trading pairs
-Add new market/instrument/timeframe combinations to receive signals
-
-/manage - Manage your preferences
-View, edit or delete your saved trading pairs
-
-Need help? Use /help to see all available commands.
-"""
-
-HELP_MESSAGE = """
-Available commands:
-/menu - Show the main menu
-/start - Set up new trading pairs
-/help - Show this help message
-"""
-
-# Start menu keyboard
-START_KEYBOARD = [
-    [InlineKeyboardButton("🔍 Analyze Market", callback_data=CALLBACK_MENU_ANALYSE)],
-    [InlineKeyboardButton("📊 Trading Signals", callback_data=CALLBACK_MENU_SIGNALS)]
-]
-
-# Analysis menu keyboard
-ANALYSIS_KEYBOARD = [
-    [InlineKeyboardButton("📈 Technical Analysis", callback_data=CALLBACK_ANALYSIS_TECHNICAL)],
-    [InlineKeyboardButton("🧠 Market Sentiment", callback_data=CALLBACK_ANALYSIS_SENTIMENT)],
-    [InlineKeyboardButton("📅 Economic Calendar", callback_data=CALLBACK_ANALYSIS_CALENDAR)],
-    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
-]
-
-# Signals menu keyboard
-SIGNALS_KEYBOARD = [
-    [InlineKeyboardButton("➕ Add New Pairs", callback_data=CALLBACK_SIGNALS_ADD)],
-    [InlineKeyboardButton("⚙️ Manage Signals", callback_data=CALLBACK_SIGNALS_MANAGE)],
-    [InlineKeyboardButton("⬅️ Back", callback_data=CALLBACK_BACK_MENU)]
-]
-
-# Market keyboard voor signals
-MARKET_KEYBOARD_SIGNALS = [
-    [InlineKeyboardButton("Forex", callback_data="market_forex_signals")],
-    [InlineKeyboardButton("Crypto", callback_data="market_crypto_signals")],
-    [InlineKeyboardButton("Commodities", callback_data="market_commodities_signals")],
-    [InlineKeyboardButton("Indices", callback_data="market_indices_signals")],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_signals")]
-]
-
-# Market keyboard voor analyse
-MARKET_KEYBOARD = [
-    [InlineKeyboardButton("Forex", callback_data="market_forex")],
-    [InlineKeyboardButton("Crypto", callback_data="market_crypto")],
-    [InlineKeyboardButton("Commodities", callback_data="market_commodities")],
-    [InlineKeyboardButton("Indices", callback_data="market_indices")],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
-]
-
-# Market keyboard specifiek voor sentiment analyse
-MARKET_SENTIMENT_KEYBOARD = [
-    [InlineKeyboardButton("Forex", callback_data="market_forex_sentiment")],
-    [InlineKeyboardButton("Crypto", callback_data="market_crypto_sentiment")],
-    [InlineKeyboardButton("Commodities", callback_data="market_commodities_sentiment")],
-    [InlineKeyboardButton("Indices", callback_data="market_indices_sentiment")],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_analysis")]
-]
-
-# Forex keyboard voor technical analyse
-FOREX_KEYBOARD = [
-    [
-        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_chart"),
-        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_chart"),
-        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_chart")
-    ],
-    [
-        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_chart"),
-        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_chart"),
-        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_chart")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Forex keyboard voor sentiment analyse
-FOREX_SENTIMENT_KEYBOARD = [
-    [
-        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_sentiment"),
-        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_sentiment"),
-        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_sentiment")
-    ],
-    [
-        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_sentiment"),
-        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_sentiment"),
-        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_sentiment")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Forex keyboard voor kalender analyse
-FOREX_CALENDAR_KEYBOARD = [
-    [
-        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_calendar"),
-        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_calendar"),
-        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_calendar")
-    ],
-    [
-        InlineKeyboardButton("AUDUSD", callback_data="instrument_AUDUSD_calendar"),
-        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_calendar"),
-        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_calendar")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Crypto keyboard voor analyse
-CRYPTO_KEYBOARD = [
-    [
-        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_chart"),
-        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_chart"),
-        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_chart")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Signal analysis keyboard
-SIGNAL_ANALYSIS_KEYBOARD = [
-    [InlineKeyboardButton("📈 Technical Analysis", callback_data="signal_technical")],
-    [InlineKeyboardButton("🧠 Market Sentiment", callback_data="signal_sentiment")],
-    [InlineKeyboardButton("📅 Economic Calendar", callback_data="signal_calendar")],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_to_signal")]
-]
-
-# Crypto keyboard voor sentiment analyse
-CRYPTO_SENTIMENT_KEYBOARD = [
-    [
-        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_sentiment"),
-        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_sentiment"),
-        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_sentiment")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Indices keyboard voor analyse
-INDICES_KEYBOARD = [
-    [
-        InlineKeyboardButton("US30", callback_data="instrument_US30_chart"),
-        InlineKeyboardButton("US500", callback_data="instrument_US500_chart"),
-        InlineKeyboardButton("US100", callback_data="instrument_US100_chart")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Indices keyboard voor signals - Fix de "Terug" knop naar "Back"
-INDICES_KEYBOARD_SIGNALS = [
-    [
-        InlineKeyboardButton("US30", callback_data="instrument_US30_signals"),
-        InlineKeyboardButton("US500", callback_data="instrument_US500_signals"),
-        InlineKeyboardButton("US100", callback_data="instrument_US100_signals")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Commodities keyboard voor analyse
-COMMODITIES_KEYBOARD = [
-    [
-        InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD_chart"),
-        InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD_chart"),
-        InlineKeyboardButton("OIL", callback_data="instrument_USOIL_chart")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Commodities keyboard voor signals - Fix de "Terug" knop naar "Back"
-COMMODITIES_KEYBOARD_SIGNALS = [
-    [
-        InlineKeyboardButton("XAUUSD", callback_data="instrument_XAUUSD_signals"),
-        InlineKeyboardButton("XAGUSD", callback_data="instrument_XAGUSD_signals"),
-        InlineKeyboardButton("USOIL", callback_data="instrument_USOIL_signals")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Forex keyboard for signals
-FOREX_KEYBOARD_SIGNALS = [
-    [
-        InlineKeyboardButton("EURUSD", callback_data="instrument_EURUSD_signals"),
-        InlineKeyboardButton("GBPUSD", callback_data="instrument_GBPUSD_signals"),
-        InlineKeyboardButton("USDJPY", callback_data="instrument_USDJPY_signals")
-    ],
-    [
-        InlineKeyboardButton("USDCAD", callback_data="instrument_USDCAD_signals"),
-        InlineKeyboardButton("EURGBP", callback_data="instrument_EURGBP_signals")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Crypto keyboard for signals
-CRYPTO_KEYBOARD_SIGNALS = [
-    [
-        InlineKeyboardButton("BTCUSD", callback_data="instrument_BTCUSD_signals"),
-        InlineKeyboardButton("ETHUSD", callback_data="instrument_ETHUSD_signals"),
-        InlineKeyboardButton("XRPUSD", callback_data="instrument_XRPUSD_signals")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Indices keyboard voor sentiment analyse
-INDICES_SENTIMENT_KEYBOARD = [
-    [
-        InlineKeyboardButton("US30", callback_data="instrument_US30_sentiment"),
-        InlineKeyboardButton("US500", callback_data="instrument_US500_sentiment"),
-        InlineKeyboardButton("US100", callback_data="instrument_US100_sentiment")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Commodities keyboard voor sentiment analyse
-COMMODITIES_SENTIMENT_KEYBOARD = [
-    [
-        InlineKeyboardButton("GOLD", callback_data="instrument_XAUUSD_sentiment"),
-        InlineKeyboardButton("SILVER", callback_data="instrument_XAGUSD_sentiment"),
-        InlineKeyboardButton("OIL", callback_data="instrument_USOIL_sentiment")
-    ],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_market")]
-]
-
-# Style keyboard
-STYLE_KEYBOARD = [
-    [InlineKeyboardButton("⚡ Test (1m)", callback_data="style_test")],
-    [InlineKeyboardButton("🏃 Scalp (15m)", callback_data="style_scalp")],
-    [InlineKeyboardButton("📊 Intraday (1h)", callback_data="style_intraday")],
-    [InlineKeyboardButton("🌊 Swing (4h)", callback_data="style_swing")],
-    [InlineKeyboardButton("⬅️ Back", callback_data="back_instrument")]
-]
-
-# Timeframe mapping
-STYLE_TIMEFRAME_MAP = {
-    "test": "1m",
-    "scalp": "15m",
-    "intraday": "1h",
-    "swing": "4h"
-}
-
-# Mapping of instruments to their allowed timeframes - updated 2023-03-23
-INSTRUMENT_TIMEFRAME_MAP = {
-    # H1 timeframe only
-    "AUDJPY": "H1", 
-    "AUDCHF": "H1",
-    "EURCAD": "H1",
-    "EURGBP": "H1",
-    "GBPCHF": "H1",
-    "HK50": "H1",
-    "NZDJPY": "H1",
-    "USDCHF": "H1",
-    "USDJPY": "H1",  # USDJPY toegevoegd voor signaalabonnementen
-    "XRPUSD": "H1",
-    
-    # H4 timeframe only
-    "AUDCAD": "H4",
-    "AU200": "H4", 
-    "CADCHF": "H4",
-    "EURCHF": "H4",
-    "EURUSD": "H4",
-    "GBPCAD": "H4",
-    "LINKUSD": "H4",
-    "NZDCHF": "H4",
-    
-    # M15 timeframe only
-    "DOGEUSD": "M15",
-    "GBPNZD": "M15",
-    "NZDUSD": "M15",
-    "SOLUSD": "M15",
-    "UK100": "M15",
-    "XAUUSD": "M15",
-    
-    # M30 timeframe only
-    "BNBUSD": "M30",
-    "DOTUSD": "M30",
-    "ETHUSD": "M30",
-    "EURAUD": "M30",
-    "EURJPY": "M30",
-    "GBPAUD": "M30",
-    "GBPUSD": "M30",
-    "NZDCAD": "M30",
-    "US30": "M30",
-    "US500": "M30",
-    "USDCAD": "M30",
-    "XLMUSD": "M30",
-    "XTIUSD": "M30",
-    "DE40": "M30",
-    "BTCUSD": "M30",  # Added for consistency with CRYPTO_KEYBOARD_SIGNALS
-    "US100": "M30",   # Added for consistency with INDICES_KEYBOARD_SIGNALS
-    "XAGUSD": "M15",  # Added for consistency with COMMODITIES_KEYBOARD_SIGNALS
-    "USOIL": "M30"    # Added for consistency with COMMODITIES_KEYBOARD_SIGNALS
-    
-    # Removed as requested: EU50, FR40, LTCUSD
-}
-
-# Map common timeframe notations
-TIMEFRAME_DISPLAY_MAP = {
-    "M15": "15 Minutes",
-    "M30": "30 Minutes", 
-    "H1": "1 Hour",
-    "H4": "4 Hours"
-}
-
-# Voeg deze functie toe aan het begin van bot.py, na de imports
-def _detect_market(instrument: str) -> str:
-    """Detecteer market type gebaseerd op instrument"""
-    instrument = instrument.upper()
-    
-    # Commodities eerst checken
-    commodities = [
-        "XAUUSD",  # Gold
-        "XAGUSD",  # Silver
-        "WTIUSD",  # Oil WTI
-        "BCOUSD",  # Oil Brent
+# Function to show actions after market selection (No Timeframe anymore)
+async def show_actions_menu(chat_id: int, instrument: str, market: str, message_id: int = None):
+    logger.debug(f"Showing actions for {instrument} ({market}) in chat {chat_id} - Timeframe is fixed H1")
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    # Removed timeframe button
+    buttons = [
+        InlineKeyboardButton("📈 Analyze Market (H1)", callback_data=f"analyze_{instrument}_{market}"),
+        InlineKeyboardButton("📰 Latest News", callback_data=f"news_{instrument}_{market}"),
+        InlineKeyboardButton("💡 Trading Idea", callback_data=f"idea_{instrument}"),
+        # InlineKeyboardButton("🔔 Set Alert", callback_data=f"alert_{instrument}_{market}") # Alert functionality placeholder
     ]
-    if instrument in commodities:
-        logger.info(f"Detected {instrument} as commodity")
-        return "commodities"
-    
-    # Crypto pairs
-    crypto_base = ["BTC", "ETH", "XRP", "SOL", "BNB", "ADA", "DOT", "LINK"]
-    if any(c in instrument for c in crypto_base):
-        logger.info(f"Detected {instrument} as crypto")
-        return "crypto"
-    
-    # Major indices
-    indices = [
-        "US30", "US500", "US100",  # US indices
-        "UK100", "DE40", "FR40",   # European indices
-        "JP225", "AU200", "HK50"   # Asian indices
-    ]
-    if instrument in indices:
-        logger.info(f"Detected {instrument} as index")
-        return "indices"
-    
-    # Forex pairs als default
-    logger.info(f"Detected {instrument} as forex")
-    return "forex"
+    keyboard.add(*buttons)
+    # Back button now goes to market selection for this instrument
+    keyboard.add(InlineKeyboardButton(f"🔙 Back to Markets ({instrument})", callback_data=f"back_to_markets_{instrument}"))
 
-# Voeg dit toe als decorator functie bovenaan het bestand na de imports
-def require_subscription(func):
-    """Check if user has an active subscription"""
-    async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        user_id = update.effective_user.id
-        
-        # Check subscription status
-        is_subscribed = await self.db.is_user_subscribed(user_id)
-        
-        # Check if payment has failed
-        payment_failed = await self.db.has_payment_failed(user_id)
-        
-        if is_subscribed and not payment_failed:
-            # User has subscription, proceed with function
-            return await func(self, update, context, *args, **kwargs)
+    text = f"""Selected: <b>{instrument}</b> on <b>{market.upper()}</b> market.
+Timeframe is fixed to <b>H1</b>.
+
+What would you like to do?"""
+
+    if message_id:
+        await bot.edit_message_text(text, chat_id, message_id, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    else:
+        await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+
+
+# --- Callback Query Handlers ---
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('select_instrument_'))
+async def handle_instrument_selection(callback_query: CallbackQuery):
+    instrument = callback_query.data.split('_')[2]
+    chat_id = callback_query.message.chat.id
+    message_id = callback_query.message.message_id
+    logger.info(f"User {chat_id} selected instrument: {instrument}")
+    await bot.answer_callback_query(callback_query.id)
+    # Directly show market selection, skipping timeframe
+    await show_market_selection(chat_id, instrument, message_id)
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('select_market_'))
+async def handle_market_selection(callback_query: CallbackQuery):
+    parts = callback_query.data.split('_')
+    instrument = parts[2]
+    market = parts[3]
+    chat_id = callback_query.message.chat.id
+    message_id = callback_query.message.message_id
+    logger.info(f"User {chat_id} selected market: {market} for instrument: {instrument}")
+    await bot.answer_callback_query(callback_query.id)
+    # Show actions directly, no timeframe selection needed
+    await show_actions_menu(chat_id, instrument, market, message_id)
+
+# Timeframe selection is removed
+# @dp.callback_query_handler(lambda c: c.data and c.data.startswith('select_timeframe_'))
+# async def handle_timeframe_selection(callback_query: CallbackQuery):
+#    parts = callback_query.data.split('_')
+#    instrument = parts[2]
+#    market = parts[3]
+#    timeframe = parts[4]
+#    chat_id = callback_query.message.chat.id
+#    message_id = callback_query.message.message_id
+#    logger.info(f"User {chat_id} selected timeframe: {timeframe} for {instrument} ({market})")
+#    await bot.answer_callback_query(callback_query.id)
+#    # Now show the final actions menu
+#    await show_actions_menu(chat_id, instrument, market, timeframe, message_id)
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('analyze_'))
+async def handle_analyze_market(callback_query: CallbackQuery):
+    parts = callback_query.data.split('_')
+    instrument = parts[1]
+    market = parts[2]
+    # Timeframe is removed, always H1
+    chat_id = callback_query.message.chat.id
+    message_id = callback_query.message.message_id
+    logger.info(f"User {chat_id} requested analysis for {instrument} ({market}) - Fixed Timeframe: H1")
+    await bot.answer_callback_query(callback_query.id, text=f"📊 Analyzing {instrument} (H1)...")
+
+    # Delete the previous message (menu)
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except Exception as e:
+        logger.warning(f"Could not delete previous message {message_id} in chat {chat_id}: {e}")
+
+    # Send placeholder message
+    placeholder_message = await bot.send_message(chat_id, f"⏳ Generating H1 analysis for {instrument}...", parse_mode=ParseMode.HTML)
+
+    try:
+        # 1. Get Technical Analysis (no timeframe needed)
+        analysis_text = await chart_service.get_technical_analysis(instrument)
+
+        # 2. Get Chart (no timeframe needed)
+        chart_image = await chart_service.get_chart(instrument)
+
+        # Prepare back button specific to the MENU flow
+        keyboard_menu_flow = InlineKeyboardMarkup().add(
+            InlineKeyboardButton("🔙 Back to Actions", callback_data=f"back_to_actions_{instrument}_{market}")
+        )
+
+        if chart_image:
+            caption = analysis_text
+            # Send chart with analysis as caption
+            await bot.send_photo(
+                chat_id,
+                photo=InputFile(BytesIO(chart_image), filename=f'{instrument}_H1_chart.png'),
+                caption=caption,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard_menu_flow # Back button for menu flow
+            )
+            logger.info(f"Sent chart and analysis for {instrument} (H1) to chat {chat_id}")
         else:
-            if payment_failed:
-                # Show payment failure message
-                failed_payment_text = f"""
-❗ <b>Subscription Payment Failed</b> ❗
+            # Send only analysis text if chart failed
+            await bot.send_message(
+                chat_id,
+                analysis_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard_menu_flow # Back button for menu flow
+            )
+            logger.warning(f"Sent only analysis for {instrument} (H1) to chat {chat_id} as chart generation failed.")
 
-Your subscription payment could not be processed and your service has been deactivated.
+        # Delete the placeholder message
+        await bot.delete_message(chat_id, placeholder_message.message_id)
 
-To continue using Sigmapips AI and receive trading signals, please reactivate your subscription by clicking the button below.
-                """
-                
-                # Use direct URL link for reactivation
-                reactivation_url = "https://buy.stripe.com/9AQcPf3j63HL5JS145"
-                
-                # Create button for reactivation
-                keyboard = [
-                    [InlineKeyboardButton("🔄 Reactivate Subscription", url=reactivation_url)]
-                ]
-            else:
-                # Show subscription screen with the welcome message from the screenshot
-                failed_payment_text = f"""
-🚀 <b>Welcome to Sigmapips AI!</b> 🚀
+    except Exception as e:
+        logger.error(f"Error during analysis for {instrument} (H1): {e}", exc_info=True)
+        await bot.edit_message_text(f"❌ Error generating analysis for {instrument} (H1). Please try again later.", chat_id, placeholder_message.message_id)
+        # Also add a back button here in case of error
+        keyboard_error = InlineKeyboardMarkup().add(
+            InlineKeyboardButton("🔙 Back to Actions", callback_data=f"back_to_actions_{instrument}_{market}")
+        )
+        await bot.edit_message_reply_markup(chat_id, placeholder_message.message_id, reply_markup=keyboard_error)
 
-<b>Discover powerful trading signals for various markets:</b>
-• <b>Forex</b> - Major and minor currency pairs
-• <b>Crypto</b> - Bitcoin, Ethereum and other top cryptocurrencies
-• <b>Indices</b> - Global market indices
-• <b>Commodities</b> - Gold, silver and oil
 
-<b>Features:</b>
-✅ Real-time trading signals
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('signal_analyze_'))
+async def handle_analyze_market_from_signal(callback_query: CallbackQuery):
+    """Handles the 'Analyze Market' button press coming directly from a signal alert."""
+    parts = callback_query.data.split('_')
+    instrument = parts[2]
+    # Market and timeframe are determined by the signal context (market might not be needed if instrument is unique like EURUSD, timeframe fixed H1)
+    chat_id = callback_query.message.chat.id
+    message_id = callback_query.message.message_id
+    logger.info(f"[Signal Flow] User {chat_id} requested analysis for signal instrument: {instrument} - Fixed Timeframe: H1")
 
-✅ Multi-timeframe analysis (1m, 15m, 1h, 4h)
+    # Answer callback quickly
+    await bot.answer_callback_query(callback_query.id, text=f"📊 Analyzing {instrument} (H1) from signal...")
 
-✅ Advanced chart analysis
+    # Edit the original signal message to show loading state
+    try:
+        original_message_text = callback_query.message.text or callback_query.message.caption
+        await bot.edit_message_text(f"{original_message_text}\n\n⏳ _Generating H1 analysis..._",
+                                    chat_id, message_id, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        logger.warning(f"[Signal Flow] Could not edit original signal message {message_id} in chat {chat_id}: {e}")
+        # If editing fails, send a new placeholder message
+        placeholder_message = await bot.send_message(chat_id, f"⏳ Generating H1 analysis for {instrument}...", parse_mode=ParseMode.HTML)
+        message_id_to_delete = placeholder_message.message_id # Need to delete this new message later
+    else:
+        message_id_to_delete = None # Will edit the original message further
 
-✅ Sentiment indicators
+    try:
+        # 1. Get Technical Analysis (no timeframe needed)
+        # Instrument might need normalization depending on the signal source format
+        normalized_instrument = instrument.upper().replace("/", "") # Basic normalization
+        analysis_text = await chart_service.get_technical_analysis(normalized_instrument)
 
-✅ Economic calendar integration
+        # 2. Get Chart (no timeframe needed)
+        chart_image = await chart_service.get_chart(normalized_instrument)
 
-<b>Start today with a FREE 14-day trial!</b>
-                """
-                
-                # Use direct URL link instead of callback for the trial button
-                reactivation_url = "https://buy.stripe.com/3cs3eF9Hu9256NW9AA"
-                
-                # Create button for trial
-                keyboard = [
-                    [InlineKeyboardButton("🔥 Start 14-day FREE Trial", url=reactivation_url)]
-                ]
-            
-            # Handle both message and callback query updates
-            if update.callback_query:
-                await update.callback_query.answer()
-                await update.callback_query.edit_message_text(
-                    text=failed_payment_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                await update.message.reply_text(
-                    text=failed_payment_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode=ParseMode.HTML
-                )
-            return MENU
-    
-    return wrapper
+        # IMPORTANT: NO back button for the signal flow analysis result
+        # The user is not in the menu flow here.
+        keyboard_signal_flow = None # No keyboard markup
 
-# API keys with robust sanitization
-PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "").strip()
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "72df8ae1c5dd4d95b6a54c09bcf1b39e").strip()
+        if chart_image:
+            caption = analysis_text
+            # Send a NEW message with the chart and analysis
+            # We don't edit the original signal message with the image, send as new.
+            await bot.send_photo(
+                chat_id,
+                photo=InputFile(BytesIO(chart_image), filename=f'{normalized_instrument}_H1_chart.png'),
+                caption=caption,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard_signal_flow # No back button for signal flow
+            )
+            logger.info(f"[Signal Flow] Sent chart and analysis for {normalized_instrument} (H1) to chat {chat_id}")
+        else:
+            # Send analysis text as a NEW message if chart failed
+            await bot.send_message(
+                chat_id,
+                analysis_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard_signal_flow # No back button for signal flow
+            )
+            logger.warning(f"[Signal Flow] Sent only analysis for {normalized_instrument} (H1) to chat {chat_id} as chart generation failed.")
 
-# Ensure the Tavily API key is properly formatted with 'tvly-' prefix and sanitized
-raw_tavily_key = os.getenv("TAVILY_API_KEY", "KbIKVL3UfDfnxRx3Ruw6XhL3OB9qSF9l").strip()
-TAVILY_API_KEY = raw_tavily_key.replace('\n', '').replace('\r', '')  # Remove any newlines/carriage returns
+        # Clean up placeholder/loading state
+        if message_id_to_delete:
+            await bot.delete_message(chat_id, message_id_to_delete)
+        else:
+            # Edit the original message back (remove loading state, keep original text/buttons)
+            # Or maybe just delete the loading part? Or leave it?
+            # Let's try removing the loading text added earlier.
+             await bot.edit_message_text(original_message_text, chat_id, message_id, reply_markup=callback_query.message.reply_markup) # Restore original markup
 
-# If the key doesn't start with "tvly-", add the prefix
-if TAVILY_API_KEY and not TAVILY_API_KEY.startswith("tvly-"):
-    TAVILY_API_KEY = f"tvly-{TAVILY_API_KEY}"
-    logger.info("Added 'tvly-' prefix to Tavily API key")
-    
-# Log API key (partially masked)
-if TAVILY_API_KEY:
-    masked_key = f"{TAVILY_API_KEY[:7]}...{TAVILY_API_KEY[-4:]}" if len(TAVILY_API_KEY) > 11 else f"{TAVILY_API_KEY[:4]}..."
-    logger.info(f"Using Tavily API key: {masked_key}")
-else:
-    logger.warning("No Tavily API key configured")
-    
-# Set environment variables for the API keys with sanitization
-os.environ["PERPLEXITY_API_KEY"] = PERPLEXITY_API_KEY
-os.environ["DEEPSEEK_API_KEY"] = DEEPSEEK_API_KEY
-os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
+    except Exception as e:
+        logger.error(f"[Signal Flow] Error during analysis for {normalized_instrument} (H1): {e}", exc_info=True)
+        error_text = f"❌ Error generating H1 analysis for {normalized_instrument} from signal."
+        if message_id_to_delete:
+             await bot.edit_message_text(error_text, chat_id, message_id_to_delete)
+        else:
+             # Edit original message to show error, keep original markup
+             await bot.edit_message_text(f"{original_message_text}\n\n{error_text}",
+                                     chat_id, message_id, reply_markup=callback_query.message.reply_markup)
+        # Alternatively, send a new error message:
+        # await bot.send_message(chat_id, error_text)
 
-class TelegramService:
-    def __init__(self, db: Database, stripe_service=None, bot_token: Optional[str] = None, proxy_url: Optional[str] = None, lazy_init: bool = False):
-        """Initialize the Telegram service"""
-        self.db = db
-        self.stripe_service = stripe_service
-        self.signals_enabled_flag = False
-        self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
-        self.proxy_url = proxy_url
-        self._chart_service = None
-        self._sentiment_service = None
-        self._calendar_service = None
-        
-        # Only initialize services if not lazy_init
-        if not lazy_init:
-            self._initialize_services()
-    
-    def _initialize_services(self):
-        """Initialize required services"""
-        logger.info("Initializing Telegram Bot Services")
-        # Initialize the chart service
-        if not self._chart_service:
-            self._chart_service = ChartService()
-        
-        # Initialize other services as needed
-        
-    async def run(self):
-        """Run the Telegram bot"""
-        logger.info("Starting Telegram Bot")
-        # Implement bot run logic here
-        
-    async def initialize_services(self):
-        """Initialize services asynchronously"""
-        logger.info("Initializing services asynchronously")
-        # Implement async initialization here
 
-    # Add more methods as needed from the original implementation
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('news_'))
+# ... existing code ...
+
+@dp.callback_query_handler(lambda c: c.data == 'back_to_instruments')
+async def handle_back_to_instruments(callback_query: CallbackQuery):
+    chat_id = callback_query.message.chat.id
+    message_id = callback_query.message.message_id
+    logger.debug(f"User {chat_id} going back to instrument selection")
+    await bot.answer_callback_query(callback_query.id)
+    await show_instrument_selection(chat_id, message_id)
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('back_to_markets_'))
+async def handle_back_to_markets(callback_query: CallbackQuery):
+    instrument = callback_query.data.split('_')[3]
+    chat_id = callback_query.message.chat.id
+    message_id = callback_query.message.message_id
+    logger.debug(f"User {chat_id} going back to market selection for {instrument}")
+    await bot.answer_callback_query(callback_query.id)
+    await show_market_selection(chat_id, instrument, message_id)
+
+# Removed back_to_timeframes handler
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('back_to_actions_'))
+async def handle_back_to_actions(callback_query: CallbackQuery):
+    parts = callback_query.data.split('_')
+    instrument = parts[3]
+    market = parts[4]
+    # Timeframe is removed
+    chat_id = callback_query.message.chat.id
+    message_id = callback_query.message.message_id
+    logger.debug(f"User {chat_id} going back to actions for {instrument} ({market})")
+    await bot.answer_callback_query(callback_query.id)
+    # Delete the analysis/chart message before showing the menu again
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except Exception as e:
+        logger.warning(f"Could not delete analysis message {message_id} in chat {chat_id} when going back: {e}")
+    # Show the actions menu again (no timeframe needed)
+    await show_actions_menu(chat_id, instrument, market) # Send as new message
+
+# --- Signal Handling --- (Example of how a signal might trigger analysis)
+async def send_signal_alert(chat_id: int, instrument: str, signal_type: str, price: float, source: str):
+    """Sends a signal alert message with an 'Analyze Market' button."""
+    logger.info(f"Sending signal alert for {instrument} ({signal_type} at {price}) from {source} to chat {chat_id}")
+    # Timeframe is implicitly H1 now
+    text = (
+        f"🚨 **Signal Alert** 🚨\n\n"
+        f"**Instrument:** {instrument}\n"
+        f"**Type:** {signal_type}\n"
+        f"**Price:** {price}\n"
+        f"**Timeframe:** H1 (Fixed)\n"
+        f"**Source:** {source}\n\n"
+        f"Click below to analyze the H1 chart and technicals."
+    )
+    # Button specifically for the signal flow
+    keyboard = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("📊 Analyze Market (H1)", callback_data=f"signal_analyze_{instrument}")
+    )
+    try:
+        await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
+        logger.info(f"Successfully sent signal alert for {instrument} to {chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to send signal alert to {chat_id} for {instrument}: {e}")
+
+# --- Main Execution ---
+# ... existing code ... 
